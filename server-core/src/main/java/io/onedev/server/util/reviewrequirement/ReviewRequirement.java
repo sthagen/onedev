@@ -52,7 +52,7 @@ public class ReviewRequirement {
 				@Override
 				public void syntaxError(Recognizer<?, ?> recognizer, Object offendingSymbol, int line,
 						int charPositionInLine, String msg, RecognitionException e) {
-					throw new OneException("Malformed review requirement");
+					throw new RuntimeException("Malformed review requirement");
 				}
 				
 			});
@@ -60,9 +60,10 @@ public class ReviewRequirement {
 			ReviewRequirementParser parser = new ReviewRequirementParser(tokens);
 			parser.removeErrorListeners();
 			parser.setErrorHandler(new BailErrorStrategy());
-			RequirementContext requirement = parser.requirement();
 			
-			for (CriteriaContext criteria: requirement.criteria()) {
+			RequirementContext requirementContext = parser.requirement();
+			
+			for (CriteriaContext criteria: requirementContext.criteria()) {
 				if (criteria.userCriteria() != null) {
 					String userName = getValue(criteria.userCriteria().Value());
 					User user = OneDev.getInstance(UserManager.class).findByName(userName);

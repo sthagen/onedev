@@ -16,8 +16,6 @@ import org.antlr.v4.runtime.Recognizer;
 import org.antlr.v4.runtime.tree.TerminalNode;
 import org.apache.commons.lang.math.NumberUtils;
 import org.eclipse.jgit.lib.ObjectId;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import io.onedev.commons.codeassist.FenceAware;
 import io.onedev.commons.utils.StringUtils;
@@ -34,8 +32,6 @@ public class CommitQuery implements Serializable {
 	
 	private static final long serialVersionUID = 1L;
 
-	private static final Logger logger = LoggerFactory.getLogger(CommitQuery.class);
-	
 	private final List<CommitCriteria> criterias;
 	
 	public CommitQuery(List<CommitCriteria> criterias) {
@@ -53,12 +49,7 @@ public class CommitQuery implements Serializable {
 				@Override
 				public void syntaxError(Recognizer<?, ?> recognizer, Object offendingSymbol, int line,
 						int charPositionInLine, String msg, RecognitionException e) {
-					if (e != null) {
-						logger.error("Error lexing commit query", e);
-					} else if (msg != null) {
-						logger.error("Error lexing commit query: " + msg);
-					}
-					throw new RuntimeException("Malformed commit query");
+					throw new RuntimeException("Malformed commit query", e);
 				}
 				
 			});
