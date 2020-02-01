@@ -36,12 +36,14 @@ import io.onedev.server.entitymanager.CodeCommentManager;
 import io.onedev.server.entitymanager.IssueCommentManager;
 import io.onedev.server.entitymanager.IssueManager;
 import io.onedev.server.entitymanager.PullRequestManager;
+import io.onedev.server.entitymanager.UserManager;
 import io.onedev.server.model.CodeComment;
 import io.onedev.server.model.Issue;
 import io.onedev.server.model.IssueChange;
 import io.onedev.server.model.IssueComment;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.PullRequest;
+import io.onedev.server.model.User;
 import io.onedev.server.model.support.issue.changedata.IssueCommittedData;
 import io.onedev.server.model.support.issue.changedata.IssuePullRequestData;
 import io.onedev.server.model.support.issue.changedata.IssueReferencedFromCodeCommentData;
@@ -169,10 +171,12 @@ public abstract class IssueActivitiesPanel extends Panel {
 		if (anchor != null)
 			row.setMarkupId(anchor);
 		
-		if (activity.getUser() != null)
+		if (activity.getUser() != null) {
 			row.add(new UserIdentPanel("avatar", activity.getUser(), Mode.AVATAR));
-		else
+			row.add(AttributeAppender.append("class", "with-avatar"));
+		} else {
 			row.add(new WebMarkupContainer("avatar").setVisible(false));
+		}
 
 		row.add(activity.render("content", new DeleteCallback() {
 
@@ -250,6 +254,11 @@ public abstract class IssueActivitiesPanel extends Panel {
 				}
 				
 				@Override
+				protected List<User> getMentionables() {
+					return OneDev.getInstance(UserManager.class).queryAndSort(getIssue().getParticipants());
+				}
+				
+				@Override
 				protected List<AttributeModifier> getInputModifiers() {
 					return Lists.newArrayList(AttributeModifier.replace("placeholder", "Leave a comment"));
 				}
@@ -273,8 +282,8 @@ public abstract class IssueActivitiesPanel extends Panel {
 					comment.setIssue(getIssue());
 					OneDev.getInstance(IssueCommentManager.class).save(comment);
 					
-					input.setModelObject("");
-
+					input.clearMarkdown();
+					
 					@SuppressWarnings("deprecation")
 					Component lastActivityRow = activitiesView.get(activitiesView.size()-1);
 					Component newActivityRow = newActivityRow(activitiesView.newChildId(), new IssueCommentedActivity(comment)); 

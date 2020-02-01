@@ -50,7 +50,6 @@ import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.Lists;
 
-import io.onedev.commons.utils.HtmlUtils;
 import io.onedev.commons.utils.StringUtils;
 import io.onedev.server.OneDev;
 import io.onedev.server.OneException;
@@ -107,7 +106,7 @@ public abstract class CommitListPanel extends Panel {
 			} catch (Exception e) {
 				logger.debug("Error parsing commit query: " + query, e);
 				if (e.getMessage() != null)
-					error(HtmlUtils.formatAsHtml(e.getMessage()));
+					error(e.getMessage());
 				else
 					error("Malformed commit query");
 			}
@@ -156,7 +155,7 @@ public abstract class CommitListPanel extends Panel {
 					commitHashes = command.call();
 				} catch (Exception e) {
 					if (e.getMessage() != null)
-						error(HtmlUtils.formatAsHtml(e.getMessage()));
+						error(e.getMessage());
 					else
 						error("Error calculating commits: check log for details");
 					commitHashes = new ArrayList<>();
@@ -593,7 +592,7 @@ public abstract class CommitListPanel extends Panel {
 			item.add(new WebMarkupContainer("copyHash").add(new CopyClipboardBehavior(Model.of(commit.name()))));
 			
 			getCommitIdsToQueryStatus().add(commit.copy());
-			item.add(new CommitStatusPanel("buildStatus", commit.copy()) {
+			CommitStatusPanel commitStatus = new CommitStatusPanel("buildStatus", commit.copy()) {
 
 				@Override
 				protected String getCssClasses() {
@@ -605,9 +604,21 @@ public abstract class CommitListPanel extends Panel {
 					return CommitListPanel.this.getProject();
 				}
 				
-			});
+			};
+			item.add(commitStatus);
 
-			item.add(AttributeAppender.append("class", "commit clearfix"));
+			item.add(AttributeAppender.append("class", new LoadableDetachableModel<String>() {
+
+				@Override
+				protected String load() {
+					commitStatus.configure();
+					if (commitStatus.isVisible())
+						return "commit with-status";
+					else
+						return "commit";
+				}
+				
+			}));
 		} else {
 			item = new Fragment(itemId, "dateFrag", this);
 			DateTime dateTime = new DateTime(current.get(index+1).getCommitterIdent().getWhen());

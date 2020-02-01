@@ -34,13 +34,16 @@ import io.onedev.commons.utils.StringUtils;
 import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.IssueChangeManager;
 import io.onedev.server.entitymanager.SettingManager;
+import io.onedev.server.entitymanager.UserManager;
 import io.onedev.server.issue.TransitionSpec;
 import io.onedev.server.issue.fieldspec.ChoiceField;
 import io.onedev.server.issue.fieldspec.DateField;
 import io.onedev.server.issue.fieldspec.FieldSpec;
+import io.onedev.server.issue.fieldspec.UserChoiceField;
 import io.onedev.server.issue.transitiontrigger.PressButtonTrigger;
 import io.onedev.server.model.Issue;
 import io.onedev.server.model.Project;
+import io.onedev.server.model.User;
 import io.onedev.server.model.support.administration.GlobalIssueSetting;
 import io.onedev.server.search.entity.issue.IssueQuery;
 import io.onedev.server.search.entity.issue.IssueQueryLexer;
@@ -140,6 +143,11 @@ public abstract class IssueOperationsPanel extends Panel {
 								return Lists.newArrayList(AttributeModifier.replace("placeholder", "Leave a comment"));
 							}
 							
+							@Override
+							protected List<User> getMentionables() {
+								return OneDev.getInstance(UserManager.class).queryAndSort(getIssue().getParticipants());
+							}
+							
 						});
 
 						form.add(new AjaxButton("save") {
@@ -195,6 +203,12 @@ public abstract class IssueOperationsPanel extends Panel {
 				} else { 
 					FieldSpec field = issueSetting.getFieldSpec(entry.getKey());
 					if (field instanceof ChoiceField && ((ChoiceField)field).isAllowMultiple()) {
+						for (String string: strings) {
+							criterias.add(Criteria.quote(entry.getKey()) + " " 
+									+ IssueQuery.getRuleName(IssueQueryLexer.Contains) + " " 
+									+ Criteria.quote(string));
+						}
+					} else if (field instanceof UserChoiceField && ((UserChoiceField)field).isAllowMultiple()) {
 						for (String string: strings) {
 							criterias.add(Criteria.quote(entry.getKey()) + " " 
 									+ IssueQuery.getRuleName(IssueQueryLexer.Contains) + " " 

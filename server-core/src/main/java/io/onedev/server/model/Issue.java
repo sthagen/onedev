@@ -8,6 +8,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -39,7 +40,9 @@ import com.google.common.collect.Sets;
 
 import edu.emory.mathcs.backport.java.util.Collections;
 import io.onedev.server.OneDev;
+import io.onedev.server.entitymanager.GroupManager;
 import io.onedev.server.entitymanager.SettingManager;
+import io.onedev.server.entitymanager.UserManager;
 import io.onedev.server.infomanager.CommitInfoManager;
 import io.onedev.server.infomanager.UserInfoManager;
 import io.onedev.server.issue.fieldspec.FieldSpec;
@@ -51,6 +54,7 @@ import io.onedev.server.util.ProjectScopedNumber;
 import io.onedev.server.util.Referenceable;
 import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.util.facade.IssueFacade;
+import io.onedev.server.util.inputspec.InputSpec;
 import io.onedev.server.util.jackson.DefaultView;
 import io.onedev.server.web.editable.BeanDescriptor;
 import io.onedev.server.web.editable.PropertyDescriptor;
@@ -133,6 +137,8 @@ public class Issue extends AbstractEntity implements Referenceable, AttachmentSt
 	private transient List<RevCommit> commits;
 	
 	private transient Map<String, Input> fieldInputs;
+	
+	private transient Collection<User> participants;
 	
 	public String getState() {
 		return state;
@@ -325,20 +331,26 @@ public class Issue extends AbstractEntity implements Referenceable, AttachmentSt
 				String fieldName = fieldSpec.getName();
 				List<IssueField> fields = fieldMap.get(fieldName);
 				if (fields != null) {
+					Collections.sort(fields, new Comparator<IssueField>() {
+
+						@Override
+						public int compare(IssueField o1, IssueField o2) {
+							long result = o1.getOrdinal() - o2.getOrdinal();
+							if (result > 0)
+								return 1;
+							else if (result < 0)
+								return -1;
+							else
+								return 0;
+						}
+						
+					});
 					String type = fields.iterator().next().getType();
 					List<String> values = new ArrayList<>();
 					for (IssueField field: fields) {
 						if (field.getValue() != null)
 							values.add(field.getValue());
 					}
-					Collections.sort(values, new Comparator<String>() {
-	
-						@Override
-						public int compare(String o1, String o2) {
-							return (int) (fieldSpec.getOrdinal(o1) - fieldSpec.getOrdinal(o2));
-						}
-						
-					});
 					if (!fieldSpec.isAllowMultiple() && values.size() > 1) 
 						values = Lists.newArrayList(values.iterator().next());
 					fieldInputs.put(fieldName, new Input(fieldName, type, values));
@@ -371,7 +383,7 @@ public class Issue extends AbstractEntity implements Referenceable, AttachmentSt
 		return OneDev.getInstance(SettingManager.class).getIssueSetting();
 	}
 	
-	public long getFieldOrdinal(String fieldName, Object fieldValue) {
+	public long getFieldOrdinal(String fieldName, String fieldValue) {
 		GlobalIssueSetting issueSetting = OneDev.getInstance(SettingManager.class).getIssueSetting();
 		FieldSpec fieldSpec = issueSetting.getFieldSpec(fieldName);
 		if (fieldSpec != null) 
@@ -418,15 +430,13 @@ public class Issue extends AbstractEntity implements Referenceable, AttachmentSt
 		
 		FieldSpec fieldSpec = getIssueSetting().getFieldSpec(fieldName);
 		if (fieldSpec != null) {
-			long ordinal = getFieldOrdinal(fieldName, fieldValue);
-
 			List<String> strings = fieldSpec.convertToStrings(fieldValue);
 			if (!strings.isEmpty()) {
 				for (String string: strings) {
 					IssueField field = new IssueField();
 					field.setIssue(this);
 					field.setName(fieldName);
-					field.setOrdinal(ordinal);
+					field.setOrdinal(getFieldOrdinal(fieldName, string));
 					field.setType(fieldSpec.getType());
 					field.setValue(string);
 					getFields().add(field);
@@ -435,7 +445,7 @@ public class Issue extends AbstractEntity implements Referenceable, AttachmentSt
 				IssueField field = new IssueField();
 				field.setIssue(this);
 				field.setName(fieldName);
-				field.setOrdinal(ordinal);
+				field.setOrdinal(getFieldOrdinal(fieldName, null));
 				field.setType(fieldSpec.getType());
 				getFields().add(field);
 			}
@@ -445,6 +455,36 @@ public class Issue extends AbstractEntity implements Referenceable, AttachmentSt
 
 	public boolean isFieldVisible(String fieldName) {
 		return isFieldVisible(fieldName, Sets.newHashSet());
+	}
+	
+	public Collection<User> getParticipants() {
+		if (participants == null) {
+			participants = new LinkedHashSet<>();
+			if (getSubmitter() != null)
+				participants.add(getSubmitter());
+			UserManager userManager = OneDev.getInstance(UserManager.class);
+			for (IssueField field: getFields()) {
+				if (field.getType().equals(InputSpec.USER)) {
+					User user = userManager.findByName(field.getValue());
+					if (user != null)
+						participants.add(user);
+				} else if (field.getType().equals(InputSpec.GROUP)) {
+					Group group = OneDev.getInstance(GroupManager.class).find(field.getValue());
+					if (group != null)
+						participants.addAll(group.getMembers());
+				}
+			}
+			for (IssueComment comment: getComments()) {
+				if (comment.getUser() != null)
+					participants.add(comment.getUser());
+			}
+			for (IssueChange change: getChanges()) {
+				if (change.getUser() != null)
+					participants.add(change.getUser());
+			}
+			participants.remove(userManager.getSystem());
+		}
+		return participants;
 	}
 
 	private boolean isFieldVisible(String fieldName, Set<String> checkedFieldNames) {
