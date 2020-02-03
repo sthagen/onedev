@@ -61,11 +61,10 @@ import io.onedev.server.persistence.dao.EntityCriteria;
 import io.onedev.server.search.entity.EntityQuery;
 import io.onedev.server.search.entity.EntitySort;
 import io.onedev.server.search.entity.EntitySort.Direction;
-import io.onedev.server.search.entity.issue.AndIssueCriteria;
 import io.onedev.server.search.entity.issue.IssueCriteria;
 import io.onedev.server.search.entity.issue.IssueQuery;
-import io.onedev.server.search.entity.issue.MilestoneCriteria;
 import io.onedev.server.security.permission.AccessProject;
+import io.onedev.server.util.MilestoneAndState;
 import io.onedev.server.util.ProjectScopedNumber;
 import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.util.ValueSetEdit;
@@ -273,24 +272,6 @@ public class DefaultIssueManager extends AbstractEntityManager<Issue> implements
 		return getSession().createQuery(criteriaQuery).uniqueResult().intValue();
 	}
 
-	@Override
-	public int count(Milestone milestone, @Nullable Boolean done) {
-		if (done != null) {
-			IssueCriteria criteria = getIssueSetting().getDoneCriteria(done);
-			if (criteria != null) {
-				List<IssueCriteria> criterias = new ArrayList<>();
-				criterias.add(new MilestoneCriteria(milestone.getName()));
-				criterias.add(criteria);
-				return count(milestone.getProject(), new AndIssueCriteria(criterias));
-			} else {
-				return 0;
-			}
-		} else {
-			IssueCriteria criteria = new MilestoneCriteria(milestone.getName());
-			return count(milestone.getProject(), criteria);
-		}
-	}
-
 	@SuppressWarnings("unchecked")
 	@Sessional
 	@Override
@@ -482,7 +463,8 @@ public class DefaultIssueManager extends AbstractEntityManager<Issue> implements
 			String fieldName = (String) row[0];
 			String fieldValue = (String) row[1];
 			SpecifiedChoices specifiedChoices = SpecifiedChoices.of(getIssueSetting().getFieldSpec(fieldName));
-			if (specifiedChoices != null && !specifiedChoices.getChoiceValues().contains(fieldValue)) {
+			if (specifiedChoices != null && fieldValue != null 
+					&& !specifiedChoices.getChoiceValues().contains(fieldValue)) {
 				undefinedFieldValues.add(new UndefinedFieldValue(fieldName, fieldValue));
 			}
 		}
@@ -637,6 +619,27 @@ public class DefaultIssueManager extends AbstractEntityManager<Issue> implements
 		} finally {
 			issuesLock.readLock().unlock();
 		}
+	}
+
+	@Sessional
+	@Override
+	public Collection<MilestoneAndState> queryMilestoneAndStates(Project project, Collection<Milestone> milestones) {
+		CriteriaBuilder builder = getSession().getCriteriaBuilder();
+		CriteriaQuery<MilestoneAndState> criteriaQuery = builder.createQuery(MilestoneAndState.class);
+		Root<Issue> root = criteriaQuery.from(Issue.class);
+		criteriaQuery.multiselect(
+				root.get(IssueQueryConstants.ATTR_MILESTONE).get(Milestone.ATTR_ID), 
+				root.get(IssueQueryConstants.ATTR_STATE));
+		
+		List<Predicate> milestonePredicates = new ArrayList<>();
+		for (Milestone milestone: milestones) 
+			milestonePredicates.add(builder.equal(root.get(IssueQueryConstants.ATTR_MILESTONE), milestone));
+		
+		criteriaQuery.where(builder.and(
+				builder.equal(root.get(IssueQueryConstants.ATTR_PROJECT), project),
+				builder.or(milestonePredicates.toArray(new Predicate[0]))));
+		
+		return getSession().createQuery(criteriaQuery).getResultList();
 	}
 
 }
