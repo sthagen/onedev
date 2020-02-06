@@ -5,7 +5,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 import javax.persistence.criteria.CriteriaBuilder;
@@ -25,7 +24,6 @@ import io.onedev.server.model.User;
 import io.onedev.server.search.entity.EntityCriteria;
 import io.onedev.server.util.ProjectAwareCommit;
 import io.onedev.server.util.SecurityUtils;
-import io.onedev.server.util.query.IssueQueryConstants;
 
 public class FieldOperatorCriteria extends FieldCriteria {
 
@@ -43,8 +41,8 @@ public class FieldOperatorCriteria extends FieldCriteria {
 
 	@Override
 	protected Predicate getValuePredicate(Join<?, ?> field, CriteriaBuilder builder) {
-		Path<?> valueAttribute = field.get(IssueField.ATTR_VALUE);
-		Path<?> projectAttribute = field.getParent().get(IssueQueryConstants.ATTR_PROJECT);		
+		Path<?> valueAttribute = field.get(IssueField.PROP_VALUE);
+		Path<?> projectAttribute = field.getParent().get(Issue.PROP_PROJECT);		
 		if (operator == IssueQueryLexer.IsEmpty) {
 			return null;
 		} else if (operator == IssueQueryLexer.IsMe) {
@@ -162,26 +160,18 @@ public class FieldOperatorCriteria extends FieldCriteria {
 		return quote(getFieldName()) + " " + IssueQuery.getRuleName(operator);
 	}
 
-	@SuppressWarnings({ "rawtypes", "unchecked" })
+	@SuppressWarnings({"unchecked" })
 	@Override
-	public void fill(Issue issue, Set<String> initedLists) {
+	public void fill(Issue issue) {
 		if (operator == IssueQueryLexer.IsEmpty) {
 			issue.setFieldValue(getFieldName(), null);
 		} else if (operator == IssueQueryLexer.IsMe) {
 			if (allowMultiple) {
-				List list;
-				if (!initedLists.contains(getFieldName())) {
-					list = new ArrayList();
-					issue.setFieldValue(getFieldName(), list);
-					initedLists.add(getFieldName());
-				} else {
-					list = (List) issue.getFieldValue(getFieldName());
-					if (list == null) {
-						list = new ArrayList();
-						issue.setFieldValue(getFieldName(), list);
-					}
-				}
-				list.add(SecurityUtils.getUser().getName());
+				List<String> valueFromIssue = (List<String>) issue.getFieldValue(getFieldName());
+				if (valueFromIssue == null)
+					valueFromIssue = new ArrayList<>();
+				valueFromIssue.add(SecurityUtils.getUser().getName());
+				issue.setFieldValue(getFieldName(), valueFromIssue);
 			} else {
 				issue.setFieldValue(getFieldName(), SecurityUtils.getUser().getName());
 			}

@@ -5,7 +5,6 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 
 import javax.persistence.criteria.CriteriaBuilder;
 import javax.persistence.criteria.Join;
@@ -16,7 +15,6 @@ import io.onedev.server.entitymanager.SettingManager;
 import io.onedev.server.model.Issue;
 import io.onedev.server.model.IssueField;
 import io.onedev.server.model.support.administration.GlobalIssueSetting;
-
 import io.onedev.server.util.ValueSetEdit;
 import io.onedev.server.util.inputspec.choiceinput.choiceprovider.SpecifiedChoices;
 import io.onedev.server.web.component.issue.workflowreconcile.UndefinedFieldValue;
@@ -44,13 +42,13 @@ public class ChoiceFieldCriteria extends FieldCriteria {
 	@Override
 	protected Predicate getValuePredicate(Join<?, ?> field, CriteriaBuilder builder) {
 		if (allowMultiple)
-			return builder.equal(field.get(IssueField.ATTR_VALUE), value);
+			return builder.equal(field.get(IssueField.PROP_VALUE), value);
 		else if (operator == IssueQueryLexer.Is) 
-			return builder.equal(field.get(IssueField.ATTR_VALUE), value);
+			return builder.equal(field.get(IssueField.PROP_VALUE), value);
 		else if (operator == IssueQueryLexer.IsGreaterThan) 
-			return builder.greaterThan(field.get(IssueField.ATTR_ORDINAL), ordinal);
+			return builder.greaterThan(field.get(IssueField.PROP_ORDINAL), ordinal);
 		else
-			return builder.lessThan(field.get(IssueField.ATTR_ORDINAL), ordinal);
+			return builder.lessThan(field.get(IssueField.PROP_ORDINAL), ordinal);
 	}
 
 	@SuppressWarnings("unchecked")
@@ -96,23 +94,15 @@ public class ChoiceFieldCriteria extends FieldCriteria {
 		return false;
 	}
 
-	@SuppressWarnings({ "rawtypes", "unchecked" })
+	@SuppressWarnings({"unchecked" })
 	@Override
-	public void fill(Issue issue, Set<String> initedLists) {
+	public void fill(Issue issue) {
 		if (allowMultiple) {
-			List list;
-			if (!initedLists.contains(getFieldName())) {
-				list = new ArrayList();
-				issue.setFieldValue(getFieldName(), list);
-				initedLists.add(getFieldName());
-			} else {
-				list = (List) issue.getFieldValue(getFieldName());
-				if (list == null) {
-					list = new ArrayList();
-					issue.setFieldValue(getFieldName(), list);
-				}
-			}
-			list.add(value);
+			List<String> valueFromIssue = (List<String>) issue.getFieldValue(getFieldName());
+			if (valueFromIssue == null)
+				valueFromIssue = new ArrayList<>();
+			valueFromIssue.add(value);
+			issue.setFieldValue(getFieldName(), valueFromIssue);
 		} else {
 			issue.setFieldValue(getFieldName(), value);
 		}
