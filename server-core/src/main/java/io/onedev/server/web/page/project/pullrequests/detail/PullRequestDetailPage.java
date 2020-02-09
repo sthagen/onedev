@@ -44,11 +44,11 @@ import org.apache.wicket.ajax.markup.html.AjaxLink;
 import org.apache.wicket.ajax.markup.html.form.AjaxButton;
 import org.apache.wicket.behavior.AttributeAppender;
 import org.apache.wicket.core.request.handler.IPartialPageRequestHandler;
-import org.apache.wicket.event.Broadcast;
 import org.apache.wicket.event.IEvent;
 import org.apache.wicket.markup.ComponentTag;
-import org.apache.wicket.markup.head.CssHeaderItem;
 import org.apache.wicket.markup.head.IHeaderResponse;
+import org.apache.wicket.markup.head.JavaScriptHeaderItem;
+import org.apache.wicket.markup.head.OnDomReadyHeaderItem;
 import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.markup.html.form.DropDownChoice;
@@ -286,7 +286,6 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 				
 				if (StringUtils.isNotBlank(title)) {
 					OneDev.getInstance(PullRequestChangeManager.class).changeTitle(getPullRequest(), title);
-					send(getPage(), Broadcast.BREADTH, new PageDataChanged(target));								
 					isEditingTitle = false;
 				}
 
@@ -700,7 +699,6 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 			@Override
 			protected void onUpdate(AjaxRequestTarget target) {
 				OneDev.getInstance(PullRequestChangeManager.class).changeMergeStrategy(getPullRequest(), mergeStrategy);
-				send(getPage(), Broadcast.BREADTH, new PageDataChanged(target));								
 			}
 			
 		});
@@ -1281,7 +1279,8 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 	public void renderHead(IHeaderResponse response) {
 		super.renderHead(response);
 		
-		response.render(CssHeaderItem.forReference(new PullRequestDetailCssResourceReference()));
+		response.render(JavaScriptHeaderItem.forReference(new PullRequestDetailResourceReference()));
+		response.render(OnDomReadyHeaderItem.forScript("onedev.server.pullRequestDetail.onDomReady();"));
 	}
 	
 	@Override
