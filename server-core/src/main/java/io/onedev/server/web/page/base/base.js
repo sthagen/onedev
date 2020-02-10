@@ -417,9 +417,6 @@ onedev.server = {
 				$(".websocket-server-error").show();
 			}
 		});
-		Wicket.Event.subscribe("/websocket/open", function(jqEvent) {
-			Wicket.WebSocket.send("ConnectionOpened");
-		});
 	},
 
 	/*
@@ -682,6 +679,9 @@ onedev.server = {
 	onDomReady: function() {
 		$(window).resize(function() {
 			$(document).find(".resize-aware").trigger("resized");
+		});
+		$(window).scroll(function() {
+			$(document).find(".scroll-aware").trigger("scrolled");
 		});
 		
 		onedev.server.setupAjaxLoadingIndicator();
