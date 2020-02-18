@@ -51,9 +51,11 @@ import io.onedev.server.model.IssueQuerySetting;
 import io.onedev.server.model.Milestone;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.User;
+import io.onedev.server.model.support.LastUpdate;
 import io.onedev.server.model.support.administration.GlobalIssueSetting;
 import io.onedev.server.model.support.issue.NamedIssueQuery;
 import io.onedev.server.model.support.issue.changedata.IssueChangeData;
+import io.onedev.server.model.support.issue.changedata.IssueCommittedData;
 import io.onedev.server.model.support.issue.changedata.IssueReferencedFromCodeCommentData;
 import io.onedev.server.model.support.issue.changedata.IssueReferencedFromIssueData;
 import io.onedev.server.model.support.issue.changedata.IssueReferencedFromPullRequestData;
@@ -235,7 +237,7 @@ public class DefaultIssueManager extends AbstractEntityManager<Issue> implements
 		}
 
 		if (orders.isEmpty())
-			orders.add(builder.desc(root.get(Issue.PROP_ID)));
+			orders.add(builder.desc(IssueQuery.getPath(root, Issue.PROP_LAST_UPDATE + "." + LastUpdate.PROP_DATE)));
 		query.orderBy(orders);
 		
 		return query;
@@ -247,8 +249,7 @@ public class DefaultIssueManager extends AbstractEntityManager<Issue> implements
 
 	@Sessional
 	@Override
-	public List<Issue> query(@Nullable Project project, 
-			io.onedev.server.search.entity.EntityQuery<Issue> issueQuery, 
+	public List<Issue> query(@Nullable Project project, EntityQuery<Issue> issueQuery, 
 			int firstResult, int maxResults) {
 		CriteriaQuery<Issue> criteriaQuery = buildCriteriaQuery(project, getSession(), issueQuery);
 		Query<Issue> query = getSession().createQuery(criteriaQuery);
@@ -265,16 +266,27 @@ public class DefaultIssueManager extends AbstractEntityManager<Issue> implements
 	@Listen
 	public void on(IssueEvent event) {
 		boolean minorChange = false;
+		LastUpdate lastUpdate = null;
 		if (event instanceof IssueChangeEvent) {
 			IssueChangeData changeData = ((IssueChangeEvent)event).getChange().getData();
-			if (changeData instanceof IssueReferencedFromCodeCommentData
+			if (changeData instanceof IssueCommittedData) {
+				User committer = ((IssueCommittedData) changeData).getCommitter(event.getIssue());
+				if (committer != null) {
+					lastUpdate = new LastUpdate();
+					lastUpdate.setUser(committer);
+					lastUpdate.setDate(event.getDate());
+					lastUpdate.setActivity("committed code");
+				}
+			} else if (changeData instanceof IssueReferencedFromCodeCommentData
 					|| changeData instanceof IssueReferencedFromIssueData
 					|| changeData instanceof IssueReferencedFromPullRequestData) {
 				minorChange = true;
 			}
 		}
-		
-		if (!(event instanceof IssueOpened || minorChange))
+
+		if (lastUpdate != null)
+			event.getIssue().setLastUpdate(lastUpdate);
+		else if (!(event instanceof IssueOpened || minorChange))
 			event.getIssue().setLastUpdate(event.getLastUpdate());
 	}
 	
