@@ -19,14 +19,11 @@
 	right: 0;
 	top: 0;
 }
-.issue-list>.head>.others:empty {
-	margin-bottom: 0;
-}
-.issue-list>.head>.others>* {
+.issue-list>.head>.operations>* {
 	margin-right: 16px;
 	color: #444;
 }
-.issue-list>.head>.others>*:last-child {
+.issue-list>.head>.operations>*:last-child {
 	margin-right: 0;
 }
 .issue-list>.body td .number>a {
@@ -41,7 +38,8 @@
 }
 
 .issue-list>.body td .issue-state {
-	font-size: 12px;
+	margin-right: 4px;
+	font-size: 11px;
 }
 .issue-list>.body td .secondary>.pull-left>div {
 	margin-right: 12px;

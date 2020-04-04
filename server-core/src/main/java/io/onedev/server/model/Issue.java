@@ -14,6 +14,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -50,8 +51,10 @@ import com.google.common.collect.Sets;
 import edu.emory.mathcs.backport.java.util.Collections;
 import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.GroupManager;
+import io.onedev.server.entitymanager.PullRequestManager;
 import io.onedev.server.entitymanager.SettingManager;
 import io.onedev.server.entitymanager.UserManager;
+import io.onedev.server.infomanager.CodeCommentRelationInfoManager;
 import io.onedev.server.infomanager.CommitInfoManager;
 import io.onedev.server.infomanager.UserInfoManager;
 import io.onedev.server.issue.fieldspec.FieldSpec;
@@ -79,8 +82,8 @@ import io.onedev.server.web.editable.annotation.Editable;
 				@Index(columnList=PROP_NUMBER), @Index(columnList=PROP_SUBMIT_DATE), 
 				@Index(columnList="o_submitter_id"), @Index(columnList=PROP_VOTE_COUNT), 
 				@Index(columnList=PROP_COMMENT_COUNT), @Index(columnList="o_milestone_id"), 
-				@Index(columnList=LastUpdate.COLUMN_DATE)}, 
-		uniqueConstraints={@UniqueConstraint(columnNames={"o_project_id", PROP_NUMBER})})
+				@Index(columnList=LastUpdate.COLUMN_DATE), @Index(columnList="o_numberScope_id")}, 
+		uniqueConstraints={@UniqueConstraint(columnNames={"o_numberScope_id", PROP_NUMBER})})
 @Cache(usage=CacheConcurrencyStrategy.READ_WRITE)
 //use dynamic update in order not to overwrite other edits while background threads change update date
 @DynamicUpdate
@@ -89,6 +92,8 @@ public class Issue extends AbstractEntity implements Referenceable, AttachmentSt
 
 	private static final long serialVersionUID = 1L;
 
+	public static final String PROP_NUMBER_SCOPE = "numberScope";
+	
 	public static final String FIELD_NUMBER = "Number";
 	
 	public static final String PROP_NUMBER = "number";
@@ -172,6 +177,10 @@ public class Issue extends AbstractEntity implements Referenceable, AttachmentSt
 	
 	@ManyToOne(fetch=FetchType.LAZY)
 	@JoinColumn(nullable=false)
+	private Project numberScope;
+	
+	@ManyToOne(fetch=FetchType.LAZY)
+	@JoinColumn(nullable=false)
 	private Project project;
 	
 	@ManyToOne(fetch=FetchType.LAZY)
@@ -219,6 +228,8 @@ public class Issue extends AbstractEntity implements Referenceable, AttachmentSt
 	
 	private transient List<RevCommit> commits;
 	
+	private transient List<PullRequest> pullRequests;
+	
 	private transient Map<String, Input> fieldInputs;
 	
 	private transient Collection<User> participants;
@@ -246,6 +257,14 @@ public class Issue extends AbstractEntity implements Referenceable, AttachmentSt
 
 	public void setDescription(String description) {
 		this.description = description;
+	}
+
+	public Project getNumberScope() {
+		return numberScope;
+	}
+
+	public void setNumberScope(Project numberScope) {
+		this.numberScope = numberScope;
 	}
 
 	public Project getProject() {
@@ -596,6 +615,32 @@ public class Issue extends AbstractEntity implements Referenceable, AttachmentSt
 	
 	public IssueFacade getFacade() {
 		return new IssueFacade(getId(), getProject().getId(), getNumber());
+	}
+	
+	public List<PullRequest> getPullRequests() {
+		if (pullRequests == null) {
+			pullRequests = new ArrayList<>();
+
+			CodeCommentRelationInfoManager codeCommentRelationInfoManager = OneDev.getInstance(CodeCommentRelationInfoManager.class); 
+			Collection<Long> pullRequestIds = new HashSet<>();
+			for (ObjectId commit: getCommits()) 
+				pullRequestIds.addAll(codeCommentRelationInfoManager.getPullRequestIds(getProject(), commit));		
+			
+			for (Long requestId: pullRequestIds) {
+				PullRequest request = OneDev.getInstance(PullRequestManager.class).get(requestId);
+				if (request != null && !pullRequests.contains(request))
+					pullRequests.add(request);
+			}
+			Collections.sort(pullRequests, new Comparator<PullRequest>() {
+
+				@Override
+				public int compare(PullRequest o1, PullRequest o2) {
+					return o2.getId().compareTo(o1.getId());
+				}
+				
+			});
+		}
+		return pullRequests;
 	}
 	
 	public List<RevCommit> getCommits() {

@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
 import javax.inject.Inject;
@@ -30,6 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Sets;
 
 import io.onedev.commons.launcher.loader.Listen;
 import io.onedev.commons.launcher.loader.ListenerRegistry;
@@ -55,7 +57,6 @@ import io.onedev.server.model.support.LastUpdate;
 import io.onedev.server.model.support.administration.GlobalIssueSetting;
 import io.onedev.server.model.support.issue.NamedIssueQuery;
 import io.onedev.server.model.support.issue.changedata.IssueChangeData;
-import io.onedev.server.model.support.issue.changedata.IssueCommittedData;
 import io.onedev.server.model.support.issue.changedata.IssueReferencedFromCodeCommentData;
 import io.onedev.server.model.support.issue.changedata.IssueReferencedFromIssueData;
 import io.onedev.server.model.support.issue.changedata.IssueReferencedFromPullRequestData;
@@ -136,8 +137,8 @@ public class DefaultIssueManager extends AbstractEntityManager<Issue> implements
 	@Override
 	public Issue find(Project project, long number) {
 		EntityCriteria<Issue> criteria = newCriteria();
-		criteria.add(Restrictions.eq("project", project));
-		criteria.add(Restrictions.eq("number", number));
+		criteria.add(Restrictions.eq(Issue.PROP_NUMBER_SCOPE, project.getForkRoot()));
+		criteria.add(Restrictions.eq(Issue.PROP_NUMBER, number));
 		criteria.setCacheable(true);
 		return find(criteria);
 	}
@@ -158,9 +159,11 @@ public class DefaultIssueManager extends AbstractEntityManager<Issue> implements
 	@Override
 	public void open(Issue issue) {
 		Preconditions.checkArgument(issue.isNew());
-		Query<?> query = getSession().createQuery("select max(number) from Issue where project=:project");
-		query.setParameter("project", issue.getProject());
-		issue.setNumber(getNextNumber(issue.getProject(), query));
+		issue.setNumberScope(issue.getProject().getForkRoot());
+		Query<?> query = getSession().createQuery(String.format("select max(%s) from Issue where %s=:numberScope", 
+				Issue.PROP_NUMBER, Issue.PROP_NUMBER_SCOPE));
+		query.setParameter("numberScope", issue.getNumberScope());
+		issue.setNumber(getNextNumber(issue.getNumberScope(), query));
 		
 		IssueOpened event = new IssueOpened(issue);
 		issue.setLastUpdate(event.getLastUpdate());
@@ -236,8 +239,9 @@ public class DefaultIssueManager extends AbstractEntityManager<Issue> implements
 			}
 		}
 
-		if (orders.isEmpty())
+		if (orders.isEmpty()) {
 			orders.add(builder.desc(IssueQuery.getPath(root, Issue.PROP_LAST_UPDATE + "." + LastUpdate.PROP_DATE)));
+		}
 		query.orderBy(orders);
 		
 		return query;
@@ -266,27 +270,16 @@ public class DefaultIssueManager extends AbstractEntityManager<Issue> implements
 	@Listen
 	public void on(IssueEvent event) {
 		boolean minorChange = false;
-		LastUpdate lastUpdate = null;
 		if (event instanceof IssueChangeEvent) {
 			IssueChangeData changeData = ((IssueChangeEvent)event).getChange().getData();
-			if (changeData instanceof IssueCommittedData) {
-				User committer = ((IssueCommittedData) changeData).getCommitter(event.getIssue());
-				if (committer != null) {
-					lastUpdate = new LastUpdate();
-					lastUpdate.setUser(committer);
-					lastUpdate.setDate(event.getDate());
-					lastUpdate.setActivity("committed code");
-				}
-			} else if (changeData instanceof IssueReferencedFromCodeCommentData
+			if (changeData instanceof IssueReferencedFromCodeCommentData
 					|| changeData instanceof IssueReferencedFromIssueData
 					|| changeData instanceof IssueReferencedFromPullRequestData) {
 				minorChange = true;
 			}
 		}
 
-		if (lastUpdate != null)
-			event.getIssue().setLastUpdate(lastUpdate);
-		else if (!(event instanceof IssueOpened || minorChange))
+		if (!(event instanceof IssueOpened || minorChange))
 			event.getIssue().setLastUpdate(event.getLastUpdate());
 	}
 	
@@ -374,28 +367,28 @@ public class DefaultIssueManager extends AbstractEntityManager<Issue> implements
 	@Sessional
 	@Override
 	public List<Issue> query(Project project, String term, int count) {
-		List<Issue> issues = new ArrayList<>();
-
 		EntityCriteria<Issue> criteria = newCriteria();
-		criteria.add(Restrictions.eq(Issue.PROP_PROJECT, project));
+		
+		Set<Project> projects = Sets.newHashSet(project);
+		projects.addAll(project.getForkParents().stream().filter(it->SecurityUtils.canAccess(it)).collect(Collectors.toSet()));
+		criteria.add(Restrictions.in(Issue.PROP_PROJECT, projects));
 		
 		if (term.startsWith("#"))
 			term = term.substring(1);
 		if (term.length() != 0) {
 			try {
 				long buildNumber = Long.parseLong(term);
-				criteria.add(Restrictions.eq("number", buildNumber));
+				criteria.add(Restrictions.eq(Issue.PROP_NUMBER, buildNumber));
 			} catch (NumberFormatException e) {
 				criteria.add(Restrictions.or(
-						Restrictions.ilike("title", term, MatchMode.ANYWHERE),
-						Restrictions.ilike("noSpaceTitle", term, MatchMode.ANYWHERE)));
+						Restrictions.ilike(Issue.PROP_TITLE, term, MatchMode.ANYWHERE),
+						Restrictions.ilike(Issue.PROP_NO_SPACE_TITLE, term, MatchMode.ANYWHERE)));
 			}
 		}
-		
-		criteria.addOrder(Order.desc("number"));
-		issues.addAll(query(criteria, 0, count));
-		
-		return issues;
+
+		criteria.addOrder(Order.desc(Issue.PROP_PROJECT));
+		criteria.addOrder(Order.desc(Issue.PROP_NUMBER));
+		return query(criteria, 0, count);
 	}
 
 	@SuppressWarnings("unchecked")

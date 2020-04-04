@@ -6,6 +6,7 @@ import java.util.List;
 
 import javax.annotation.Nullable;
 
+import org.apache.wicket.Component;
 import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.ajax.form.AjaxFormComponentUpdatingBehavior;
 import org.apache.wicket.ajax.markup.html.AjaxLink;
@@ -17,6 +18,7 @@ import org.apache.wicket.extensions.markup.html.repeater.data.grid.ICellPopulato
 import org.apache.wicket.extensions.markup.html.repeater.data.table.AbstractColumn;
 import org.apache.wicket.extensions.markup.html.repeater.data.table.IColumn;
 import org.apache.wicket.extensions.markup.html.repeater.util.SortableDataProvider;
+import org.apache.wicket.feedback.FencedFeedbackPanel;
 import org.apache.wicket.markup.ComponentTag;
 import org.apache.wicket.markup.head.CssHeaderItem;
 import org.apache.wicket.markup.head.IHeaderResponse;
@@ -33,15 +35,15 @@ import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.model.Model;
 import org.apache.wicket.model.PropertyModel;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import de.agilecoders.wicket.core.markup.html.bootstrap.common.NotificationPanel;
 import io.onedev.commons.utils.StringUtils;
 import io.onedev.server.OneDev;
 import io.onedev.server.OneException;
 import io.onedev.server.entitymanager.ProjectManager;
 import io.onedev.server.model.Project;
+import io.onedev.server.search.entity.EntityCriteria;
+import io.onedev.server.search.entity.OrEntityCriteria;
+import io.onedev.server.search.entity.project.NameCriteria;
 import io.onedev.server.search.entity.project.ProjectQuery;
 import io.onedev.server.util.DateUtils;
 import io.onedev.server.util.SecurityUtils;
@@ -62,8 +64,6 @@ import io.onedev.server.web.util.QuerySaveSupport;
 
 @SuppressWarnings("serial")
 public class ProjectListPanel extends Panel {
-
-	private static final Logger logger = LoggerFactory.getLogger(ProjectListPanel.class);
 	
 	private final String query;
 	
@@ -75,14 +75,15 @@ public class ProjectListPanel extends Panel {
 		protected ProjectQuery load() {
 			try {
 				return ProjectQuery.parse(query);
+			} catch (OneException e) {
+				error(e.getMessage());
+				return null;
 			} catch (Exception e) {
-				logger.debug("Error parsing project query: " + query, e);
-				if (e.getMessage() != null)
-					error(e.getMessage());
-				else
-					error("Malformed project query");
+				warn("Not a valid formal query, performing fuzzy query");
+				List<EntityCriteria<Project>> criterias = new ArrayList<>();
+				criterias.add(new NameCriteria("*" + query + "*"));
+				return new ProjectQuery(new OrEntityCriteria<Project>(criterias));
 			}
-			return null;
 		}
 		
 	};
@@ -125,18 +126,13 @@ public class ProjectListPanel extends Panel {
 		else
 			add(new WebMarkupContainer("newProject").setVisible(false));
 		
-		WebMarkupContainer others = new WebMarkupContainer("others");
-		others.setOutputMarkupId(true);
-		add(others);
-		
-		others.add(new AjaxLink<Void>("showSavedQueries") {
+		add(new AjaxLink<Void>("showSavedQueries") {
 
 			@Override
 			public void onEvent(IEvent<?> event) {
 				super.onEvent(event);
-				if (event.getPayload() instanceof SavedQueriesClosed) {
-					((SavedQueriesClosed) event.getPayload()).getHandler().add(others);
-				}
+				if (event.getPayload() instanceof SavedQueriesClosed) 
+					((SavedQueriesClosed) event.getPayload()).getHandler().add(this);
 			}
 			
 			@Override
@@ -148,12 +144,13 @@ public class ProjectListPanel extends Panel {
 			@Override
 			public void onClick(AjaxRequestTarget target) {
 				send(getPage(), Broadcast.BREADTH, new SavedQueriesOpened(target));
-				target.add(others);
+				target.add(this);
 			}
 			
-		});
-		
-		others.add(new AjaxLink<Void>("saveQuery") {
+		}.setOutputMarkupPlaceholderTag(true));
+
+		Component saveQueryLink;
+		add(saveQueryLink = new AjaxLink<Void>("saveQuery") {
 
 			@Override
 			protected void onConfigure() {
@@ -177,7 +174,7 @@ public class ProjectListPanel extends Panel {
 				getQuerySaveSupport().onSaveQuery(target, query);
 			}		
 			
-		});
+		}.setOutputMarkupId(true));
 		
 		TextField<String> input = new TextField<String>("input", new PropertyModel<String>(this, "query"));
 		input.add(new ProjectQueryBehavior());
@@ -187,7 +184,7 @@ public class ProjectListPanel extends Panel {
 			@Override
 			protected void onUpdate(AjaxRequestTarget target) {
 				if (SecurityUtils.getUser() != null && getQuerySaveSupport() != null)
-					target.add(others);
+					target.add(saveQueryLink);
 			}
 			
 		});
@@ -232,7 +229,7 @@ public class ProjectListPanel extends Panel {
 					} catch (OneException e) {
 						error(e.getMessage());
 					}
-				} 
+				}
 				return 0;
 			}
 
@@ -254,7 +251,7 @@ public class ProjectListPanel extends Panel {
 		if (expectedCount != 0 && expectedCount != dataProvider.size())
 			warn("Some projects might be hidden due to permission policy");
 		
-		body.add(new NotificationPanel("feedback", this));
+		body.add(new FencedFeedbackPanel("feedback", this));
 		
 		List<IColumn<Project, Void>> columns = new ArrayList<>();
 		
@@ -312,6 +309,8 @@ public class ProjectListPanel extends Panel {
 		
 		body.add(new DefaultDataTable<Project, Void>("projects", columns, dataProvider, 
 				WebConstants.PAGE_SIZE, getPagingHistorySupport()));
+		
+		setOutputMarkupId(true);
 	}
 		
 	@Override

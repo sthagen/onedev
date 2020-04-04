@@ -1,10 +1,12 @@
 package io.onedev.server.web.page.project.issues.detail;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 
 import javax.annotation.Nullable;
 
 import org.apache.wicket.ajax.AjaxRequestTarget;
+import org.apache.wicket.request.cycle.RequestCycle;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 
 import io.onedev.server.model.Issue;
@@ -16,15 +18,15 @@ import io.onedev.server.web.util.PagingHistorySupport;
 import io.onedev.server.web.util.QueryPosition;
 
 @SuppressWarnings("serial")
-public class FixingBuildsPage extends IssueDetailPage {
+public class IssueBuildsPage extends IssueDetailPage {
 
 	private static final String PARAM_QUERY = "query";
 	
-	private static final String PARAM_CURRENT_PAGE = "currentPage";
+	private static final String PARAM_PAGE = "page";
 
 	private String query;
 	
-	public FixingBuildsPage(PageParameters params) {
+	public IssueBuildsPage(PageParameters params) {
 		super(params);
 		query = params.get(PARAM_QUERY).toString();
 	}
@@ -32,8 +34,11 @@ public class FixingBuildsPage extends IssueDetailPage {
 	@Override
 	protected void onInitialize() {
 		super.onInitialize();
-		
-		add(new BuildListPanel("builds", query, 0) {
+		add(newBuildList());
+	}
+	
+	private BuildListPanel newBuildList() {
+		return new BuildListPanel("builds", query, 0) {
 
 			@Override
 			protected BuildQuery getBaseQuery() {
@@ -47,13 +52,13 @@ public class FixingBuildsPage extends IssueDetailPage {
 					@Override
 					public PageParameters newPageParameters(int currentPage) {
 						PageParameters params = paramsOf(getIssue(), getPosition(), query);
-						params.add(PARAM_CURRENT_PAGE, currentPage+1);
+						params.add(PARAM_PAGE, currentPage+1);
 						return params;
 					}
 					
 					@Override
 					public int getCurrentPage() {
-						return getPageParameters().get(PARAM_CURRENT_PAGE).toInt(1)-1;
+						return getPageParameters().get(PARAM_PAGE).toInt(1)-1;
 					}
 					
 				};
@@ -61,7 +66,9 @@ public class FixingBuildsPage extends IssueDetailPage {
 
 			@Override
 			protected void onQueryUpdated(AjaxRequestTarget target, String query) {
-				setResponsePage(FixingBuildsPage.class, FixingBuildsPage.paramsOf(getIssue(), getPosition(), query));
+				CharSequence url = RequestCycle.get().urlFor(IssueBuildsPage.class, paramsOf(getIssue(), getPosition(), query));
+				IssueBuildsPage.this.query = query;
+				pushState(target, url.toString(), query);
 			}
 
 			@Override
@@ -69,9 +76,17 @@ public class FixingBuildsPage extends IssueDetailPage {
 				return getIssue().getProject();
 			}
 
-		});
+		};
 	}
 
+	@Override
+	protected void onPopState(AjaxRequestTarget target, Serializable data) {
+		query = (String) data;
+		BuildListPanel listPanel = newBuildList();
+		replace(listPanel);
+		target.add(listPanel);
+	}
+	
 	public static PageParameters paramsOf(Issue issue, @Nullable QueryPosition position, @Nullable String query) {
 		PageParameters params = paramsOf(issue, position);
 		if (query != null)

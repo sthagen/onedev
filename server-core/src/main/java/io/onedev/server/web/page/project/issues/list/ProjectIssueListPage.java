@@ -1,5 +1,6 @@
 package io.onedev.server.web.page.project.issues.list;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 
 import javax.annotation.Nullable;
@@ -8,8 +9,7 @@ import org.apache.wicket.Component;
 import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.markup.html.link.BookmarkablePageLink;
 import org.apache.wicket.markup.html.link.Link;
-import org.apache.wicket.model.IModel;
-import org.apache.wicket.model.LoadableDetachableModel;
+import org.apache.wicket.request.cycle.RequestCycle;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 
 import io.onedev.server.OneDev;
@@ -34,30 +34,17 @@ import io.onedev.server.web.util.QuerySaveSupport;
 @SuppressWarnings("serial")
 public class ProjectIssueListPage extends ProjectIssuesPage {
 
-	private static final String PARAM_CURRENT_PAGE = "currentPage";
+	private static final String PARAM_PAGE = "page";
 	
 	private static final String PARAM_QUERY = "query";
 	
-	private final IModel<String> queryModel = new LoadableDetachableModel<String>() {
-
-		@Override
-		protected String load() {
-			String query = getPageParameters().get(PARAM_QUERY).toOptionalString();
-			if (query == null) {
-				if (getProject().getIssueQuerySettingOfCurrentUser() != null 
-						&& !getProject().getIssueQuerySettingOfCurrentUser().getUserQueries().isEmpty()) {
-					query = getProject().getIssueQuerySettingOfCurrentUser().getUserQueries().iterator().next().getQuery();
-				} else if (!getProject().getIssueSetting().getNamedQueries(true).isEmpty()) {
-					query = getProject().getIssueSetting().getNamedQueries(true).iterator().next().getQuery();
-				}
-			}
-			return query;
-		}
-		
-	};
+	private String query;
+	
+	private SavedQueriesPanel<NamedIssueQuery> savedQueries;
 	
 	public ProjectIssueListPage(PageParameters params) {
 		super(params);
+		query = getPageParameters().get(PARAM_QUERY).toOptionalString();
 	}
 
 	private IssueQuerySettingManager getIssueQuerySettingManager() {
@@ -65,16 +52,9 @@ public class ProjectIssueListPage extends ProjectIssuesPage {
 	}
 	
 	@Override
-	protected void onDetach() {
-		queryModel.detach();
-		super.onDetach();
-	}
-
-	@Override
 	protected void onInitialize() {
 		super.onInitialize();
 
-		SavedQueriesPanel<NamedIssueQuery> savedQueries;
 		add(savedQueries = new SavedQueriesPanel<NamedIssueQuery>("side") {
 
 			@Override
@@ -116,32 +96,36 @@ public class ProjectIssueListPage extends ProjectIssuesPage {
 			
 		});
 		
-		PagingHistorySupport pagingHistorySupport = new PagingHistorySupport() {
-
-			@Override
-			public PageParameters newPageParameters(int currentPage) {
-				PageParameters params = paramsOf(getProject(), queryModel.getObject(), 0);
-				params.add(PARAM_CURRENT_PAGE, currentPage+1);
-				return params;
-			}
-			
-			@Override
-			public int getCurrentPage() {
-				return getPageParameters().get(PARAM_CURRENT_PAGE).toInt(1)-1;
-			}
-			
-		};
-		
-		add(new IssueListPanel("main", queryModel.getObject()) {
+		add(newIssueList());
+	}
+	
+	private IssueListPanel newIssueList() {
+		return new IssueListPanel("main", query) {
 
 			@Override
 			protected PagingHistorySupport getPagingHistorySupport() {
-				return pagingHistorySupport;
+				return new PagingHistorySupport() {
+
+					@Override
+					public PageParameters newPageParameters(int currentPage) {
+						PageParameters params = paramsOf(getProject(), query, 0);
+						params.add(PARAM_PAGE, currentPage+1);
+						return params;
+					}
+					
+					@Override
+					public int getCurrentPage() {
+						return getPageParameters().get(PARAM_PAGE).toInt(1)-1;
+					}
+					
+				};
 			}
 
 			@Override
 			protected void onQueryUpdated(AjaxRequestTarget target, String query) {
-				setResponsePage(ProjectIssueListPage.class, paramsOf(getProject(), query, 0));
+				CharSequence url = RequestCycle.get().urlFor(ProjectIssueListPage.class, paramsOf(getProject(), query, 0));
+				ProjectIssueListPage.this.query = query;
+				pushState(target, url.toString(), query);
 			}
 
 			@Override
@@ -213,8 +197,15 @@ public class ProjectIssueListPage extends ProjectIssuesPage {
 				return ProjectIssueListPage.this.getProject();
 			}
 
-		});
-		
+		};
+	}
+	
+	@Override
+	protected void onPopState(AjaxRequestTarget target, Serializable data) {
+		query = (String) data;
+		IssueListPanel listPanel = newIssueList();
+		replace(listPanel);
+		target.add(listPanel);
 	}
 	
 	public static PageParameters paramsOf(Project project, @Nullable String query, int page) {
@@ -222,8 +213,19 @@ public class ProjectIssueListPage extends ProjectIssuesPage {
 		if (query != null)
 			params.add(PARAM_QUERY, query);
 		if (page != 0)
-			params.add(PARAM_CURRENT_PAGE, page);
+			params.add(PARAM_PAGE, page);
 		return params;
+	}
+	
+	public static PageParameters paramsOf(Project project, int page) {
+		String query = null;
+		if (project.getIssueQuerySettingOfCurrentUser() != null 
+				&& !project.getIssueQuerySettingOfCurrentUser().getUserQueries().isEmpty()) {
+			query = project.getIssueQuerySettingOfCurrentUser().getUserQueries().iterator().next().getQuery();
+		} else if (!project.getIssueSetting().getNamedQueries(true).isEmpty()) {
+			query = project.getIssueSetting().getNamedQueries(true).iterator().next().getQuery();
+		}
+		return paramsOf(project, query, page);
 	}
 	
 }

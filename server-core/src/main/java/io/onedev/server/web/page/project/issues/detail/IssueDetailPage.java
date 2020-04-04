@@ -1,7 +1,6 @@
 package io.onedev.server.web.page.project.issues.detail;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 
 import javax.annotation.Nullable;
@@ -15,7 +14,6 @@ import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.markup.head.IHeaderResponse;
 import org.apache.wicket.markup.head.JavaScriptHeaderItem;
 import org.apache.wicket.markup.head.OnDomReadyHeaderItem;
-import org.apache.wicket.markup.html.link.BookmarkablePageLink;
 import org.apache.wicket.markup.html.link.Link;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LoadableDetachableModel;
@@ -25,12 +23,10 @@ import org.apache.wicket.request.Url;
 import org.apache.wicket.request.cycle.IRequestCycleListener;
 import org.apache.wicket.request.cycle.RequestCycle;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
-import org.eclipse.jgit.lib.ObjectId;
 
 import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.IssueManager;
 import io.onedev.server.entitymanager.SettingManager;
-import io.onedev.server.infomanager.CommitInfoManager;
 import io.onedev.server.infomanager.UserInfoManager;
 import io.onedev.server.issue.fieldspec.FieldSpec;
 import io.onedev.server.model.Issue;
@@ -51,7 +47,6 @@ import io.onedev.server.web.component.tabbable.PageTabLink;
 import io.onedev.server.web.component.tabbable.Tab;
 import io.onedev.server.web.component.tabbable.Tabbable;
 import io.onedev.server.web.page.project.ProjectPage;
-import io.onedev.server.web.page.project.issues.create.NewIssuePage;
 import io.onedev.server.web.page.project.issues.list.ProjectIssueListPage;
 import io.onedev.server.web.util.ConfirmOnClick;
 import io.onedev.server.web.util.QueryPosition;
@@ -62,7 +57,7 @@ public abstract class IssueDetailPage extends ProjectPage implements InputContex
 
 	public static final String PARAM_ISSUE = "issue";
 	
-	private final IModel<Issue> issueModel;
+	protected final IModel<Issue> issueModel;
 	
 	private final QueryPosition position;
 	
@@ -81,7 +76,10 @@ public abstract class IssueDetailPage extends ProjectPage implements InputContex
 				Issue issue = OneDev.getInstance(IssueManager.class).find(getProject(), issueNumber);
 				if (issue == null)
 					throw new EntityNotFoundException("Unable to find issue #" + issueNumber + " in project " + getProject());
-				return issue;
+				else if (!issue.getProject().equals(getProject()))
+					throw new RestartResponseException(getPageClass(), paramsOf(issue, position));
+				else
+					return issue;
 			}
 
 		};
@@ -105,7 +103,7 @@ public abstract class IssueDetailPage extends ProjectPage implements InputContex
 			}
 			
 		});
-		add(new IssueTitlePanel("title") {
+		add(new IssueTitlePanel("title", true) {
 
 			@Override
 			protected Issue getIssue() {
@@ -121,11 +119,6 @@ public abstract class IssueDetailPage extends ProjectPage implements InputContex
 				return IssueDetailPage.this.getIssue();
 			}
 
-			@Override
-			protected Component newCreateIssueButton(String componentId, String templateQuery) {
-				return new BookmarkablePageLink<Void>(componentId, NewIssuePage.class, NewIssuePage.paramsOf(getProject(), templateQuery));
-			}
-
 		});
 
 		List<Tab> tabs = new ArrayList<>();
@@ -139,12 +132,15 @@ public abstract class IssueDetailPage extends ProjectPage implements InputContex
 			
 		});
 		
-		CommitInfoManager commitInfoManager = OneDev.getInstance(CommitInfoManager.class); 
-		Collection<ObjectId> fixCommits = commitInfoManager.getFixCommits(getProject(), getIssue().getNumber());
-		
-		// Do not calculate fix builds now as it might be slow
-		if (!fixCommits.isEmpty()) 
-			tabs.add(new IssueTab("Fixing Builds", FixingBuildsPage.class));
+		if (!getIssue().getCommits().isEmpty()) {
+			if (SecurityUtils.canReadCode(getProject())) {
+				tabs.add(new IssueTab("Fixing Commits", IssueCommitsPage.class));
+				if (!getIssue().getPullRequests().isEmpty())
+					tabs.add(new IssueTab("Pull Requests", IssuePullRequestsPage.class));
+			}
+			// Do not calculate fix builds now as it might be slow
+			tabs.add(new IssueTab("Fixing Builds", IssueBuildsPage.class));
+		}
 		
 		add(new Tabbable("issueTabs", tabs).setOutputMarkupId(true));
 		

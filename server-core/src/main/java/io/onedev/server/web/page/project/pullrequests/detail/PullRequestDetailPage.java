@@ -130,6 +130,7 @@ import io.onedev.server.web.page.project.ProjectPage;
 import io.onedev.server.web.page.project.builds.ProjectBuildsPage;
 import io.onedev.server.web.page.project.pullrequests.InvalidPullRequestPage;
 import io.onedev.server.web.page.project.pullrequests.ProjectPullRequestsPage;
+import io.onedev.server.web.page.project.pullrequests.create.NewPullRequestPage;
 import io.onedev.server.web.page.project.pullrequests.detail.activities.PullRequestActivitiesPage;
 import io.onedev.server.web.page.project.pullrequests.detail.changes.PullRequestChangesPage;
 import io.onedev.server.web.page.project.pullrequests.detail.codecomments.PullRequestCodeCommentsPage;
@@ -177,8 +178,11 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 				Long requestNumber = Long.valueOf(requestNumberString);
 				PullRequest request = getPullRequestManager().find(getProject(), requestNumber);
 				if (request == null)
-					throw new EntityNotFoundException("Unable to find request #" + requestNumber + " in project " + getProject());
-				return request;
+					throw new EntityNotFoundException("Unable to find pull request #" + requestNumber + " in project " + getProject());
+				else if (!request.getTargetProject().equals(getProject()))
+					throw new RestartResponseException(getPageClass(), paramsOf(request, position));
+				else
+					return request;
 			}
 
 		};
@@ -223,7 +227,7 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 			
 		}.setEscapeModelStrings(false));
 		
-		requestHead.add(new AjaxLink<Void>("editLink") {
+		requestHead.add(new AjaxLink<Void>("edit") {
 
 			@Override
 			public void onClick(AjaxRequestTarget target) {
@@ -237,6 +241,17 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 				super.onConfigure();
 
 				setVisible(!isEditingTitle && SecurityUtils.canModify(getPullRequest()));
+			}
+			
+		});
+		
+		requestHead.add(new BookmarkablePageLink<Void>("create", 
+				NewPullRequestPage.class, NewPullRequestPage.paramsOf(getProject())) {
+
+			@Override
+			protected void onConfigure() {
+				super.onConfigure();
+				setVisible(!isEditingTitle);
 			}
 			
 		});

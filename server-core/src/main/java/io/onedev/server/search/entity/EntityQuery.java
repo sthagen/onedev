@@ -154,7 +154,7 @@ public abstract class EntityQuery<T extends AbstractEntity> implements Serializa
 			throw new OneException("Unable to find build: " + value);
 	}
 	
-	public static ProjectScopedNumber getEntityNumber(@Nullable Project project, String value) {
+	public static ProjectScopedNumber getProjectScopedNumber(@Nullable Project project, String value) {
 		if (project != null) {
 			if (value.startsWith("#"))
 				value = project.getName() + value;
@@ -183,8 +183,6 @@ public abstract class EntityQuery<T extends AbstractEntity> implements Serializa
 		StringBuilder builder = new StringBuilder();
 		if (getCriteria() != null) 
 			builder.append(getCriteria().toString()).append(" ");
-		else
-			builder.append("all");
 		if (!getSorts().isEmpty()) {
 			builder.append("order by ");
 			for (EntitySort sort: getSorts())
