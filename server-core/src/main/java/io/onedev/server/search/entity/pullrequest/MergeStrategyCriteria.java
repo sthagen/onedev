@@ -31,8 +31,8 @@ public class MergeStrategyCriteria extends EntityCriteria<PullRequest> {
 	}
 
 	@Override
-	public String asString() {
-		return quote(PullRequest.FIELD_MERGE_STRATEGY) + " " 
+	public String toStringWithoutParens() {
+		return quote(PullRequest.NAME_MERGE_STRATEGY) + " " 
 				+ PullRequestQuery.getRuleName(PullRequestQueryLexer.Is) + " " 
 				+ quote(value.toString());
 	}

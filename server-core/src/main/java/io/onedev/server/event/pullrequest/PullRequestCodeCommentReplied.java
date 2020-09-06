@@ -7,8 +7,8 @@ public class PullRequestCodeCommentReplied extends PullRequestCodeCommentEvent {
 
 	private final CodeCommentReply reply;
 	
-	public PullRequestCodeCommentReplied(PullRequest request, CodeCommentReply reply, boolean derived) {
-		super(reply.getUser(), reply.getDate(), request, reply.getComment(), derived);
+	public PullRequestCodeCommentReplied(PullRequest request, CodeCommentReply reply) {
+		super(reply.getUser(), reply.getDate(), request, reply.getComment());
 		this.reply = reply;
 	}
 
@@ -23,9 +23,9 @@ public class PullRequestCodeCommentReplied extends PullRequestCodeCommentEvent {
 
 	@Override
 	public String getActivity(boolean withEntity) {
-		String activity = "replied code comment on file '" + getComment().getMarkPos().getPath() + "'"; 
+		String activity = "replied code comment"; 
 		if (withEntity)
-			activity += " in pull request " + getRequest().describe();
+			activity += " in pull request " + getRequest().getNumberAndTitle();
 		return activity;
 	}
 

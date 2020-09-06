@@ -19,7 +19,7 @@ import org.antlr.v4.runtime.tree.TerminalNode;
 import io.onedev.commons.codeassist.FenceAware;
 import io.onedev.commons.utils.StringUtils;
 import io.onedev.server.OneDev;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.entitymanager.GroupManager;
 import io.onedev.server.entitymanager.UserManager;
 import io.onedev.server.model.Group;
@@ -71,9 +71,9 @@ public class ReviewRequirement {
 						if (!users.contains(user)) 
 							users.add(user);
 						else if (validate)
-							throw new OneException("User '" + userName + "' is included multiple times");
+							throw new GeneralException("User '" + userName + "' is included multiple times");
 					} else if (validate) {
-						throw new OneException("Unable to find user '" + userName + "'");
+						throw new GeneralException("Unable to find user '" + userName + "'");
 					}
 				} else if (criteria.groupCriteria() != null) {
 					String groupName = getValue(criteria.groupCriteria().Value());
@@ -90,10 +90,10 @@ public class ReviewRequirement {
 								groups.put(group, 1);
 							}
 						} else if (validate) {
-							throw new OneException("Group '" + groupName + "' is included multiple times");
+							throw new GeneralException("Group '" + groupName + "' is included multiple times");
 						}
 					} else if (validate) {
-						throw new OneException("Unable to find group '" + groupName + "'");
+						throw new GeneralException("Unable to find group '" + groupName + "'");
 					}
 				}
 			}			
@@ -112,23 +112,6 @@ public class ReviewRequirement {
 
 	public Map<Group, Integer> getGroups() {
 		return groups;
-	}
-	
-	public boolean satisfied(User user) {
-		for (User eachUser: users) {
-			if (!eachUser.equals(user))
-				return false;
-		}
-		for (Map.Entry<Group, Integer> entry: groups.entrySet()) {
-			Group group = entry.getKey();
-			int requiredCount = entry.getValue();
-			if (requiredCount == 0 || requiredCount > group.getMembers().size())
-				requiredCount = group.getMembers().size();
-
-			if (requiredCount > 1 || requiredCount == 1 && !group.getMembers().contains(user))
-				return false;
-		}
-		return true;
 	}
 	
 	@Nullable

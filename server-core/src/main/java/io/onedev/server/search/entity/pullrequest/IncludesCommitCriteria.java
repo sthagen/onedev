@@ -10,12 +10,12 @@ import javax.persistence.criteria.Root;
 import org.eclipse.jgit.lib.ObjectId;
 
 import io.onedev.server.OneDev;
-import io.onedev.server.infomanager.CodeCommentRelationInfoManager;
+import io.onedev.server.infomanager.PullRequestInfoManager;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.PullRequest;
 import io.onedev.server.search.entity.EntityCriteria;
 import io.onedev.server.search.entity.EntityQuery;
-import io.onedev.server.util.ProjectAwareCommit;
+import io.onedev.server.util.ProjectScopedCommit;
 
 public class IncludesCommitCriteria extends EntityCriteria<PullRequest> {
 
@@ -28,7 +28,7 @@ public class IncludesCommitCriteria extends EntityCriteria<PullRequest> {
 	private final String value;
 	
 	public IncludesCommitCriteria(@Nullable Project project, String value) {
-		ProjectAwareCommit commitId = EntityQuery.getCommitId(project, value);
+		ProjectScopedCommit commitId = EntityQuery.getCommitId(project, value);
 		this.project = commitId.getProject();
 		this.commitId = commitId.getCommitId();
 		this.value = value;
@@ -47,7 +47,7 @@ public class IncludesCommitCriteria extends EntityCriteria<PullRequest> {
 	}
 	
 	private Collection<Long> getPullRequestIds() {
-		return OneDev.getInstance(CodeCommentRelationInfoManager.class).getPullRequestIds(project, commitId);		
+		return OneDev.getInstance(PullRequestInfoManager.class).getPullRequestIds(project, commitId);		
 	}
 	
 	@Override
@@ -56,7 +56,7 @@ public class IncludesCommitCriteria extends EntityCriteria<PullRequest> {
 	}
 
 	@Override
-	public String asString() {
+	public String toStringWithoutParens() {
 		return PullRequestQuery.getRuleName(PullRequestQueryLexer.IncludesCommit) + " " + quote(value);
 	}
 

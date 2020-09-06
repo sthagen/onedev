@@ -16,7 +16,9 @@ public class MailSetting implements Serializable {
 	
 	private int smtpPort = 587;
 	
-	private boolean enableSSL;
+	private boolean enableStartTLS = true;
+	
+	private boolean sendAsHtml = true;
 	
 	private String smtpUser;
 	
@@ -38,10 +40,7 @@ public class MailSetting implements Serializable {
 		this.smtpHost = smtpHost;
 	}
 
-	@Editable(order=200, name="SMTP Port", description=
-		"Specify port number for the above SMTP host. This port number "
-		+ "will be used if the option 'Use SMTP over SSL' is not checked."
-		)
+	@Editable(order=200, name="SMTP Port")
 	public int getSmtpPort() {
 		return smtpPort;
 	}
@@ -50,13 +49,23 @@ public class MailSetting implements Serializable {
 		this.smtpPort = smtpPort;
 	}
 
-	@Editable(order=250, name="Enable SSL", description="Whether or not to enable SSL")
-	public boolean isEnableSSL() {
-		return enableSSL;
+	@Editable(order=250, name="Enable STARTTLS", description="Whether or not to enable STARTTLS on above port")
+	public boolean isEnableStartTLS() {
+		return enableStartTLS;
 	}
 
-	public void setEnableSSL(boolean enableSSL) {
-		this.enableSSL = enableSSL;
+	public void setEnableStartTLS(boolean enableStartTLS) {
+		this.enableStartTLS = enableStartTLS;
+	}
+
+	@Editable(order=260, name="Send as Html", description=
+			"If checked, mail will be sent in html format. Otherwise in plain text format")
+	public boolean isSendAsHtml() {
+		return sendAsHtml;
+	}
+
+	public void setSendAsHtml(boolean sendAsHtml) {
+		this.sendAsHtml = sendAsHtml;
 	}
 
 	@Editable(order=300, name="SMTP User", description=

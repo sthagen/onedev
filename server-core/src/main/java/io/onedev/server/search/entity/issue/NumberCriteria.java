@@ -60,8 +60,8 @@ public class NumberCriteria extends IssueCriteria {
 	}
 
 	@Override
-	public String asString() {
-		return quote(Issue.FIELD_NUMBER) + " " 
+	public String toStringWithoutParens() {
+		return quote(Issue.NAME_NUMBER) + " " 
 				+ IssueQuery.getRuleName(operator) + " " 
 				+ quote(value);
 	}

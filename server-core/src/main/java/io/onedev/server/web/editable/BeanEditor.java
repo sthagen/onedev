@@ -35,7 +35,9 @@ import org.apache.wicket.validation.IValidator;
 import io.onedev.commons.launcher.loader.AppLoader;
 import io.onedev.server.util.ComponentContext;
 import io.onedev.server.util.EditContext;
-import io.onedev.server.web.editable.PathNode.Named;
+import io.onedev.server.util.Path;
+import io.onedev.server.util.PathNode;
+import io.onedev.server.util.PathNode.Named;
 import io.onedev.server.web.editable.annotation.Horizontal;
 import io.onedev.server.web.editable.annotation.OmitName;
 import io.onedev.server.web.editable.annotation.Vertical;
@@ -122,11 +124,14 @@ public class BeanEditor extends ValueEditor<Serializable> {
 					}
 				}
 			}				
-			validate();
-			if (isValid()) 
-				send(this, Broadcast.BUBBLE, new BeanUpdating(propertyUpdating.getHandler()));
-			else
-				clearErrors();
+			
+			convertInput();
+			clearErrors();
+			/**
+			 * Bump up event even if some properties are invalid as we may need to do something with 
+			 * partial properties of the bean. For instance to update issue description template
+			 */
+			send(this, Broadcast.BUBBLE, new BeanUpdating(propertyUpdating.getHandler()));
 		}		
 	}
 

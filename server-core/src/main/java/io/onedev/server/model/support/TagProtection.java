@@ -8,8 +8,8 @@ import org.hibernate.validator.constraints.NotEmpty;
 
 import io.onedev.commons.codeassist.InputSuggestion;
 import io.onedev.server.model.Project;
-import io.onedev.server.util.Usage;
 import io.onedev.server.util.patternset.PatternSet;
+import io.onedev.server.util.usage.Usage;
 import io.onedev.server.util.usermatch.Anyone;
 import io.onedev.server.util.usermatch.UserMatch;
 import io.onedev.server.web.editable.annotation.Editable;
@@ -43,8 +43,9 @@ public class TagProtection implements Serializable {
 		this.enabled = enabled;
 	}
 
-	@Editable(order=100, description="Specify space-separated tags to be protected. Use * or ? for wildcard match")
-	@Patterns(suggester = "suggestTags")
+	@Editable(order=100, description="Specify space-separated tags to be protected. Use '**', '*' or '?' for <a href='$docRoot/pages/path-wildcard.md' target='_blank'>path wildcard match</a>. "
+			+ "Prefix with '-' to exclude")
+	@Patterns(suggester = "suggestTags", path=true)
 	@NotEmpty
 	public String getTags() {
 		return tags;

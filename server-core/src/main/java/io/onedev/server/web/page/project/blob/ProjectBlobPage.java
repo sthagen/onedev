@@ -86,7 +86,7 @@ import io.onedev.server.search.code.SearchManager;
 import io.onedev.server.search.code.hit.QueryHit;
 import io.onedev.server.search.code.query.BlobQuery;
 import io.onedev.server.search.code.query.TextQuery;
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.script.identity.JobIdentity;
 import io.onedev.server.util.script.identity.ScriptIdentity;
 import io.onedev.server.util.script.identity.ScriptIdentityAware;
@@ -95,7 +95,7 @@ import io.onedev.server.web.behavior.AbstractPostAjaxBehavior;
 import io.onedev.server.web.behavior.WebSocketObserver;
 import io.onedev.server.web.component.commit.status.CommitStatusPanel;
 import io.onedev.server.web.component.floating.FloatingPanel;
-import io.onedev.server.web.component.link.ArchiveMenuLink;
+import io.onedev.server.web.component.link.DropdownLink;
 import io.onedev.server.web.component.link.ViewStateAwareAjaxLink;
 import io.onedev.server.web.component.link.ViewStateAwarePageLink;
 import io.onedev.server.web.component.menu.MenuItem;
@@ -103,7 +103,6 @@ import io.onedev.server.web.component.menu.MenuLink;
 import io.onedev.server.web.component.modal.ModalLink;
 import io.onedev.server.web.component.modal.ModalPanel;
 import io.onedev.server.web.component.revisionpicker.RevisionPicker;
-import io.onedev.server.web.download.RawBlobDownloadResourceReference;
 import io.onedev.server.web.page.project.ProjectPage;
 import io.onedev.server.web.page.project.blob.navigator.BlobNavigator;
 import io.onedev.server.web.page.project.blob.render.BlobRenderContext;
@@ -115,6 +114,7 @@ import io.onedev.server.web.page.project.blob.search.advanced.AdvancedSearchPane
 import io.onedev.server.web.page.project.blob.search.quick.QuickSearchPanel;
 import io.onedev.server.web.page.project.blob.search.result.SearchResultPanel;
 import io.onedev.server.web.page.project.commits.ProjectCommitsPage;
+import io.onedev.server.web.resource.RawBlobResourceReference;
 import io.onedev.server.web.util.EditParamsAware;
 import io.onedev.server.web.websocket.WebSocketManager;
 
@@ -194,7 +194,7 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 		state.urlAfterEdit = params.get(PARAM_URL_AFTER_EDIT).toString();
 
 		if (state.blobIdent.revision != null)
-			resolvedRevision = getProject().getObjectId(state.blobIdent.revision, true);
+			resolvedRevision = getProject().getRevCommit(state.blobIdent.revision, true).copy();
 		
 		state.position = params.get(PARAM_POSITION).toString();
 		
@@ -219,7 +219,7 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 		
 		if (params.get(PARAM_RAW).toBoolean(false)) {
 			RequestCycle.get().scheduleRequestHandlerAfterCurrent(
-					new ResourceReferenceRequestHandler(new RawBlobDownloadResourceReference(), getPageParameters()));
+					new ResourceReferenceRequestHandler(new RawBlobResourceReference(), getPageParameters()));
 		}
 	}
 	
@@ -330,6 +330,13 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 						}
 						
 					};
+					break;
+				case "permalink":
+					if (isOnBranch()) {
+						BlobIdent newBlobIdent = new BlobIdent(state.blobIdent);
+						newBlobIdent.revision = resolvedRevision.name();
+						ProjectBlobPage.this.onSelect(target, newBlobIdent, null);
+					}
 					break;
 				default:
 					throw new IllegalStateException("Unexpected action: " + action);
@@ -596,17 +603,29 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 		blobOperations.add(new ViewStateAwarePageLink<Void>("history", ProjectCommitsPage.class, 
 				ProjectCommitsPage.paramsOf(getProject(), query, compareWith)));
 		
-		blobOperations.add(new ArchiveMenuLink("download", projectModel) {
-
-			@Override
-			protected String getRevision() {
-				return state.blobIdent.revision;
-			}
+		blobOperations.add(new DropdownLink("cloneOrDownload") {
 
 			@Override
 			protected void onConfigure() {
 				super.onConfigure();
 				setVisible(state.blobIdent.revision != null && state.blobIdent.path == null);
+			}
+
+			@Override
+			protected Component newContent(String id, FloatingPanel dropdown) {
+				return new CloneOrDownloadPanel(id, this) {
+					
+					@Override
+					protected Project getProject() {
+						return ProjectBlobPage.this.getProject();
+					}
+
+					@Override
+					protected String getRevision() {
+						return state.blobIdent.revision;
+					}
+					
+				};
 			}
 
 		});
@@ -784,8 +803,9 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 			protected void onConfigure() {
 				super.onConfigure();
 				if (resolvedRevision != null && isOnBranch() && state.blobIdent.path == null && state.mode == Mode.VIEW) {
+					BlobIdent oldBlobIdent = new BlobIdent(resolvedRevision.name(), ".onedev-buildspec", FileMode.TYPE_FILE);
 					BlobIdent blobIdent = new BlobIdent(resolvedRevision.name(), BuildSpec.BLOB_PATH, FileMode.TYPE_FILE);
-					setVisible(getProject().getBlob(blobIdent, false) == null);
+					setVisible(getProject().getBlob(blobIdent, false) == null && getProject().getBlob(oldBlobIdent, false) == null);
 				} else {
 					setVisible(false);
 				}
@@ -813,6 +833,13 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 		
 		Component revisionPicker = new RevisionPicker(REVISION_PICKER_ID, projectModel, revision, canCreateRef) {
 	
+			@Override
+			protected void onComponentTag(ComponentTag tag) {
+				super.onComponentTag(tag);
+				if (isOnBranch())
+					tag.put("title", "Press 'y' to get permalink");
+			}
+
 			@Override
 			protected String getRevisionUrl(String revision) {
 				BlobIdent blobIdent = new BlobIdent(revision, null, FileMode.TREE.getBits());
@@ -868,7 +895,7 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 		 * resolved to existing value of resolvedRevision
 		 */
 		resolvedRevision = null;
-		resolvedRevision = getProject().getObjectId(state.blobIdent.revision, true);
+		resolvedRevision = getProject().getRevCommit(state.blobIdent.revision, true).copy();
 		
 		OneDev.getInstance(WebSocketManager.class).observe(this);
 		newRevisionPicker(target);
@@ -894,11 +921,11 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 	}
 
 	public static ProjectBlobPage.State getState(CodeComment comment) {
-		BlobIdent blobIdent = new BlobIdent(comment.getMarkPos().getCommit(), comment.getMarkPos().getPath(), 
+		BlobIdent blobIdent = new BlobIdent(comment.getMark().getCommitHash(), comment.getMark().getPath(), 
 				FileMode.REGULAR_FILE.getBits());
 		ProjectBlobPage.State state = new ProjectBlobPage.State(blobIdent);
 		state.commentId = comment.getId();
-		state.position = SourceRendererProvider.getPosition(comment.getMarkPos().getRange());
+		state.position = SourceRendererProvider.getPosition(comment.getMark().getRange());
 		return state;
 	}	
 	
@@ -1112,16 +1139,18 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 
 	@Override
 	public void onCommentOpened(AjaxRequestTarget target, CodeComment comment) {
-		if (comment != null) {
-			state.commentId = comment.getId();
-			state.position = SourceRendererProvider.getPosition(Preconditions.checkNotNull(comment.mapRange(state.blobIdent)));
-		} else {
-			state.commentId = null;
-			state.position = null;
-		}
+		state.commentId = comment.getId();
+		state.position = SourceRendererProvider.getPosition(Preconditions.checkNotNull(comment.mapRange(state.blobIdent)));
 		pushState(target);
 	}
 
+	@Override
+	public void onCommentClosed(AjaxRequestTarget target) {
+		state.commentId = null;
+		state.position = null;
+		pushState(target);
+	}
+	
 	@Override
 	public void onAddComment(AjaxRequestTarget target, PlanarRange range) {
 		state.commentId = null;
@@ -1157,7 +1186,7 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 		public Mode mode = Mode.VIEW;
 		
 		/*
-		 * Some blob can be rendered in a way for easier understanding, such as .onedev-buildspec, 
+		 * Some blob can be rendered in a way for easier understanding, such as .onedev-buildspec.yml, 
 		 * In these cases, the VIEW_PLAIN mode enables to view plain text of the blob. Applicable
 		 * only when mode is VIEW 
 		 */
@@ -1409,7 +1438,7 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 
 		ObjectId prevCommitId;
 		if (blobIdent.revision != null)
-			prevCommitId = getProject().getObjectId(blobIdent.revision, true);
+			prevCommitId = getProject().getRevCommit(blobIdent.revision, true).copy();
 		else
 			prevCommitId = ObjectId.zeroId();
 

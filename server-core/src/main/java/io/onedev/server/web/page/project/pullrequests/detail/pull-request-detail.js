@@ -6,9 +6,27 @@ onedev.server.pullRequestDetail = {
 			$main.outerHeight($(window).height() - $main.offset().top);
 		}
 		adjustHeight();
-		$main.addClass("resize-aware").on("resized", adjustHeight);
+		$main.on("resized", adjustHeight);
 		$main.scroll(function() {
 			$main.find(".scroll-aware").addBack(".scroll-aware").trigger("scrolled");
 		});
+	},
+	onSummaryDomReady: function() {
+		var $summary = $("#request-detail>.main>.summary");
+		
+		$summary.find(".more-info").click(function() {
+			$("#request-detail>.main>.status-and-branches .more-info").trigger("click");
+		});
+		
+		function modifyMoreInfoLink() {
+			$summary.find(".more-info").each(function() {
+				if ($("#request-detail>.main>.status-and-branches .more-info").is(":visible"))
+					$(this).removeClass("not-link");
+				else 
+					$(this).addClass("not-link");
+			});
+		}
+		modifyMoreInfoLink();
+		$summary.on("resized", modifyMoreInfoLink);
 	}
 }

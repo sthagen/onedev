@@ -36,8 +36,8 @@ public class ProjectCriteria extends IssueCriteria {
 	}
 
 	@Override
-	public String asString() {
-		return quote(Issue.FIELD_PROJECT) + " " 
+	public String toStringWithoutParens() {
+		return quote(Issue.NAME_PROJECT) + " " 
 				+ IssueQuery.getRuleName(IssueQueryLexer.Is) + " " 
 				+ quote(projectName);
 	}

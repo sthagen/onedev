@@ -26,8 +26,8 @@ import io.onedev.server.model.Issue;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.PullRequest;
 import io.onedev.server.model.User;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.ContentDetector;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.util.markdown.MarkdownManager;
 import io.onedev.server.util.match.MatchScoreProvider;
 import io.onedev.server.util.match.MatchScoreUtils;
@@ -66,9 +66,8 @@ abstract class MarkdownBlobEditor extends FormComponentPanel<byte[]> {
 
 			@Override
 			protected String renderMarkdown(String markdown) {
-				MarkdownManager markdownManager = OneDev.getInstance(MarkdownManager.class);
-				String html = markdownManager.render(markdown);
-				return markdownManager.process(context.getProject(), html, context);
+				MarkdownManager manager = OneDev.getInstance(MarkdownManager.class);
+				return manager.process(manager.render(markdown), context.getProject(), context);
 			}
 
 			@Override

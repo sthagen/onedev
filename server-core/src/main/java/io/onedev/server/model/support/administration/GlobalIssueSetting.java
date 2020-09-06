@@ -9,37 +9,38 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import javax.annotation.Nullable;
 
 import com.google.common.collect.Lists;
 
 import edu.emory.mathcs.backport.java.util.Collections;
-import io.onedev.server.OneDev;
-import io.onedev.server.OneException;
-import io.onedev.server.entitymanager.RoleManager;
-import io.onedev.server.issue.BoardSpec;
-import io.onedev.server.issue.StateSpec;
-import io.onedev.server.issue.TransitionSpec;
-import io.onedev.server.issue.fieldspec.BuildChoiceField;
-import io.onedev.server.issue.fieldspec.ChoiceField;
-import io.onedev.server.issue.fieldspec.FieldSpec;
-import io.onedev.server.issue.fieldspec.UserChoiceField;
-import io.onedev.server.issue.transitiontrigger.BranchUpdateTrigger;
-import io.onedev.server.issue.transitiontrigger.BuildSuccessfulTrigger;
-import io.onedev.server.issue.transitiontrigger.PressButtonTrigger;
+import io.onedev.server.GeneralException;
 import io.onedev.server.model.Issue;
-import io.onedev.server.model.Project;
+import io.onedev.server.model.support.inputspec.choiceinput.choiceprovider.Choice;
+import io.onedev.server.model.support.inputspec.choiceinput.choiceprovider.SpecifiedChoices;
+import io.onedev.server.model.support.inputspec.choiceinput.defaultvalueprovider.SpecifiedDefaultValue;
+import io.onedev.server.model.support.inputspec.showcondition.ShowCondition;
+import io.onedev.server.model.support.inputspec.showcondition.ValueIsOneOf;
+import io.onedev.server.model.support.issue.BoardSpec;
+import io.onedev.server.model.support.issue.IssueTemplate;
 import io.onedev.server.model.support.issue.NamedIssueQuery;
+import io.onedev.server.model.support.issue.StateSpec;
+import io.onedev.server.model.support.issue.TransitionSpec;
+import io.onedev.server.model.support.issue.fieldspec.BuildChoiceField;
+import io.onedev.server.model.support.issue.fieldspec.ChoiceField;
+import io.onedev.server.model.support.issue.fieldspec.FieldSpec;
+import io.onedev.server.model.support.issue.fieldspec.UserChoiceField;
+import io.onedev.server.model.support.issue.transitiontrigger.BranchUpdateTrigger;
+import io.onedev.server.model.support.issue.transitiontrigger.BuildSuccessfulTrigger;
+import io.onedev.server.model.support.issue.transitiontrigger.PressButtonTrigger;
 import io.onedev.server.search.entity.issue.IssueQuery;
-import io.onedev.server.util.Usage;
-import io.onedev.server.util.ValueSetEdit;
-import io.onedev.server.util.inputspec.choiceinput.choiceprovider.Choice;
-import io.onedev.server.util.inputspec.choiceinput.choiceprovider.SpecifiedChoices;
-import io.onedev.server.util.inputspec.choiceinput.defaultvalueprovider.SpecifiedDefaultValue;
-import io.onedev.server.util.inputspec.showcondition.ShowCondition;
-import io.onedev.server.util.inputspec.showcondition.ValueIsOneOf;
+import io.onedev.server.util.usage.Usage;
+import io.onedev.server.web.component.issue.workflowreconcile.ReconcileUtils;
+import io.onedev.server.web.component.issue.workflowreconcile.UndefinedFieldResolution;
+import io.onedev.server.web.component.issue.workflowreconcile.UndefinedFieldValue;
+import io.onedev.server.web.component.issue.workflowreconcile.UndefinedFieldValuesResolution;
+import io.onedev.server.web.component.issue.workflowreconcile.UndefinedStateResolution;
 import io.onedev.server.web.editable.annotation.Editable;
 
 @Editable
@@ -49,17 +50,19 @@ public class GlobalIssueSetting implements Serializable {
 	
 	private List<StateSpec> stateSpecs = new ArrayList<>();
 	
-	private List<TransitionSpec> defaultTransitionSpecs = new ArrayList<>();
+	private List<TransitionSpec> transitionSpecs = new ArrayList<>();
 	
 	private List<FieldSpec> fieldSpecs = new ArrayList<>();
 	
-	private Collection<String> defaultPromptFieldsUponIssueOpen = new HashSet<>();
+	private Collection<String> promptFieldsUponIssueOpen = new HashSet<>();
 	
-	private List<BoardSpec> defaultBoardSpecs = new ArrayList<>();
+	private List<BoardSpec> boardSpecs = new ArrayList<>();
 	
 	private List<String> listFields = new ArrayList<>();
 	
 	private List<NamedIssueQuery> namedQueries = new ArrayList<>();
+	
+	private List<IssueTemplate> issueTemplates = new ArrayList<>();
 	
 	private boolean reconciled = true;
 	
@@ -160,70 +163,42 @@ public class GlobalIssueSetting implements Serializable {
 		showCondition.setValueMatcher(valueIsOneOf);
 		failedBuild.setShowCondition(showCondition);
 		
-		BuildChoiceField affectedBuilds = new BuildChoiceField();
-		affectedBuilds.setName("Seen Builds");
-		affectedBuilds.setAllowMultiple(true);
-		
-		showCondition = new ShowCondition();
-		showCondition.setInputName("Type");
-		valueIsOneOf = new ValueIsOneOf();
-		valueIsOneOf.setValues(Lists.newArrayList("Bug"));
-		showCondition.setValueMatcher(valueIsOneOf);
-		affectedBuilds.setShowCondition(showCondition);
-		
-		fieldSpecs.add(affectedBuilds);
-		
 		StateSpec open = new StateSpec();
 		open.setName("Open");
 		open.setColor("#f0ad4e");
 		
 		stateSpecs.add(open);
 		
-		StateSpec committed = new StateSpec();
-		committed.setColor("#b4a7d6");
-		committed.setName("Committed");
-		
-		stateSpecs.add(committed);
-		
-		StateSpec invalid = new StateSpec();
-		invalid.setColor("#999999");
-		invalid.setName("Invalid");
-		
-		stateSpecs.add(invalid);
-		
 		StateSpec closed = new StateSpec();
-		closed.setColor("#5cb85c");
+		closed.setColor("#674EA7");
 		closed.setName("Closed");
 		
 		stateSpecs.add(closed);
 		
+		StateSpec released = new StateSpec();
+		released.setColor("#3EB650");
+		released.setName("Released");
+		
+		stateSpecs.add(released);
+		
 		TransitionSpec transition = new TransitionSpec();
 		transition.setFromStates(Lists.newArrayList("Open"));
-		transition.setToState("Committed");
-		BranchUpdateTrigger branchUpdateTrigger = new BranchUpdateTrigger();
-		transition.setTrigger(branchUpdateTrigger);
-		
-		defaultTransitionSpecs.add(transition);
-		
-		transition = new TransitionSpec();
-		transition.setFromStates(Lists.newArrayList("Open", "Committed"));
 		transition.setToState("Closed");
 		PressButtonTrigger pressButton = new PressButtonTrigger();
 		pressButton.setButtonLabel("Close");
-		pressButton.setAuthorizedRoles(Lists.newArrayList("Developer", "Tester"));
+		pressButton.setAuthorizedRoles(Lists.newArrayList("Code Writer", "Code Reader"));
 		transition.setTrigger(pressButton);
 		
-		defaultTransitionSpecs.add(transition);
+		transitionSpecs.add(transition);
 		
 		transition = new TransitionSpec();
-		transition.setFromStates(Lists.newArrayList("Open", "Committed"));
-		transition.setToState("Invalid");
-		pressButton = new PressButtonTrigger();
-		pressButton.setButtonLabel("Invalid");
-		pressButton.setAuthorizedRoles(Lists.newArrayList("Developer", "Tester"));
-		transition.setTrigger(pressButton);
+		transition.setFromStates(Lists.newArrayList("Open"));
+		transition.setToState("Closed");
+		BranchUpdateTrigger branchUpdate = new BranchUpdateTrigger();
+		branchUpdate.setBranches("master");
+		transition.setTrigger(branchUpdate);
 		
-		defaultTransitionSpecs.add(transition);
+		transitionSpecs.add(transition);
 		
 		transition = new TransitionSpec();
 		transition.setFromStates(Lists.newArrayList("Open"));
@@ -233,41 +208,42 @@ public class GlobalIssueSetting implements Serializable {
 		buildSuccessful.setIssueQuery("\"Type\" is \"Build Failure\" and (\"Failed Build\" is current or \"Failed Build\" is previous)");
 		transition.setTrigger(buildSuccessful);
 		
-		defaultTransitionSpecs.add(transition);
+		transitionSpecs.add(transition);
 		
 		transition = new TransitionSpec();
-		transition.setFromStates(Lists.newArrayList("Open", "Committed"));
-		transition.setToState("Closed");
+		transition.setFromStates(Lists.newArrayList("Open", "Closed"));
+		transition.setToState("Released");
 		buildSuccessful = new BuildSuccessfulTrigger();
 		buildSuccessful.setBranches("master");
+		buildSuccessful.setJobNames("Release");
 		buildSuccessful.setIssueQuery("fixed in current build");
 		transition.setTrigger(buildSuccessful);
 
-		defaultTransitionSpecs.add(transition);
-		
+		transitionSpecs.add(transition);
+ 		
 		transition = new TransitionSpec();
-		transition.setFromStates(Lists.newArrayList("Committed", "Invalid", "Closed"));
+		transition.setFromStates(Lists.newArrayList("Closed", "Released"));
 		transition.setToState("Open");
 		pressButton = new PressButtonTrigger();
 		pressButton.setButtonLabel("Reopen");
-		pressButton.setAuthorizedRoles(Lists.newArrayList("Developer", "Tester"));
+		pressButton.setAuthorizedRoles(Lists.newArrayList("Code Writer", "Code Reader"));
 		transition.setTrigger(pressButton);
 		
-		defaultTransitionSpecs.add(transition);
+		transitionSpecs.add(transition);
 		
-		defaultPromptFieldsUponIssueOpen.add("Type");
-		defaultPromptFieldsUponIssueOpen.add("Priority");
-		defaultPromptFieldsUponIssueOpen.add("Assignees");
-		defaultPromptFieldsUponIssueOpen.add("Failed Build");
-		defaultPromptFieldsUponIssueOpen.add("Seen Builds");
+		promptFieldsUponIssueOpen.add("Type");
+		promptFieldsUponIssueOpen.add("Priority");
+		promptFieldsUponIssueOpen.add("Assignees");
+		promptFieldsUponIssueOpen.add("Failed Build");
 		
 		BoardSpec board = new BoardSpec();
-		board.setName(Issue.FIELD_STATE);
-		board.setIdentifyField(Issue.FIELD_STATE);
-		board.setColumns(Lists.newArrayList("Open", "Committed", "Closed"));
-		board.setDisplayFields(Lists.newArrayList(Issue.FIELD_STATE, "Type", "Priority", "Assignees"));
-		defaultBoardSpecs.add(board);
+		board.setName(Issue.NAME_STATE);
+		board.setIdentifyField(Issue.NAME_STATE);
+		board.setColumns(Lists.newArrayList("Open", "Closed", "Released"));
+		board.setDisplayFields(Lists.newArrayList(Issue.NAME_STATE, "Type", "Priority", "Assignees"));
+		boardSpecs.add(board);
 		
+		listFields.add(Issue.NAME_STATE);
 		listFields.add("Type");
 		listFields.add("Priority");
 		listFields.add("Assignees");
@@ -281,9 +257,9 @@ public class GlobalIssueSetting implements Serializable {
 		namedQueries.add(new NamedIssueQuery("Updated recently", "\"Update Date\" is after \"last week\""));
 		namedQueries.add(new NamedIssueQuery("Open & Critical", "\"State\" is \"Open\" and \"Priority\" is \"Critical\""));
 		namedQueries.add(new NamedIssueQuery("Open & Unassigned", "\"State\" is \"Open\" and \"Assignees\" is empty"));
-		namedQueries.add(new NamedIssueQuery("Committed", "\"State\" is \"Committed\""));
 		namedQueries.add(new NamedIssueQuery("Closed", "\"State\" is \"Closed\""));
-		namedQueries.add(new NamedIssueQuery("Invalid", "\"State\" is \"Invalid\""));
+		namedQueries.add(new NamedIssueQuery("Released", "\"State\" is \"Released\""));
+		namedQueries.add(new NamedIssueQuery("All", null));
 	}
 	
 	public List<String> sortFieldNames(Collection<String> fieldNames) {
@@ -308,12 +284,12 @@ public class GlobalIssueSetting implements Serializable {
 		this.stateSpecs = stateSpecs;
 	}
 
-	public List<TransitionSpec> getDefaultTransitionSpecs() {
-		return defaultTransitionSpecs;
+	public List<TransitionSpec> getTransitionSpecs() {
+		return transitionSpecs;
 	}
 
-	public void setDefaultTransitionSpecs(List<TransitionSpec> defaultStateTransitions) {
-		this.defaultTransitionSpecs = defaultStateTransitions;
+	public void setTransitionSpecs(List<TransitionSpec> transitionSpecs) {
+		this.transitionSpecs = transitionSpecs;
 	}
 
 	@Editable
@@ -325,12 +301,12 @@ public class GlobalIssueSetting implements Serializable {
 		this.fieldSpecs = fieldSpecs;
 	}
 
-	public Collection<String> getDefaultPromptFieldsUponIssueOpen() {
-		return defaultPromptFieldsUponIssueOpen;
+	public Collection<String> getPromptFieldsUponIssueOpen() {
+		return promptFieldsUponIssueOpen;
 	}
 
-	public void setDefaultPromptFieldsUponIssueOpen(Collection<String> defaultPromptFieldsUponIssueOpen) {
-		this.defaultPromptFieldsUponIssueOpen = defaultPromptFieldsUponIssueOpen;
+	public void setPromptFieldsUponIssueOpen(Collection<String> promptFieldsUponIssueOpen) {
+		this.promptFieldsUponIssueOpen = promptFieldsUponIssueOpen;
 	}
 
 	public boolean isReconciled() {
@@ -361,44 +337,6 @@ public class GlobalIssueSetting implements Serializable {
 		return new ArrayList<>(getFieldSpecMap(null).keySet());
 	}
 	
-	public void onDeleteState(String stateName) {
-		for (Iterator<TransitionSpec> it = getDefaultTransitionSpecs().iterator(); it.hasNext();) {
-			if (it.next().onDeleteState(stateName))
-				it.remove();
-		}
-		for (Iterator<BoardSpec> it = getDefaultBoardSpecs().iterator(); it.hasNext();) {
-			if (it.next().onDeleteState(stateName))
-				it.remove();
-		}
-		
-		for (Iterator<NamedIssueQuery> it = getNamedQueries().iterator(); it.hasNext();) {
-			NamedIssueQuery namedQuery = it.next();
-			try {
-				IssueQuery query = IssueQuery.parse(null, namedQuery.getQuery(), false, true, true, true, true);
-				if (query.onDeleteState(stateName))
-					it.remove();
-				else
-					namedQuery.setQuery(query.toString());
-			} catch (Exception e) {
-			}
-		}
-	}
-	
-	public void onRenameState(String oldName, String newName) {
-		for (TransitionSpec transition: getDefaultTransitionSpecs())
-			transition.onRenameState(oldName, newName);
-		for (BoardSpec board: getDefaultBoardSpecs())
-			board.onRenameState(oldName, newName);
-		for (NamedIssueQuery namedQuery: getNamedQueries()) {
-			try {
-				IssueQuery query = IssueQuery.parse(null, namedQuery.getQuery(), false, true, true, true, true);
-				query.onRenameState(oldName, newName);
-				namedQuery.setQuery(query.toString());
-			} catch (Exception e) {
-			}
-		}
-	}
-	
 	@Nullable
 	public StateSpec getStateSpec(String stateName) {
 		return getStateSpecMap().get(stateName);
@@ -408,76 +346,129 @@ public class GlobalIssueSetting implements Serializable {
 	public FieldSpec getFieldSpec(String fieldName) {
 		return getFieldSpecMap(null).get(fieldName);
 	}
-
-	public void onEditFieldValues(@Nullable Project project, String fieldName, ValueSetEdit valueSetEdit) {
-		for (Iterator<TransitionSpec> it = getDefaultTransitionSpecs().iterator(); it.hasNext();) {
-			TransitionSpec transition = it.next();
-			if (transition.onEditFieldValues(fieldName, valueSetEdit))
-				it.remove();
-		}
-		for (Iterator<BoardSpec> it = getDefaultBoardSpecs().iterator(); it.hasNext();) {
-			if (it.next().onEditFieldValues(project, fieldName, valueSetEdit))
-				it.remove();
-		}
-		
-		for (Iterator<NamedIssueQuery> it = getNamedQueries().iterator(); it.hasNext();) {
-			NamedIssueQuery namedQuery = it.next();
-			try {
-				IssueQuery query = IssueQuery.parse(null, namedQuery.getQuery(), false, true, true, true, true);
-				if (query.onEditFieldValues(fieldName, valueSetEdit))
-					it.remove();
-				else
-					namedQuery.setQuery(query.toString());
-			} catch (Exception e) {
-			}
-		}
-		Set<String> deletedFields = new HashSet<>();
-		for (Iterator<FieldSpec> it = getFieldSpecs().iterator(); it.hasNext();) {
-			FieldSpec field = it.next();
-			if (field.onEditInputValues(fieldName, valueSetEdit)) {
-				it.remove();
-				deletedFields.add(field.getName());
-			}
-		}
-		for (String deletedField: deletedFields) {
-			onDeleteField(deletedField);
-			OneDev.getInstance(RoleManager.class).onDeleteIssueField(deletedField);
-		}
-	}
 	
-	public void onRenameField(String oldName, String newName) {
-		for (TransitionSpec transition: getDefaultTransitionSpecs())
-			transition.onRenameField(oldName, newName);
-		for (FieldSpec field: getFieldSpecs())
-			field.onRenameInput(oldName, newName);
-		for (BoardSpec board: getDefaultBoardSpecs())
-			board.onRenameField(oldName, newName);
+	public Collection<String> getUndefinedStates() {
+		Collection<String> undefinedStates = new HashSet<>();
+		for (TransitionSpec transition: getTransitionSpecs())
+			undefinedStates.addAll(transition.getUndefinedStates());
+		for (BoardSpec board: getBoardSpecs())
+			undefinedStates.addAll(board.getUndefinedStates(null));
+		for (IssueTemplate template: getIssueTemplates())
+			undefinedStates.addAll(template.getUndefinedStates());
 		for (NamedIssueQuery namedQuery: getNamedQueries()) {
 			try {
 				IssueQuery query = IssueQuery.parse(null, namedQuery.getQuery(), false, true, true, true, true);
-				query.onRenameField(oldName, newName);
-				namedQuery.setQuery(query.toString());
+				undefinedStates.addAll(query.getUndefinedStates());
 			} catch (Exception e) {
 			}
 		}
+		return undefinedStates;
 	}
 	
-	public void onDeleteField(String fieldName) {
-		for (Iterator<TransitionSpec> it = getDefaultTransitionSpecs().iterator(); it.hasNext();) { 
-			if (it.next().onDeleteField(fieldName))
-				it.remove();
+	public Collection<String> getUndefinedFields() {
+		Collection<String> undefinedFields = new HashSet<>();
+		for (String fieldName: listFields) {
+			if (!fieldName.equals(Issue.NAME_STATE) && getFieldSpec(fieldName) == null)
+				undefinedFields.add(fieldName);
+		}
+		for (String fieldName: promptFieldsUponIssueOpen) {
+			if (getFieldSpec(fieldName) == null)
+				undefinedFields.add(fieldName);
 		}
 		
-		for (Iterator<BoardSpec> it = getDefaultBoardSpecs().iterator(); it.hasNext();) {
-			if (it.next().onDeleteField(fieldName))
+		for (TransitionSpec transition: getTransitionSpecs())
+			undefinedFields.addAll(transition.getUndefinedFields());
+		for (FieldSpec field: getFieldSpecs())
+			undefinedFields.addAll(field.getUndefinedFields());
+		for (BoardSpec board: getBoardSpecs())
+			undefinedFields.addAll(board.getUndefinedFields(null));
+		for (IssueTemplate template: getIssueTemplates())
+			undefinedFields.addAll(template.getUndefinedFields());
+		for (NamedIssueQuery namedQuery: getNamedQueries()) {
+			try {
+				IssueQuery query = IssueQuery.parse(null, namedQuery.getQuery(), false, true, true, true, true);
+				undefinedFields.addAll(query.getUndefinedFields());
+			} catch (Exception e) {
+			}
+		}
+		return undefinedFields;
+	}
+	
+	public Collection<UndefinedFieldValue> getUndefinedFieldValues() {
+		Collection<UndefinedFieldValue> undefinedFieldValues = new HashSet<>();
+		for (TransitionSpec transition: getTransitionSpecs())
+			undefinedFieldValues.addAll(transition.getUndefinedFieldValues());
+		for (FieldSpec field: getFieldSpecs())
+			undefinedFieldValues.addAll(field.getUndefinedFieldValues());
+		for (BoardSpec board: getBoardSpecs())
+			undefinedFieldValues.addAll(board.getUndefinedFieldValues(null));
+		for (IssueTemplate template: getIssueTemplates())
+			undefinedFieldValues.addAll(template.getUndefinedFieldValues());
+		for (NamedIssueQuery namedQuery: getNamedQueries()) {
+			try {
+				IssueQuery query = IssueQuery.parse(null, namedQuery.getQuery(), false, true, true, true, true);
+				undefinedFieldValues.addAll(query.getUndefinedFieldValues());
+			} catch (Exception e) {
+			}
+		}
+		return undefinedFieldValues;
+	}
+	
+	public void fixUndefinedStates(Map<String, UndefinedStateResolution> resolutions) {
+		for (Iterator<TransitionSpec> it = getTransitionSpecs().iterator(); it.hasNext();) {
+			if (it.next().fixUndefinedStates(resolutions))
 				it.remove();
 		}
-
+		for (Iterator<BoardSpec> it = getBoardSpecs().iterator(); it.hasNext();) {
+			if (it.next().fixUndefinedStates(null, resolutions))
+				it.remove();
+		}
+		for (Iterator<IssueTemplate> it = getIssueTemplates().iterator(); it.hasNext();) {
+			if (it.next().fixUndefinedStates(resolutions))
+				it.remove();
+		}
 		for (Iterator<NamedIssueQuery> it = getNamedQueries().iterator(); it.hasNext();) {
 			NamedIssueQuery namedQuery = it.next();
 			try {
 				IssueQuery query = IssueQuery.parse(null, namedQuery.getQuery(), false, true, true, true, true);
-				if (query.onDeleteField(fieldName))
+				if (query.fixUndefinedStates(resolutions))
+					it.remove();
+				else
+					namedQuery.setQuery(query.toString());
+			} catch (Exception e) {
+			}
+		}
+	}
+
+	public Collection<String> fixUndefinedFields(Map<String, UndefinedFieldResolution> resolutions) {
+		for (Map.Entry<String, UndefinedFieldResolution> entry: resolutions.entrySet()) {
+			if (entry.getValue().getFixType() == UndefinedFieldResolution.FixType.CHANGE_TO_ANOTHER_FIELD) { 
+				ReconcileUtils.renameItem(listFields, entry.getKey(), entry.getValue().getNewField());
+				if (promptFieldsUponIssueOpen.remove(entry.getKey()))
+					promptFieldsUponIssueOpen.add(entry.getValue().getNewField());
+			} else { 
+				listFields.remove(entry.getKey());
+				promptFieldsUponIssueOpen.remove(entry.getKey());
+			}
+		}
+		
+		for (Iterator<TransitionSpec> it = getTransitionSpecs().iterator(); it.hasNext();) {
+			if (it.next().fixUndefinedFields(resolutions))
+				it.remove();
+		}
+		for (Iterator<BoardSpec> it = getBoardSpecs().iterator(); it.hasNext();) {
+			if (it.next().fixUndefinedFields(null, resolutions))
+				it.remove();
+		}
+		for (Iterator<IssueTemplate> it = getIssueTemplates().iterator(); it.hasNext();) {
+			if (it.next().fixUndefinedFields(resolutions))
+				it.remove();
+		}
+		for (Iterator<NamedIssueQuery> it = getNamedQueries().iterator(); it.hasNext();) {
+			NamedIssueQuery namedQuery = it.next();
+			try {
+				IssueQuery query = IssueQuery.parse(null, namedQuery.getQuery(), false, true, true, true, true);
+				if (query.fixUndefinedFields(resolutions))
 					it.remove();
 				else
 					namedQuery.setQuery(query.toString());
@@ -485,20 +476,65 @@ public class GlobalIssueSetting implements Serializable {
 			}
 		}
 		
-		for (FieldSpec field: getFieldSpecs())
-			field.onDeleteInput(fieldName);
+		Collection<String> derivedDeletions = new HashSet<>();
+		for (Iterator<FieldSpec> it = getFieldSpecs().iterator(); it.hasNext();) {
+			FieldSpec field = it.next();
+			if (field.fixUndefinedFields(resolutions)) {
+				it.remove();
+				derivedDeletions.add(field.getName());
+			}
+		}
+
+		return derivedDeletions;
+	}
+	
+	public Collection<String> fixUndefinedFieldValues(Map<String, UndefinedFieldValuesResolution> resolutions) {
+		for (Iterator<TransitionSpec> it = getTransitionSpecs().iterator(); it.hasNext();) {
+			if (it.next().fixUndefinedFieldValues(resolutions))
+				it.remove();
+		}
+		for (Iterator<BoardSpec> it = getBoardSpecs().iterator(); it.hasNext();) {
+			if (it.next().fixUndefinedFieldValues(null, resolutions))
+				it.remove();
+		}
+		for (Iterator<IssueTemplate> it = getIssueTemplates().iterator(); it.hasNext();) {
+			if (it.next().fixUndefinedFieldValues(resolutions))
+				it.remove();
+		}
+		for (Iterator<NamedIssueQuery> it = getNamedQueries().iterator(); it.hasNext();) {
+			NamedIssueQuery namedQuery = it.next();
+			try {
+				IssueQuery query = IssueQuery.parse(null, namedQuery.getQuery(), false, true, true, true, true);
+				if (query.fixUndefinedFieldValues(resolutions))
+					it.remove();
+				else
+					namedQuery.setQuery(query.toString());
+			} catch (Exception e) {
+			}
+		}
+		
+		Collection<String> derivedDeletions = new HashSet<>();
+		for (Iterator<FieldSpec> it = getFieldSpecs().iterator(); it.hasNext();) {
+			FieldSpec field = it.next();
+			if (field.fixUndefinedFieldValues(resolutions)) {
+				it.remove();
+				derivedDeletions.add(field.getName());
+			}
+		}
+
+		return derivedDeletions;
 	}
 	
 	public void onRenameUser(String oldName, String newName) {
 		for (FieldSpec field: getFieldSpecs())
 			field.onRenameUser(oldName, newName);
-		for (BoardSpec board: getDefaultBoardSpecs())
+		for (BoardSpec board: getBoardSpecs())
 			board.onRenameUser(this, oldName, newName);
 	}
 	
 	public Usage onDeleteUser(String userName) {
 		Usage usage = new Usage();
-		for (Iterator<BoardSpec> it = getDefaultBoardSpecs().iterator(); it.hasNext();) { 
+		for (Iterator<BoardSpec> it = getBoardSpecs().iterator(); it.hasNext();) { 
 			if (it.next().onDeleteUser(this, userName))
 				it.remove();
 		}
@@ -523,14 +559,14 @@ public class GlobalIssueSetting implements Serializable {
 	}
 	
 	public void onRenameRole(String oldName, String newName) {
-		for (TransitionSpec transition: getDefaultTransitionSpecs())
+		for (TransitionSpec transition: getTransitionSpecs())
 			transition.onRenameRole(oldName, newName);
 	}
 	
 	public Usage onDeleteRole(String roleName) {
 		Usage usage = new Usage();
 		
-		for (TransitionSpec transition: getDefaultTransitionSpecs())
+		for (TransitionSpec transition: getTransitionSpecs())
 			usage.add(transition.onDeleteRole(roleName));
 		
 		return usage.prefix("issue setting");
@@ -540,15 +576,15 @@ public class GlobalIssueSetting implements Serializable {
 		if (!getStateSpecs().isEmpty())
 			return getStateSpecs().iterator().next();
 		else
-			throw new OneException("No any issue state is defined");
+			throw new GeneralException("No any issue state is defined");
 	}
 	
-	public List<BoardSpec> getDefaultBoardSpecs() {
-		return defaultBoardSpecs;
+	public List<BoardSpec> getBoardSpecs() {
+		return boardSpecs;
 	}
 
-	public void setDefaultBoardSpecs(List<BoardSpec> defaultBoardSpecs) {
-		this.defaultBoardSpecs = defaultBoardSpecs;
+	public void setBoardSpecs(List<BoardSpec> boardSpecs) {
+		this.boardSpecs = boardSpecs;
 	}
 
 	public List<String> getListFields() {
@@ -567,6 +603,14 @@ public class GlobalIssueSetting implements Serializable {
 		this.namedQueries = namedQueries;
 	}
 	
+	public List<IssueTemplate> getIssueTemplates() {
+		return issueTemplates;
+	}
+
+	public void setIssueTemplates(List<IssueTemplate> issueTemplates) {
+		this.issueTemplates = issueTemplates;
+	}
+
 	@Nullable
 	public NamedIssueQuery getNamedQuery(String name) {
 		for (NamedIssueQuery namedQuery: getNamedQueries()) {

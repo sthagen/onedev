@@ -16,10 +16,10 @@ import io.onedev.server.model.Issue;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.User;
 import io.onedev.server.model.support.administration.GlobalIssueSetting;
+import io.onedev.server.model.support.inputspec.InputContext;
+import io.onedev.server.model.support.inputspec.InputSpec;
 import io.onedev.server.search.entity.issue.IssueCriteria;
 import io.onedev.server.search.entity.issue.IssueQuery;
-import io.onedev.server.util.inputspec.InputContext;
-import io.onedev.server.util.inputspec.InputSpec;
 import io.onedev.server.util.script.identity.ScriptIdentity;
 import io.onedev.server.util.script.identity.ScriptIdentityAware;
 import io.onedev.server.util.script.identity.SiteAdministrator;
@@ -32,7 +32,7 @@ import io.onedev.server.web.page.security.LoginPage;
 @SuppressWarnings("serial")
 public class NewIssuePage extends ProjectPage implements InputContext, ScriptIdentityAware {
 
-	private static final String PARAM_QUERY = "query";
+	private static final String PARAM_TEMPLATE = "query";
 	
 	private IModel<IssueCriteria> templateModel;
 	
@@ -43,14 +43,13 @@ public class NewIssuePage extends ProjectPage implements InputContext, ScriptIde
 		if (currentUser == null)
 			throw new RestartResponseAtInterceptPageException(LoginPage.class);
 		
-		String queryString = params.get(PARAM_QUERY).toString();
+		String queryString = params.get(PARAM_TEMPLATE).toString();
 		templateModel = new LoadableDetachableModel<IssueCriteria>() {
 
 			@Override
 			protected IssueCriteria load() {
 				try {
-					IssueQuery query = IssueQuery.parse(getProject(), queryString, true, true, false, false, false);
-					return query.getCriteria();
+					return IssueQuery.parse(getProject(), queryString, true, true, false, false, false).getCriteria();
 				} catch (Exception e) {
 					return null;
 				}
@@ -97,7 +96,7 @@ public class NewIssuePage extends ProjectPage implements InputContext, ScriptIde
 				super.onSubmit();
 				Issue issue = editor.getConvertedInput();
 				OneDev.getInstance(IssueManager.class).open(issue);
-				setResponsePage(IssueActivitiesPage.class, IssueActivitiesPage.paramsOf(issue, null));
+				setResponsePage(IssueActivitiesPage.class, IssueActivitiesPage.paramsOf(issue));
 			}
 			
 		};
@@ -126,10 +125,10 @@ public class NewIssuePage extends ProjectPage implements InputContext, ScriptIde
 		return new SiteAdministrator();
 	}
 
-	public static PageParameters paramsOf(Project project, String query) {
+	public static PageParameters paramsOf(Project project, String template) {
 		PageParameters params = paramsOf(project);
-		if (query != null)
-			params.add(PARAM_QUERY, query);
+		if (template != null)
+			params.add(PARAM_TEMPLATE, template);
 		return params;
 	}
 	

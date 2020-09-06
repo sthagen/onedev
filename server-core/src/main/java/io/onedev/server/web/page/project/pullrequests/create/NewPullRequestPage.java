@@ -2,6 +2,7 @@ package io.onedev.server.web.page.project.pullrequests.create;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
@@ -16,8 +17,9 @@ import org.apache.wicket.ajax.form.OnChangeAjaxBehavior;
 import org.apache.wicket.behavior.AttributeAppender;
 import org.apache.wicket.extensions.ajax.markup.html.AjaxLazyLoadPanel;
 import org.apache.wicket.feedback.FencedFeedbackPanel;
-import org.apache.wicket.markup.head.CssHeaderItem;
 import org.apache.wicket.markup.head.IHeaderResponse;
+import org.apache.wicket.markup.head.JavaScriptHeaderItem;
+import org.apache.wicket.markup.head.OnDomReadyHeaderItem;
 import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.markup.html.form.Button;
@@ -40,16 +42,20 @@ import com.google.common.collect.Lists;
 
 import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.CodeCommentManager;
+import io.onedev.server.entitymanager.CodeCommentReplyManager;
 import io.onedev.server.entitymanager.PullRequestManager;
 import io.onedev.server.git.GitUtils;
 import io.onedev.server.git.RefInfo;
+import io.onedev.server.infomanager.CommitInfoManager;
 import io.onedev.server.model.CodeComment;
+import io.onedev.server.model.CodeCommentReply;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.PullRequest;
+import io.onedev.server.model.PullRequestAssignment;
 import io.onedev.server.model.PullRequestReview;
 import io.onedev.server.model.PullRequestUpdate;
 import io.onedev.server.model.User;
-import io.onedev.server.model.support.MarkPos;
+import io.onedev.server.model.support.Mark;
 import io.onedev.server.model.support.pullrequest.CloseInfo;
 import io.onedev.server.model.support.pullrequest.MergePreview;
 import io.onedev.server.model.support.pullrequest.MergeStrategy;
@@ -57,12 +63,12 @@ import io.onedev.server.persistence.dao.Dao;
 import io.onedev.server.search.commit.CommitQuery;
 import io.onedev.server.search.commit.Revision;
 import io.onedev.server.search.commit.RevisionCriteria;
+import io.onedev.server.security.SecurityUtils;
+import io.onedev.server.security.permission.WriteCode;
 import io.onedev.server.util.Pair;
 import io.onedev.server.util.ProjectAndBranch;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.util.diff.WhitespaceOption;
 import io.onedev.server.web.ajaxlistener.DisableGlobalLoadingIndicatorListener;
-import io.onedev.server.web.asset.revisioncompare.RevisionCompareCssResourceReference;
 import io.onedev.server.web.behavior.ReferenceInputBehavior;
 import io.onedev.server.web.component.branch.BranchLink;
 import io.onedev.server.web.component.branch.picker.AffinalBranchPicker;
@@ -72,7 +78,9 @@ import io.onedev.server.web.component.diff.revision.RevisionDiffPanel;
 import io.onedev.server.web.component.link.ViewStateAwarePageLink;
 import io.onedev.server.web.component.markdown.AttachmentSupport;
 import io.onedev.server.web.component.project.comment.CommentInput;
-import io.onedev.server.web.component.review.ReviewListPanel;
+import io.onedev.server.web.component.pullrequest.assignment.AssignmentListPanel;
+import io.onedev.server.web.component.pullrequest.review.ReviewListPanel;
+import io.onedev.server.web.component.svg.SpriteImage;
 import io.onedev.server.web.component.tabbable.AjaxActionTab;
 import io.onedev.server.web.component.tabbable.Tab;
 import io.onedev.server.web.component.tabbable.Tabbable;
@@ -95,11 +103,23 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 	
 	private ProjectAndBranch source;
 	
-	private IModel<PullRequest> requestModel;
+	private final IModel<PullRequest> requestModel;
+	
+	private final IModel<Collection<CodeComment>> commentsModel = 
+			new LoadableDetachableModel<Collection<CodeComment>>() {
+
+		@Override
+		protected Collection<CodeComment> load() {
+			CodeCommentManager manager = OneDev.getInstance(CodeCommentManager.class);
+			return manager.query(projectModel.getObject(), 
+					getPullRequest().getBaseCommit(), source.getObjectId());
+		}
+		
+	};
 	
 	private Long commentId;
 	
-	private MarkPos mark;
+	private Mark mark;
 	
 	private String pathFilter;
 	
@@ -172,7 +192,7 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 		}
 
 		AtomicReference<PullRequest> pullRequestRef = new AtomicReference<>(null);
-		PullRequest prevRequest = OneDev.getInstance(PullRequestManager.class).findLatest(getProject(), getLoginUser());
+		PullRequest prevRequest = OneDev.getInstance(PullRequestManager.class).findLatest(target.getProject());
 		if (prevRequest != null && source.equals(prevRequest.getSource()) && target.equals(prevRequest.getTarget()) && prevRequest.isOpen())
 			pullRequestRef.set(prevRequest);
 		else if (target.getBranch() != null && source.getBranch() != null)
@@ -196,7 +216,6 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 				request.setSubmitter(currentUser);
 				
 				request.setBaseCommitHash(baseCommitId.name());
-				request.setHeadCommitHash(source.getObjectName());
 				if (request.getBaseCommitHash().equals(source.getObjectName())) {
 					CloseInfo closeInfo = new CloseInfo();
 					closeInfo.setDate(new Date());
@@ -208,16 +227,27 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 				update.setDate(new DateTime(request.getSubmitDate()).plusSeconds(1).toDate());
 				request.addUpdate(update);
 				update.setRequest(request);
-				update.setHeadCommitHash(request.getHeadCommitHash());
-				update.setMergeBaseCommitHash(request.getBaseCommitHash());
+				update.setHeadCommitHash(source.getObjectName());
+				update.setTargetHeadCommitHash(request.getTarget().getObjectName());
 
-				OneDev.getInstance(PullRequestManager.class).checkQuality(request);
+				OneDev.getInstance(PullRequestManager.class).checkQuality(request, Lists.newArrayList());
 
-				if (SecurityUtils.canWriteCode(getProject()) && request.getReviews().isEmpty()) {
-					PullRequestReview review = new PullRequestReview();
-					review.setRequest(request);
-					review.setUser(SecurityUtils.getUser());
-					request.getReviews().add(review);
+				if (SecurityUtils.canWriteCode(target.getProject())) {
+					PullRequestAssignment assignment = new PullRequestAssignment();
+					assignment.setRequest(request);
+					assignment.setUser(SecurityUtils.getUser());
+					request.getAssignments().add(assignment);
+				} else {
+					List<User> codeWriters = new ArrayList<>(
+							SecurityUtils.getAuthorizedUsers(target.getProject(), new WriteCode()));
+					OneDev.getInstance(CommitInfoManager.class).sortUsersByContribution(
+							codeWriters, target.getProject(), update.getChangedFiles());
+					if (!codeWriters.isEmpty()) {
+						PullRequestAssignment assignment = new PullRequestAssignment();
+						assignment.setRequest(request);
+						assignment.setUser(codeWriters.iterator().next());
+						request.getAssignments().add(assignment);
+					}
 				}
 				request.setMergeStrategy(MergeStrategy.CREATE_MERGE_COMMIT);
 			}
@@ -264,7 +294,7 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 
 			@Override
 			protected void onSelect(AjaxRequestTarget target, Project project, String branch) {
-				PageParameters params = paramsOf(project, new ProjectAndBranch(project, branch), source); 
+				PageParameters params = paramsOf(getProject(), new ProjectAndBranch(project, branch), source); 
 				
 				/*
 				 * Use below code instead of calling setResponsePage() to make sure the dropdown is 
@@ -320,7 +350,7 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 
 			@Override
 			public void onClick() {
-				PageParameters params = paramsOf(source.getProject(), source, target); 
+				PageParameters params = paramsOf(getProject(), source, target); 
 				setResponsePage(NewPullRequestPage.class, params);
 			}
 			
@@ -332,7 +362,7 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 			fragment = newBranchNotSpecifiedFrag();
 		else if (request == null) 
 			fragment = newUnrelatedHistoryFrag();
-		else if (request.getId() != null && (request.isOpen() || !request.isMergeIntoTarget())) 
+		else if (request.getId() != null && (request.isOpen() || !request.isMergedIntoTarget())) 
 			fragment = newEffectiveFrag();
 		else if (request.getSource().equals(request.getTarget())) 
 			fragment = newSameBranchFrag();
@@ -360,7 +390,7 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 				
 				@Override
 				protected void onSelect(AjaxRequestTarget target, Component tabLink) {
-					Component panel = newRevDiffPanel();
+					Component panel = newRevisionDiffPanel();
 					getPage().replace(panel);
 					target.add(panel);
 				}
@@ -385,7 +415,7 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 	}
 	
 	private Component newCommitsPanel() {
-		return new CommitListPanel(TAB_PANEL_ID, null) {
+		return new CommitListPanel(TAB_PANEL_ID, Model.of((String)null)) {
 
 			@Override
 			protected void onConfigure() {
@@ -398,19 +428,19 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 				PullRequest request = getPullRequest();
 				List<Revision> revisions = new ArrayList<>();
 				revisions.add(new Revision(request.getBaseCommitHash(), Revision.Scope.SINCE));
-				revisions.add(new Revision(request.getHeadCommitHash(), Revision.Scope.UNTIL));
+				revisions.add(new Revision(request.getLatestUpdate().getHeadCommitHash(), Revision.Scope.UNTIL));
 				return new CommitQuery(Lists.newArrayList(new RevisionCriteria(revisions)));
 			}
 
 			@Override
 			protected Project getProject() {
-				return NewPullRequestPage.this.getProject();
+				return getPullRequest().getSourceProject();
 			}
 
 		}.setOutputMarkupId(true);
 	}
 	
-	private RevisionDiffPanel newRevDiffPanel() {
+	private RevisionDiffPanel newRevisionDiffPanel() {
 		PullRequest request = getPullRequest();
 		
 		IModel<Project> projectModel = new LoadableDetachableModel<Project>() {
@@ -419,7 +449,7 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 			protected Project load() {
 				Project project = source.getProject();
 				project.cacheObjectId(source.getRevision(), 
-						ObjectId.fromString(getPullRequest().getHeadCommitHash()));
+						ObjectId.fromString(getPullRequest().getLatestUpdate().getHeadCommitHash()));
 				return project;
 			}
 			
@@ -530,7 +560,7 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 
 			@Override
 			public void onClick() {
-				PageParameters params = PullRequestDetailPage.paramsOf(getPullRequest(), null);
+				PageParameters params = PullRequestDetailPage.paramsOf(getPullRequest());
 				setResponsePage(PullRequestActivitiesPage.class, params);
 			}
 			
@@ -553,8 +583,8 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 	
 	private Fragment newAcceptedFrag() {
 		Fragment fragment = new Fragment("status", "mergedFrag", this);
-		fragment.add(new BranchLink("sourceBranch", getPullRequest().getSource(), null));
-		fragment.add(new BranchLink("targetBranch", getPullRequest().getTarget(), null));
+		fragment.add(new BranchLink("sourceBranch", getPullRequest().getSource()));
+		fragment.add(new BranchLink("targetBranch", getPullRequest().getTarget()));
 		fragment.add(new Link<Void>("swapBranches") {
 
 			@Override
@@ -599,7 +629,7 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 					
 					OneDev.getInstance(PullRequestManager.class).open(getPullRequest());
 					
-					setResponsePage(PullRequestActivitiesPage.class, PullRequestActivitiesPage.paramsOf(getPullRequest(), null));
+					setResponsePage(PullRequestActivitiesPage.class, PullRequestActivitiesPage.paramsOf(getPullRequest()));
 				}			
 				
 			}
@@ -641,7 +671,7 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 
 			@Override
 			public String getObject() {
-				return !titleInput.isValid()?" has-error":"";
+				return !titleInput.isValid()?" is-invalid":"";
 			}
 			
 		}));
@@ -666,19 +696,40 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 
 			@Override
 			protected AttachmentSupport getAttachmentSupport() {
-				return new ProjectAttachmentSupport(target.getProject(), getPullRequest().getUUID());
+				return new ProjectAttachmentSupport(target.getProject(), getPullRequest().getUUID()) {
+
+					@Override
+					public boolean canDeleteAttachment() {
+						return SecurityUtils.canManagePullRequests(target.getProject());
+					}
+					
+				};
 			}
 
 			@Override
 			protected Project getProject() {
-				return NewPullRequestPage.this.getProject();
+				return target.getProject();
 			}
 			
 		});
 
 		form.add(newMergeStrategyContainer());
-		
-		form.add(new ReviewListPanel("reviewers", requestModel));
+		form.add(new ReviewListPanel("reviewers") {
+
+			@Override
+			protected PullRequest getPullRequest() {
+				return NewPullRequestPage.this.getPullRequest();
+			}
+			
+		});
+		form.add(new AssignmentListPanel("assignees") {
+
+			@Override
+			protected PullRequest getPullRequest() {
+				return NewPullRequestPage.this.getPullRequest();
+			}
+			
+		});
 		
 		return fragment;
 	}
@@ -735,20 +786,23 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 			public Component getLazyLoadComponent(String componentId) {
 				PullRequest request = getPullRequest();
 				MergePreview mergePreview = new MergePreview(request.getTarget().getObjectName(), 
-						request.getHeadCommitHash(), request.getMergeStrategy(), null);
-				ObjectId merged = mergePreview.getMergeStrategy().merge(request);
+						request.getLatestUpdate().getHeadCommitHash(), request.getMergeStrategy(), null);
+				ObjectId merged = mergePreview.getMergeStrategy().merge(request, "Pull request merge preview");
 				if (merged != null)
-					mergePreview.setMerged(merged.name());
+					mergePreview.setMergeCommitHash(merged.name());
 				request.setLastMergePreview(mergePreview);
 				
 				if (merged != null) {
-					Component result = new Label(componentId, "<i class=\"fa fa-check-circle\"></i> Able to merge without conflicts");
+					String html = String.format("<svg class='icon'><use xlink:href='%s'/></svg> Able to merge without conflicts", 
+							SpriteImage.getVersionedHref("tick-circle-o"));
+					Component result = new Label(componentId, html);
 					result.add(AttributeAppender.append("class", "no-conflict"));
 					result.setEscapeModelStrings(false);
 					return result;
 				} else { 
-					Component result = new Label(componentId, 
-							"<i class=\"fa fa-warning\"></i> There are merge conflicts. You can still create the pull request though");
+					String html = String.format("<svg class='icon'><use xlink:href='%s'/></svg> There are merge conflicts. "
+							+ "You can still create the pull request though", SpriteImage.getVersionedHref("warning-o"));
+					Component result = new Label(componentId, html);
 					result.add(AttributeAppender.append("class", "conflict"));
 					result.setEscapeModelStrings(false);
 					return result;
@@ -773,28 +827,29 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 	@Override
 	public void renderHead(IHeaderResponse response) {
 		super.renderHead(response);
-		response.render(CssHeaderItem.forReference(new RevisionCompareCssResourceReference()));
-		response.render(CssHeaderItem.forReference(new NewPullRequestCssResourceReference()));
+		response.render(JavaScriptHeaderItem.forReference(new NewPullRequestResourceReference()));
+		response.render(OnDomReadyHeaderItem.forScript("onedev.server.newPullRequest.onDomReady();"));
 	}
 
 	@Override
 	protected void onDetach() {
 		requestModel.detach();
+		commentsModel.detach();
 		
 		super.onDetach();
 	}
 
 	@Override
-	public MarkPos getMark() {
+	public Mark getMark() {
 		return mark;
 	}
 
 	@Override
-	public String getMarkUrl(MarkPos mark) {
+	public String getMarkUrl(Mark mark) {
 		RevisionComparePage.State state = new RevisionComparePage.State();
 		state.mark = mark;
 		state.leftSide = new ProjectAndBranch(source.getProject(), getPullRequest().getBaseCommitHash());
-		state.rightSide = new ProjectAndBranch(source.getProject(), getPullRequest().getHeadCommitHash());
+		state.rightSide = new ProjectAndBranch(source.getProject(), getPullRequest().getLatestUpdate().getHeadCommitHash());
 		state.pathFilter = pathFilter;
 		state.tabPanel = RevisionComparePage.TabPanel.FILE_CHANGES;
 		state.whitespaceOption = whitespaceOption;
@@ -803,10 +858,15 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 	}
 
 	@Override
-	public void onMark(AjaxRequestTarget target, MarkPos mark) {
+	public void onMark(AjaxRequestTarget target, Mark mark) {
 		this.mark = mark;
 	}
 
+	@Override
+	public void onUnmark(AjaxRequestTarget target) {
+		this.mark = null;
+	}
+	
 	@Override
 	public CodeComment getOpenComment() {
 		if (commentId != null)
@@ -816,38 +876,40 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 	}
 
 	@Override
-	public void onAddComment(AjaxRequestTarget target, MarkPos mark) {
+	public Collection<CodeComment> getComments() {
+		return commentsModel.getObject();
+	}
+	
+	@Override
+	public void onAddComment(AjaxRequestTarget target, Mark mark) {
 		this.commentId = null;
 		this.mark = mark;
 	}
 
 	@Override
 	public void onCommentOpened(AjaxRequestTarget target, CodeComment comment) {
-		if (comment != null) {
-			commentId = comment.getId();
-			mark = comment.getMarkPos();
-		} else {
-			commentId = null;
-		}
+		commentId = comment.getId();
+		mark = comment.getMark();
 	}
 
 	@Override
-	protected boolean isPermitted() {
-		return SecurityUtils.canReadCode(getProject()) && SecurityUtils.canReadCode(source.getProject());
+	public void onCommentClosed(AjaxRequestTarget target) {
+		commentId = null;
 	}
 	
 	@Override
-	public String getCommentUrl(CodeComment comment) {
-		RevisionComparePage.State state = new RevisionComparePage.State();
-		mark = comment.getMarkPos();
-		state.commentId = comment.getId();
-		state.leftSide = new ProjectAndBranch(source.getProject(), getPullRequest().getBaseCommitHash());
-		state.rightSide = new ProjectAndBranch(source.getProject(), getPullRequest().getHeadCommitHash());
-		state.pathFilter = pathFilter;
-		state.tabPanel = RevisionComparePage.TabPanel.FILE_CHANGES;
-		state.whitespaceOption = whitespaceOption;
-		state.compareWithMergeBase = false;
-		return urlFor(RevisionComparePage.class, RevisionComparePage.paramsOf(source.getProject(), state)).toString();
+	public void onSaveComment(CodeComment comment) {
+		OneDev.getInstance(CodeCommentManager.class).save(comment);
 	}
-
+	
+	@Override
+	public void onSaveCommentReply(CodeCommentReply reply) {
+		OneDev.getInstance(CodeCommentReplyManager.class).save(reply);
+	}
+	
+	@Override
+	protected boolean isPermitted() {
+		return SecurityUtils.canReadCode(target.getProject()) && SecurityUtils.canReadCode(source.getProject());
+	}
+	
 }

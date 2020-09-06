@@ -19,18 +19,18 @@ import io.onedev.server.entitymanager.UrlManager;
 import io.onedev.server.entitymanager.UserManager;
 import io.onedev.server.event.MarkdownAware;
 import io.onedev.server.event.entity.EntityPersisted;
-import io.onedev.server.event.pullrequest.PullRequestBuildEvent;
 import io.onedev.server.event.pullrequest.PullRequestChangeEvent;
 import io.onedev.server.event.pullrequest.PullRequestCodeCommentCreated;
-import io.onedev.server.event.pullrequest.PullRequestCodeCommentEvent;
 import io.onedev.server.event.pullrequest.PullRequestCodeCommentReplied;
 import io.onedev.server.event.pullrequest.PullRequestCommentCreated;
 import io.onedev.server.event.pullrequest.PullRequestEvent;
 import io.onedev.server.event.pullrequest.PullRequestMergePreviewCalculated;
 import io.onedev.server.event.pullrequest.PullRequestOpened;
 import io.onedev.server.event.pullrequest.PullRequestUpdated;
+import io.onedev.server.event.pullrequest.PullRequestVerificationEvent;
 import io.onedev.server.infomanager.UserInfoManager;
 import io.onedev.server.model.PullRequest;
+import io.onedev.server.model.PullRequestAssignment;
 import io.onedev.server.model.PullRequestReview;
 import io.onedev.server.model.PullRequestWatch;
 import io.onedev.server.model.User;
@@ -46,12 +46,12 @@ import io.onedev.server.persistence.annotation.Transactional;
 import io.onedev.server.search.entity.EntityQuery;
 import io.onedev.server.search.entity.QueryWatchBuilder;
 import io.onedev.server.search.entity.pullrequest.PullRequestQuery;
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.markdown.MarkdownManager;
 import io.onedev.server.util.markdown.MentionParser;
 
 @Singleton
-public class PullRequestNotificationManager {
+public class PullRequestNotificationManager extends AbstractNotificationManager {
 	
 	private final MailManager mailManager;
 	
@@ -85,6 +85,18 @@ public class PullRequestNotificationManager {
 	public void on(PullRequestEvent event) {
 		PullRequest request = event.getRequest();
 		User user = event.getUser();
+		
+		String url;
+		if (event instanceof PullRequestCommentCreated)
+			url = urlManager.urlFor(((PullRequestCommentCreated)event).getComment());
+		else if (event instanceof PullRequestChangeEvent) 
+			url = urlManager.urlFor(((PullRequestChangeEvent)event).getChange());
+		else if (event instanceof PullRequestCodeCommentCreated)
+			url = urlManager.urlFor(((PullRequestCodeCommentCreated)event).getComment(), request);
+		else if (event instanceof PullRequestCodeCommentReplied)
+			url = urlManager.urlFor(((PullRequestCodeCommentReplied)event).getReply(), request);
+		else 
+			url = urlManager.urlFor(request);
 		
 		for (Map.Entry<User, Boolean> entry: new QueryWatchBuilder<PullRequest>() {
 
@@ -161,7 +173,7 @@ public class PullRequestNotificationManager {
 		
 		if (event instanceof PullRequestOpened) {
 			for (PullRequestReview review: request.getReviews()) {
-				if (review.getExcludeDate() == null && review.getResult() == null) {
+				if (review.getResult() == null) {
 					// reviewers will be sent review invitation separately 
 					notifiedUsers.add(review.getUser());
 				}
@@ -175,21 +187,19 @@ public class PullRequestNotificationManager {
 			PullRequestChangeData changeData = changeEvent.getChange().getData();
 			String subject = null;
 			if (changeData instanceof PullRequestApproveData) 
-				subject = String.format(user.getDisplayName() + " approved pull request %s", request.describe());
+				subject = String.format(user.getDisplayName() + " approved pull request %s", request.getNumberAndTitle());
 			else if (changeData instanceof PullRequestRequestedForChangesData) 
-				subject = String.format(user.getDisplayName() + " requested changes for pull request %s", request.describe());
+				subject = String.format(user.getDisplayName() + " requested changes for pull request %s", request.getNumberAndTitle());
 			else if (changeData instanceof PullRequestDiscardData) 
-				subject = String.format(user.getDisplayName() + " discarded pull request %s", request.describe());
+				subject = String.format(user.getDisplayName() + " discarded pull request %s", request.getNumberAndTitle());
 			if (subject != null) { 
-				String url = urlManager.urlFor(request);
-				String body = String.format("Visit <a href='%s'>%s</a> for details", url, url);
-				mailManager.sendMailAsync(Lists.newArrayList(request.getSubmitter().getEmail()), subject, body);
-				userInfoManager.setPullRequestNotified(request.getSubmitter(), request, true);
+				mailManager.sendMailAsync(Lists.newArrayList(request.getSubmitter().getEmail()), 
+						subject, getHtmlBody(event, url), getTextBody(event, url));
 				notifiedUsers.add(request.getSubmitter());
 			}
 		}
 		
-		if (event instanceof MarkdownAware && (!(event instanceof PullRequestCodeCommentEvent) || !((PullRequestCodeCommentEvent)event).isDerived())) {
+		if (event instanceof MarkdownAware) {
 			MarkdownAware markdownAware = (MarkdownAware) event;
 			String markdown = markdownAware.getMarkdown();
 			if (markdown != null) {
@@ -199,23 +209,10 @@ public class PullRequestNotificationManager {
 					User mentionedUser = userManager.findByName(userName);
 					if (mentionedUser != null) { 
 						pullRequestWatchManager.watch(request, mentionedUser, true);
-						String url;
-						if (event instanceof PullRequestCommentCreated)
-							url = urlManager.urlFor(((PullRequestCommentCreated)event).getComment());
-						else if (event instanceof PullRequestChangeEvent) 
-							url = urlManager.urlFor(((PullRequestChangeEvent)event).getChange());
-						else if (event instanceof PullRequestCodeCommentCreated)
-							url = urlManager.urlFor(((PullRequestCodeCommentCreated)event).getComment(), request);
-						else if (event instanceof PullRequestCodeCommentReplied)
-							url = urlManager.urlFor(((PullRequestCodeCommentReplied)event).getReply(), request);
-						else 
-							url = urlManager.urlFor(request);
 						
-						String subject = String.format("You are mentioned in pull request %s", request.describe());
-						String body = String.format("Visit <a href='%s'>%s</a> for details", url, url);
-						
-						mailManager.sendMailAsync(Sets.newHashSet(mentionedUser.getEmail()), subject, body);
-						userInfoManager.setPullRequestNotified(mentionedUser, request, true);
+						String subject = String.format("You are mentioned in pull request %s", request.getNumberAndTitle());
+						mailManager.sendMailAsync(Sets.newHashSet(mentionedUser.getEmail()), 
+								subject, getHtmlBody(event, url), getTextBody(event, url));
 						
 						notifiedUsers.add(mentionedUser);
 					}
@@ -233,7 +230,7 @@ public class PullRequestNotificationManager {
 					|| changeData instanceof PullRequestReopenData) {
 				notifyWatchers = true;
 			}
-		} else if (!(event instanceof PullRequestMergePreviewCalculated || event instanceof PullRequestBuildEvent)) {
+		} else if (!(event instanceof PullRequestMergePreviewCalculated || event instanceof PullRequestVerificationEvent)) {
 			notifyWatchers = true;
 		}
 		
@@ -243,50 +240,53 @@ public class PullRequestNotificationManager {
 			for (PullRequestWatch watch: request.getWatches()) {
 				Date visitDate = userInfoManager.getPullRequestVisitDate(watch.getUser(), request);
 				if (watch.isWatching() 
-						&& !userInfoManager.isNotified(watch.getUser(), watch.getRequest()) 
 						&& (visitDate == null || visitDate.before(event.getDate())) 
 						&& (!(event instanceof PullRequestUpdated) || !watch.getUser().equals(request.getSubmitter()))
 						&& !notifiedUsers.contains(watch.getUser())) {
 					usersToNotify.add(watch.getUser());
-					userInfoManager.setPullRequestNotified(watch.getUser(), watch.getRequest(), true);
 				}
 			}
 
 			if (!usersToNotify.isEmpty()) {
-				String url = urlManager.urlFor(request);
 				String subject;
 				if (user != null) 
 					subject = String.format("%s %s", user.getDisplayName(), event.getActivity(true));
 				else if (committer != null) 
-					subject = String.format("%s added commits to pull request %s", committer.getDisplayName(), request.describe());
+					subject = String.format("%s added commits to pull request %s", committer.getDisplayName(), request.getNumberAndTitle());
 				else
 					subject = event.getActivity(true);
-				String body = String.format("Visit <a href='%s'>%s</a> for details", url, url);
-				mailManager.sendMailAsync(usersToNotify.stream().map(User::getEmail).collect(Collectors.toList()), subject, body);
+				
+				mailManager.sendMailAsync(usersToNotify.stream().map(User::getEmail).collect(Collectors.toList()), 
+						subject, getHtmlBody(event, url), getTextBody(event, url));
 			}
 		}				
-	}
-
-	private void inviteToReview(PullRequestReview review) {
-		PullRequest request = review.getRequest();
-		String url = urlManager.urlFor(request);
-		String subject = String.format("You are invited to review pull request %s", request.describe());
-		String body = String.format("Visit <a href='%s'>%s</a> for details", url, url);
-		mailManager.sendMailAsync(Lists.newArrayList(review.getUser().getEmail()), subject, body);
-		userInfoManager.setPullRequestNotified(review.getUser(), review.getRequest(), true);
 	}
 
 	@Transactional
 	@Listen
 	public void on(EntityPersisted event) {
-		if (event.isNew() && event.getEntity() instanceof PullRequestReview) {
-			PullRequestReview review = (PullRequestReview) event.getEntity();
-			PullRequest request = review.getRequest();
-			if (review.getExcludeDate() == null 
-					&& review.getResult() == null 
-					&& !review.getUser().equals(SecurityUtils.getUser())) {
-				pullRequestWatchManager.watch(request, review.getUser(), true);
-				inviteToReview(review);
+		if (event.isNew()) {
+			if (event.getEntity() instanceof PullRequestReview) {
+				PullRequestReview review = (PullRequestReview) event.getEntity();
+				PullRequest request = review.getRequest();
+				if (review.getResult() == null && !review.getUser().equals(SecurityUtils.getUser())) {
+					pullRequestWatchManager.watch(request, review.getUser(), true);
+					String url = urlManager.urlFor(request);
+					String subject = String.format("You are invited to review pull request %s", request.getNumberAndTitle());
+					mailManager.sendMailAsync(Lists.newArrayList(review.getUser().getEmail()), 
+							subject, getHtmlBody(event, url), getTextBody(event, url));
+				}
+			} else if (event.getEntity() instanceof PullRequestAssignment) {
+				PullRequestAssignment assignment = (PullRequestAssignment) event.getEntity();
+				PullRequest request = assignment.getRequest();
+				if (!assignment.getUser().equals(SecurityUtils.getUser())) {
+					pullRequestWatchManager.watch(request, assignment.getUser(), true);
+					String url = urlManager.urlFor(request);
+					String subject = String.format("You are assigned and expected to merge pull request %s", 
+							request.getNumberAndTitle());
+					mailManager.sendMailAsync(Lists.newArrayList(assignment.getUser().getEmail()), 
+							subject, getHtmlBody(event, url), getTextBody(event, url));
+				}
 			}
 		}
 	}

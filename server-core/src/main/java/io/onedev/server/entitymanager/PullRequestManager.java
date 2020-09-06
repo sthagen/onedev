@@ -10,7 +10,6 @@ import io.onedev.server.model.Project;
 import io.onedev.server.model.PullRequest;
 import io.onedev.server.model.User;
 import io.onedev.server.model.support.pullrequest.MergePreview;
-import io.onedev.server.model.support.pullrequest.MergeStrategy;
 import io.onedev.server.persistence.dao.EntityManager;
 import io.onedev.server.search.entity.EntityCriteria;
 import io.onedev.server.search.entity.EntityQuery;
@@ -41,13 +40,15 @@ public interface PullRequestManager extends EntityManager<PullRequest> {
     PullRequest find(ProjectScopedNumber pullRequestFQN);
     
 	@Nullable
-	PullRequest findLatest(Project targetProject, User submitter);
+	PullRequest findLatest(Project targetProject);
 	
     void discard(PullRequest request, @Nullable String note);
     
     void reopen(PullRequest request, @Nullable String note);
 
     void check(PullRequest request);
+    
+    void merge(PullRequest request, @Nullable String commitMessage);
     
 	/**
      * Preview merge of this pull request.
@@ -61,9 +62,6 @@ public interface PullRequestManager extends EntityManager<PullRequest> {
     
     void open(PullRequest request);
     
-    PullRequest open(ProjectAndBranch source, ProjectAndBranch target, 
-    		MergeStrategy mergeStrategy, User submitter, String title);
-    
     void delete(PullRequest request);
     
 	void deleteSourceBranch(PullRequest request, @Nullable String note);
@@ -72,13 +70,13 @@ public interface PullRequestManager extends EntityManager<PullRequest> {
 	
 	int countOpen(Project targetProject);
 
-	void checkQuality(PullRequest request);
+	void checkQuality(PullRequest request, List<User> unpreferableReviewers);
 	
-	List<PullRequest> query(@Nullable Project targetProject, 
-			EntityQuery<PullRequest> requestQuery, int firstResult, int maxResults);
+	List<PullRequest> query(@Nullable Project targetProject, EntityQuery<PullRequest> requestQuery, 
+			int firstResult, int maxResults, boolean loadReviews, boolean loadVerifications);
 	
 	int count(@Nullable Project targetProject, EntityCriteria<PullRequest> requestCriteria);
 	
 	List<PullRequest> query(Project targetProject, String term, int count);
-
+	
 }

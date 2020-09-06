@@ -34,9 +34,9 @@ import io.onedev.server.model.PullRequest;
 import io.onedev.server.model.User;
 import io.onedev.server.search.entity.EntityQuery;
 import io.onedev.server.search.entity.build.BuildQuery;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.DateUtils;
 import io.onedev.server.util.Input;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.util.criteria.Criteria;
 import io.onedev.server.web.behavior.WebSocketObserver;
 import io.onedev.server.web.component.build.ParamValuesLabel;
@@ -46,10 +46,10 @@ import io.onedev.server.web.component.link.ViewStateAwarePageLink;
 import io.onedev.server.web.component.pullrequest.RequestStatusLabel;
 import io.onedev.server.web.component.user.ident.Mode;
 import io.onedev.server.web.component.user.ident.UserIdentPanel;
-import io.onedev.server.web.page.build.BuildListPage;
+import io.onedev.server.web.page.builds.BuildListPage;
 import io.onedev.server.web.page.project.commits.CommitDetailPage;
 import io.onedev.server.web.page.project.pullrequests.detail.activities.PullRequestActivitiesPage;
-import io.onedev.server.web.util.QueryPositionSupport;
+import io.onedev.server.web.util.CursorSupport;
 
 @SuppressWarnings("serial")
 public abstract class BuildSidePanel extends Panel {
@@ -65,8 +65,8 @@ public abstract class BuildSidePanel extends Panel {
 		add(new EntityNavPanel<Build>("buildNav") {
 
 			@Override
-			protected EntityQuery<Build> parse(String queryString) {
-				return BuildQuery.parse(getProject(), queryString, true, true);
+			protected EntityQuery<Build> parse(String queryString, boolean inProject) {
+				return BuildQuery.parse(inProject?getProject():null, queryString, true, true);
 			}
 
 			@Override
@@ -75,13 +75,13 @@ public abstract class BuildSidePanel extends Panel {
 			}
 
 			@Override
-			protected List<Build> query(EntityQuery<Build> query, int offset, int count) {
-				return getBuildManager().query(getProject(), query, offset, count);
+			protected List<Build> query(EntityQuery<Build> query, int offset, int count, boolean inProject) {
+				return getBuildManager().query(inProject?getProject():null, query, offset, count);
 			}
 
 			@Override
-			protected QueryPositionSupport<Build> getQueryPositionSupport() {
-				return BuildSidePanel.this.getQueryPositionSupport();
+			protected CursorSupport<Build> getCursorSupport() {
+				return BuildSidePanel.this.getCursorSupport();
 			}
 			
 		});
@@ -142,6 +142,22 @@ public abstract class BuildSidePanel extends Panel {
 			}
 			
 		}));
+		general.add(new Label("submitReason", new LoadableDetachableModel<String>() {
+
+			@Override
+			protected String load() {
+				return getBuild().getSubmitReason();
+			}
+			
+		}) {
+
+			@Override
+			protected void onConfigure() {
+				super.onConfigure();
+				setVisible(getBuild().getSubmitReason() != null);
+			}
+			
+		});
 		general.add(new Label("retryDate", new LoadableDetachableModel<String>() {
 
 			@Override
@@ -264,7 +280,7 @@ public abstract class BuildSidePanel extends Panel {
 
 			@Override
 			protected List<PullRequest> load() {
-				return getBuild().getPullRequestBuilds()
+				return getBuild().getVerifications()
 						.stream()
 						.map(it->it.getRequest())
 						.collect(Collectors.toList());
@@ -278,7 +294,7 @@ public abstract class BuildSidePanel extends Panel {
 
 				Link<Void> link = new ViewStateAwarePageLink<Void>("title", 
 						PullRequestActivitiesPage.class, 
-						PullRequestActivitiesPage.paramsOf(request, null));
+						PullRequestActivitiesPage.paramsOf(request));
 				link.add(new Label("label", "#" + request.getNumber() + " " + request.getTitle()));
 				item.add(link);
 				item.add(new RequestStatusLabel("status", item.getModel()));
@@ -313,7 +329,7 @@ public abstract class BuildSidePanel extends Panel {
 	protected abstract Build getBuild();
 
 	@Nullable
-	protected abstract QueryPositionSupport<Build> getQueryPositionSupport();
+	protected abstract CursorSupport<Build> getCursorSupport();
 	
 	protected abstract Component newDeleteLink(String componentId);
 	

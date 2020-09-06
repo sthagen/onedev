@@ -17,16 +17,19 @@ import io.onedev.commons.utils.StringUtils;
 import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.ProjectManager;
 import io.onedev.server.entitymanager.SettingManager;
-import io.onedev.server.issue.fieldspec.FieldSpec;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.support.administration.GlobalIssueSetting;
+import io.onedev.server.model.support.issue.fieldspec.FieldSpec;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.web.editable.BeanDescriptor;
 import io.onedev.server.web.editable.PropertyDescriptor;
 
 public class IssueUtils {
 	
 	private static final List<String> ISSUE_FIX_WORDS = Lists.newArrayList(
-			"fix", "fixed", "fixes", "fixing", "resolve", "resolved", "resolves", "resolving");
+			"fix", "fixed", "fixes", "fixing", 
+			"resolve", "resolved", "resolves", "resolving", 
+			"close", "closed", "closes", "closing");
 	
     private static final Pattern ISSUE_FIX_PATTERN;
     

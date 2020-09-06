@@ -1,5 +1,6 @@
 package io.onedev.server.util;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -13,7 +14,7 @@ import groovy.lang.GroovyClassLoader;
 import groovy.lang.Script;
 import io.onedev.commons.utils.StringUtils;
 import io.onedev.server.OneDev;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.entitymanager.SettingManager;
 import io.onedev.server.model.support.administration.GroovyScript;
 import io.onedev.server.util.script.ScriptContribution;
@@ -28,8 +29,12 @@ public class GroovyUtils {
     public static Class<?> compile(String script) {
 		Class<?> scriptClass = scriptClassCache.get(script);
 		if (scriptClass == null) {
-			scriptClass = new GroovyClassLoader(GroovyUtils.class.getClassLoader()).parseClass(script);
-			scriptClassCache.put(script, scriptClass);
+			try (GroovyClassLoader classLoader = new GroovyClassLoader(GroovyUtils.class.getClassLoader())) {
+				scriptClass = classLoader.parseClass(script);
+				scriptClassCache.put(script, scriptClass);
+			} catch (IOException e) {
+				throw new RuntimeException(e);
+			}
 		} 
 		return scriptClass;
     }
@@ -84,13 +89,13 @@ public class GroovyUtils {
     			try {
     				return evalScript(StringUtils.join(script.getContent(), "\n"), variables);
     			} catch (Exception e) {
-    				throw new OneException("Error evaluating groovy script: " + scriptName, e);
+    				throw new GeneralException("Error evaluating groovy script: " + scriptName, e);
     			}
     		} else {
-    			throw new OneException("Unauthorized groovy script: " + scriptName);
+    			throw new GeneralException("Unauthorized groovy script: " + scriptName);
     		}
     	} else {
-    		throw new OneException("Groovy script not found: " + scriptName);
+    		throw new GeneralException("Groovy script not found: " + scriptName);
     	}
     }
     

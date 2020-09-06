@@ -11,7 +11,7 @@ import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.PullRequestManager;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.PullRequest;
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.web.asset.titleandstatus.TitleAndStatusCssResourceReference;
 import io.onedev.server.web.component.pullrequest.RequestStatusLabel;
 import io.onedev.server.web.page.project.ProjectPage;
@@ -44,7 +44,7 @@ public class ReferencedFromPullRequestPanel extends GenericPanel<PullRequest> {
 
 		if (SecurityUtils.canReadCode(request.getTargetProject())) {
 			String url = RequestCycle.get().urlFor(PullRequestActivitiesPage.class, 
-					PullRequestActivitiesPage.paramsOf(request, null)).toString();
+					PullRequestActivitiesPage.paramsOf(request)).toString();
 			ReferenceTransformer transformer = new ReferenceTransformer(request.getTargetProject(), url);
 			String transformed = transformer.apply(request.getTitle());
 			String title;

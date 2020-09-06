@@ -7,7 +7,6 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -31,10 +30,10 @@ import com.google.common.collect.Lists;
 import io.onedev.commons.utils.TarUtils;
 import io.onedev.k8shelper.CacheAllocationRequest;
 import io.onedev.k8shelper.CacheInstance;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
+import io.onedev.server.buildspec.job.Job;
 import io.onedev.server.buildspec.job.JobContext;
 import io.onedev.server.buildspec.job.JobManager;
-import io.onedev.server.buildspec.job.SubmoduleCredential;
 
 @Path("/k8s")
 @Consumes(MediaType.WILDCARD)
@@ -62,16 +61,8 @@ public class KubernetesResource {
 		contextMap.put("commands", context.getCommands());
 		contextMap.put("retrieveSource", context.isRetrieveSource());
 		contextMap.put("cloneDepth", context.getCloneDepth());
-		List<Map<String, String>> list = new ArrayList<>();
-		for (SubmoduleCredential each: context.getSubmoduleCredentials()) {
-			Map<String, String> map = new HashMap<>();
-			map.put("url", each.getUrl());
-			map.put("userName", each.getUserName());
-			map.put("password", each.getPasswordSecret());
-			list.add(map);
-		}
-		contextMap.put("submoduleCredentials", list);
 		contextMap.put("projectName", context.getProjectName());
+		contextMap.put("cloneInfo", context.getCloneInfo());
 		contextMap.put("commitHash", context.getCommitId().name());
 		contextMap.put("collectFiles.includes", context.getCollectFiles().getIncludes());
 		contextMap.put("collectFiles.excludes", context.getCollectFiles().getExcludes());
@@ -129,18 +120,19 @@ public class KubernetesResource {
 	@GET
 	@Path("/test")
 	public Response test() {
-		String jobToken = request.getHeader(JobManager.JOB_TOKEN_HTTP_HEADER);
+		String jobToken = Job.getToken(request);
 		if (TEST_JOB_TOKEN.equals(jobToken))
 			return Response.ok().build();
-		else
-			return Response.status(400).entity("Invalid or no job token").build();
+		else 
+			return Response.status(400).entity("Invalid or missing job token").build();
 	}
 	
 	private String getJobToken() {
-		String jobToken = request.getHeader(JobManager.JOB_TOKEN_HTTP_HEADER);
-		if (jobToken == null)
-			throw new OneException("Http header '" + JobManager.JOB_TOKEN_HTTP_HEADER + "' is expected");
-		return jobToken;
+		String jobToken = Job.getToken(request);
+		if (jobToken != null)
+			return jobToken;
+		else
+			throw new GeneralException("Job token is expected");
 	}
 	
 }

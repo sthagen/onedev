@@ -14,7 +14,7 @@ import org.antlr.v4.runtime.Recognizer;
 import io.onedev.commons.codeassist.AntlrUtils;
 import io.onedev.commons.codeassist.FenceAware;
 import io.onedev.commons.utils.StringUtils;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.buildspec.job.Job;
 import io.onedev.server.buildspec.job.retrycondition.RetryConditionParser.AndCriteriaContext;
 import io.onedev.server.buildspec.job.retrycondition.RetryConditionParser.ConditionContext;
@@ -95,9 +95,9 @@ public class RetryCondition extends Criteria<Build> {
 					checkField(job, fieldName, operator);
 					
 					switch (fieldName) {
-					case Build.FIELD_LOG:
+					case Build.NAME_LOG:
 						return new LogCriteria(fieldValue);
-					case Build.FIELD_ERROR_MESSAGE:
+					case Build.NAME_ERROR_MESSAGE:
 						return new ErrorMessageCriteria(fieldValue);
 					default:
 						return new ParamCriteria(fieldName, fieldValue);
@@ -132,14 +132,14 @@ public class RetryCondition extends Criteria<Build> {
 	}
 	
 	public static void checkField(Job job, String fieldName, int operator) {
-		if (fieldName.equals(Build.FIELD_ERROR_MESSAGE) || fieldName.equals(Build.FIELD_LOG)) {
+		if (fieldName.equals(Build.NAME_ERROR_MESSAGE) || fieldName.equals(Build.NAME_LOG)) {
 			if (operator != RetryConditionLexer.Contains)
 				throw newOperatorException(fieldName, operator);
 		} else if (job.getParamSpecMap().containsKey(fieldName)) {
 			if (operator != RetryConditionLexer.IsEmpty && operator != RetryConditionLexer.Is)
 				throw newOperatorException(fieldName, operator);
 		} else {
-			throw new OneException("Param not found: " + fieldName);
+			throw new GeneralException("Param not found: " + fieldName);
 		}				
 	}
 	
@@ -147,14 +147,14 @@ public class RetryCondition extends Criteria<Build> {
 		return AntlrUtils.getLexerRuleName(RetryConditionLexer.ruleNames, rule);
 	}
 	
-	private static OneException newOperatorException(String fieldName, int operator) {
-		return new OneException("Field '" + fieldName + "' is not applicable for operator '" 
+	private static GeneralException newOperatorException(String fieldName, int operator) {
+		return new GeneralException("Field '" + fieldName + "' is not applicable for operator '" 
 				+ AntlrUtils.getLexerRuleName(RetryConditionLexer.ruleNames, operator) + "'");
 	}
 
 	@Override
-	public String asString() {
-		return criteria.asString();
+	public String toStringWithoutParens() {
+		return criteria.toStringWithoutParens();
 	}
 		
 }

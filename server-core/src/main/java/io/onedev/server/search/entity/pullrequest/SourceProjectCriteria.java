@@ -42,8 +42,8 @@ public class SourceProjectCriteria extends EntityCriteria<PullRequest> {
 	}
 
 	@Override
-	public String asString() {
-		return quote(PullRequest.FIELD_SOURCE_PROJECT) + " " 
+	public String toStringWithoutParens() {
+		return quote(PullRequest.NAME_SOURCE_PROJECT) + " " 
 				+ PullRequestQuery.getRuleName(PullRequestQueryLexer.Is) + " " 
 				+ quote(projectName);
 	}

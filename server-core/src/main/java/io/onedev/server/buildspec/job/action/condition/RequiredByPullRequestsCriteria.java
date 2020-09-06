@@ -9,11 +9,11 @@ public class RequiredByPullRequestsCriteria extends Criteria<Build> {
 
 	@Override
 	public boolean matches(Build build) {
-		return build.getPullRequestBuilds().stream().anyMatch(it->it.isRequired());
+		return build.getVerifications().stream().anyMatch(it->it.isRequired());
 	}
 
 	@Override
-	public String asString() {
+	public String toStringWithoutParens() {
 		return ActionCondition.getRuleName(ActionConditionLexer.RequiredByPullRequests);
 	}
 	

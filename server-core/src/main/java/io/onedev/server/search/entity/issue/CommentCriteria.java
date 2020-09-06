@@ -38,8 +38,8 @@ public class CommentCriteria extends IssueCriteria {
 	}
 
 	@Override
-	public String asString() {
-		return quote(Issue.FIELD_COMMENT) + " " 
+	public String toStringWithoutParens() {
+		return quote(Issue.NAME_COMMENT) + " " 
 				+ IssueQuery.getRuleName(IssueQueryLexer.Contains) + " " 
 				+ quote(value);
 	}

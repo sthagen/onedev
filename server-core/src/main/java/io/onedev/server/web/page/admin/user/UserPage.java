@@ -16,7 +16,7 @@ import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 
 import io.onedev.server.OneDev;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.entitymanager.UserManager;
 import io.onedev.server.model.User;
 import io.onedev.server.web.component.floating.AlignPlacement;
@@ -28,14 +28,13 @@ import io.onedev.server.web.component.tabbable.Tab;
 import io.onedev.server.web.component.tabbable.Tabbable;
 import io.onedev.server.web.component.user.avatar.UserAvatar;
 import io.onedev.server.web.page.admin.AdministrationPage;
+import io.onedev.server.web.page.admin.user.accesstoken.UserAccessTokenPage;
 import io.onedev.server.web.page.admin.user.authorization.UserAuthorizationsPage;
 import io.onedev.server.web.page.admin.user.avatar.UserAvatarPage;
-import io.onedev.server.web.page.admin.user.buildsetting.UserBuildSettingPage;
-import io.onedev.server.web.page.admin.user.buildsetting.UserJobSecretsPage;
 import io.onedev.server.web.page.admin.user.membership.UserMembershipsPage;
 import io.onedev.server.web.page.admin.user.password.UserPasswordPage;
 import io.onedev.server.web.page.admin.user.profile.UserProfilePage;
-import io.onedev.server.web.page.admin.user.webhook.UserWebHooksPage;
+import io.onedev.server.web.page.admin.user.ssh.UserSshKeysPage;
 
 @SuppressWarnings("serial")
 public abstract class UserPage extends AdministrationPage {
@@ -53,7 +52,7 @@ public abstract class UserPage extends AdministrationPage {
 		
 		Long userId = Long.valueOf(userIdString);
 		if (userId == User.SYSTEM_ID)
-			throw new OneException("System user is not accessible");
+			throw new GeneralException("System user is not accessible");
 		
 		userModel = new LoadableDetachableModel<User>() {
 
@@ -92,14 +91,14 @@ public abstract class UserPage extends AdministrationPage {
 	private List<? extends Tab> newTabs() {
 		List<PageTab> tabs = new ArrayList<>();
 		
-		tabs.add(new UserTab("Profile", "fa fa-fw fa-list-alt", UserProfilePage.class));
-		tabs.add(new UserTab("Edit Avatar", "fa fa-fw fa-picture-o", UserAvatarPage.class));
+		tabs.add(new UserTab("Profile", "profile", UserProfilePage.class));
+		tabs.add(new UserTab("Edit Avatar", "avatar", UserAvatarPage.class));
 			
-		tabs.add(new UserTab("Change Password", "fa fa-fw fa-key", UserPasswordPage.class));
-		tabs.add(new UserTab("Belonging Groups", "fa fa-fw fa-group", UserMembershipsPage.class));
-		tabs.add(new UserTab("Authorized Projects", "fa fa-fw fa-ext fa-repo", UserAuthorizationsPage.class));
-		tabs.add(new UserTab("Build Setting", "fa fa-fw fa-play-circle", UserJobSecretsPage.class, UserBuildSettingPage.class));
-		tabs.add(new UserTab("Web Hooks", "fa fa-fw fa-volume-up", UserWebHooksPage.class, UserWebHooksPage.class));
+		tabs.add(new UserTab("Change Password", "password", UserPasswordPage.class));
+		tabs.add(new UserTab("Belonging Groups", "group", UserMembershipsPage.class));
+		tabs.add(new UserTab("Authorized Projects", "project", UserAuthorizationsPage.class));
+		tabs.add(new UserTab("SSH Keys", "key", UserSshKeysPage.class));
+		tabs.add(new UserTab("Access Token", "token", UserAccessTokenPage.class));
 		
 		return tabs;
 	}

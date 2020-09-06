@@ -7,18 +7,10 @@
 	margin-bottom: 20px;
 }
 .push-instructions {
-	padding: 20px;
-	width: 600px;
+	padding: 12px;
 }
 .push-instructions .title {
 	font-weight: bold;
+	font-size: 16px;
 	margin-bottom: 12px;
-}
-.push-instructions .content {
-	font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
-	font-size: 13px;
-	margin-bottom: 8px;
-}
-.push-instructions .help-block {
-	margin-bottom: 0;
 }

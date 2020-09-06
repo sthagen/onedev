@@ -24,8 +24,8 @@ public class LogCriteria extends Criteria<Build> {
 	}
 
 	@Override
-	public String asString() {
-		return quote(Build.FIELD_LOG) + " " 
+	public String toStringWithoutParens() {
+		return quote(Build.NAME_LOG) + " " 
 				+ ActionCondition.getRuleName(ActionConditionLexer.Contains) + " "
 				+ quote(value);
 	}

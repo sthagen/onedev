@@ -2,23 +2,18 @@ package io.onedev.server.model.support.build;
 
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
 
-import org.eclipse.jgit.lib.ObjectId;
-
 import io.onedev.server.OneDev;
-import io.onedev.server.OneException;
 import io.onedev.server.buildspec.job.action.PostBuildAction;
 import io.onedev.server.entitymanager.SettingManager;
 import io.onedev.server.model.Build;
-import io.onedev.server.model.Project;
 import io.onedev.server.model.support.administration.GlobalBuildSetting;
 import io.onedev.server.model.support.build.actionauthorization.ActionAuthorization;
+import io.onedev.server.model.support.build.actionauthorization.CloseMilestoneAuthorization;
+import io.onedev.server.model.support.build.actionauthorization.CreateTagAuthorization;
 import io.onedev.server.web.editable.annotation.Editable;
 
 @Editable
@@ -37,6 +32,11 @@ public class ProjectBuildSetting implements Serializable {
 	private List<ActionAuthorization> actionAuthorizations = new ArrayList<>();
 	
 	private transient GlobalBuildSetting globalSetting;
+	
+	public ProjectBuildSetting() {
+		actionAuthorizations.add(new CloseMilestoneAuthorization());
+		actionAuthorizations.add(new CreateTagAuthorization());
+	}
 	
 	public List<JobSecret> getJobSecrets() {
 		return jobSecrets;
@@ -101,55 +101,13 @@ public class ProjectBuildSetting implements Serializable {
 		return null;
 	}
 	
-	public List<JobSecret> getInheritedSecrets(Project project) {
-		Map<String, JobSecret> inheritedSecrets = new LinkedHashMap<>();
-		for (JobSecret secret: project.getOwner().getBuildSetting().getJobSecrets())
-			inheritedSecrets.put(secret.getName(), secret);
-		inheritedSecrets.keySet().removeAll(jobSecrets.stream().map(it->it.getName()).collect(Collectors.toSet()));
-		return new ArrayList<>(inheritedSecrets.values());
-	}
-	
-	public List<JobSecret> getHierarchySecrets(Project project) {
-		List<JobSecret> hierarchySecrets = new ArrayList<>(getJobSecrets());
-		hierarchySecrets.addAll(getInheritedSecrets(project));
-		return hierarchySecrets;
-	}
-	
-	public String getSecretValue(Project project, String secretName, ObjectId commitId) {
-		for (JobSecret secret: getHierarchySecrets(project)) {
-			if (secret.getName().equals(secretName)) {
-				if (secret.isAuthorized(project, commitId))				
-					return secret.getValue();
-				else
-					throw new OneException("Job secret not authorized: " + secretName);
-			}
-		}
-		throw new OneException("No job secret found: " + secretName);
-	}
-	
-	public List<BuildPreservation> getHierarchyBuildPreservations(Project project) {
-		List<BuildPreservation> hierarchyBuildPreservations = new ArrayList<>(getBuildPreservations());
-		hierarchyBuildPreservations.addAll(project.getOwner().getBuildSetting().getBuildPreservations());
-		return hierarchyBuildPreservations;
-	}
-	
-	public List<ActionAuthorization> getHierarchyActionAuthorizations(Project project) {
-		List<ActionAuthorization> hierarchyBranchAuthorizations = new ArrayList<>(getActionAuthorizations());
-		hierarchyBranchAuthorizations.addAll(project.getOwner().getBuildSetting().getActionAuthorizations());
-		return hierarchyBranchAuthorizations;
-	}
-	
 	public boolean isActionAuthorized(Build build, PostBuildAction action) {
-		List<ActionAuthorization> authorizations = getHierarchyActionAuthorizations(build.getProject());
-		if (!authorizations.isEmpty()) {
-			for (ActionAuthorization authorization: authorizations) {
-				if (authorization.isAuthorized(build, action)) 
-					return true;
-			}
-			return false;
-		} else {
-			return true;
+		List<ActionAuthorization> authorizations = getActionAuthorizations();
+		for (ActionAuthorization authorization: authorizations) {
+			if (authorization.matches(action) && build.isOnBranches(authorization.getAuthorizedBranches())) 
+				return true;
 		}
+		return false;
 	}
 	
 }

@@ -15,8 +15,8 @@ import io.onedev.server.model.Project;
 import io.onedev.server.model.PullRequest;
 import io.onedev.server.model.PullRequestComment;
 import io.onedev.server.model.User;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.DateUtils;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.web.component.markdown.AttachmentSupport;
 import io.onedev.server.web.component.markdown.ContentVersionSupport;
 import io.onedev.server.web.component.project.comment.ProjectCommentPanel;
@@ -70,8 +70,14 @@ class PullRequestCommentedPanel extends GenericPanel<PullRequestComment> {
 
 			@Override
 			protected AttachmentSupport getAttachmentSupport() {
-				return new ProjectAttachmentSupport(PullRequestCommentedPanel.this.getComment().getProject(), 
-						PullRequestCommentedPanel.this.getComment().getRequest().getUUID());
+				return new ProjectAttachmentSupport(getProject(), PullRequestCommentedPanel.this.getComment().getRequest().getUUID()) {
+					
+					@Override
+					public boolean canDeleteAttachment() {
+						return SecurityUtils.canManagePullRequests(getProject());
+					}
+					
+				};
 			}
 
 			@Override

@@ -6,12 +6,13 @@ import org.apache.wicket.ajax.attributes.AjaxRequestAttributes;
 import org.apache.wicket.ajax.markup.html.AjaxLink;
 import org.apache.wicket.ajax.markup.html.form.AjaxCheckBox;
 import org.apache.wicket.behavior.AttributeAppender;
+import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.markup.html.panel.Panel;
 import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.model.Model;
 
 import io.onedev.server.model.support.BranchProtection;
-import io.onedev.server.web.ajaxlistener.ConfirmListener;
+import io.onedev.server.web.ajaxlistener.ConfirmClickListener;
 import io.onedev.server.web.editable.BeanContext;
 
 @SuppressWarnings("serial")
@@ -62,7 +63,7 @@ abstract class BranchProtectionPanel extends Panel {
 			@Override
 			protected void updateAjaxAttributes(AjaxRequestAttributes attributes) {
 				super.updateAjaxAttributes(attributes);
-				attributes.getAjaxCallListeners().add(new ConfirmListener("Do you really want to delete this protection?"));
+				attributes.getAjaxCallListeners().add(new ConfirmClickListener("Do you really want to delete this protection?"));
 			}
 
 			@Override
@@ -72,7 +73,8 @@ abstract class BranchProtectionPanel extends Panel {
 			
 		});
 		
-		add(new AjaxCheckBox("enable", Model.of(protection.isEnabled())) {
+		AjaxCheckBox checkbox;
+		add(checkbox = new AjaxCheckBox("enable", Model.of(protection.isEnabled())) {
 			
 			@Override
 			protected void onUpdate(AjaxRequestTarget target) {
@@ -82,6 +84,7 @@ abstract class BranchProtectionPanel extends Panel {
 			}
 			
 		});
+		add(new WebMarkupContainer("enableLabel").add(AttributeAppender.append("for", checkbox.getMarkupId())));
 		
 		add(BeanContext.view("protection", protection).setOutputMarkupId(true));
 		

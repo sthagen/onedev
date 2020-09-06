@@ -46,8 +46,8 @@ public class UpdateDateCriteria extends EntityCriteria<Project> {
 	}
 
 	@Override
-	public String asString() {
-		return Criteria.quote(Project.FIELD_UPDATE_DATE) + " " 
+	public String toStringWithoutParens() {
+		return Criteria.quote(Project.NAME_UPDATE_DATE) + " " 
 				+ ProjectQuery.getRuleName(operator) + " " 
 				+ Criteria.quote(value);
 	}

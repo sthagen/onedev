@@ -292,12 +292,12 @@ public class GitUtils {
      * 			case, these two commits can not be merged
      */
     @Nullable
-    public static ObjectId getMergeBase(Repository repository, ObjectId commit1, ObjectId commit2) {
+    public static ObjectId getMergeBase(Repository repository, ObjectId commitId1, ObjectId commitId2) {
 		try (RevWalk revWalk = new RevWalk(repository)) {
 			revWalk.setRevFilter(RevFilter.MERGE_BASE);
 			
-			revWalk.markStart(revWalk.parseCommit(commit1));
-			revWalk.markStart(revWalk.parseCommit(commit2));
+			revWalk.markStart(revWalk.parseCommit(commitId1));
+			revWalk.markStart(revWalk.parseCommit(commitId2));
 			RevCommit mergeBase = revWalk.next();
 			return mergeBase!=null?mergeBase.copy():null;
 		} catch (IOException e) {
@@ -399,13 +399,18 @@ public class GitUtils {
         		merger.setBase(commit.getParent(0));
         		if (merger.merge(headCommit, commit)) {
 					if (!headCommit.getTree().getId().equals(merger.getResultTreeId())) {
-				        CommitBuilder newCommit = new CommitBuilder();
-				        newCommit.setAuthor(commit.getAuthorIdent());
-				        newCommit.setCommitter(committer);
-				        newCommit.setParentId(headCommit);
-				        newCommit.setMessage(commit.getFullMessage());
-				        newCommit.setTreeId(merger.getResultTreeId());
-				        headCommit = revWalk.parseCommit(inserter.insert(newCommit));
+						if (!commit.getTree().getId().equals(merger.getResultTreeId()) 
+								|| !commit.getParent(0).equals(headCommit)) {
+					        CommitBuilder commitBuilder = new CommitBuilder();
+					        commitBuilder.setAuthor(commit.getAuthorIdent());
+					        commitBuilder.setCommitter(committer);
+					        commitBuilder.setParentId(headCommit);
+					        commitBuilder.setMessage(commit.getFullMessage());
+					        commitBuilder.setTreeId(merger.getResultTreeId());
+					        headCommit = revWalk.parseCommit(inserter.insert(commitBuilder));
+						} else {
+							headCommit = commit;
+						}
 					}
         		} else {
         			return null;
@@ -419,12 +424,15 @@ public class GitUtils {
     }
     
     @Nullable
-    public static ObjectId merge(Repository repository, ObjectId source, ObjectId target, 
-    		boolean squash, PersonIdent committer, PersonIdent author, String commitMessage) {
+    public static ObjectId merge(Repository repository, ObjectId targetCommitId, ObjectId sourceCommitId, 
+    		boolean squash, PersonIdent committer, PersonIdent author, String commitMessage, 
+    		boolean useOursOnConflict) {
+    	boolean prevUseOursOnConflict = UseOursOnConflict.get();
+    	UseOursOnConflict.set(useOursOnConflict);
     	try (	RevWalk revWalk = new RevWalk(repository);
     			ObjectInserter inserter = repository.newObjectInserter();) {
-    		RevCommit sourceCommit = revWalk.parseCommit(source);
-    		RevCommit targetCommit = revWalk.parseCommit(target);
+    		RevCommit sourceCommit = revWalk.parseCommit(sourceCommitId);
+    		RevCommit targetCommit = revWalk.parseCommit(targetCommitId);
     		Merger merger = MergeStrategy.RECURSIVE.newMerger(repository, true);
     		if (merger.merge(targetCommit, sourceCommit)) {
 		        CommitBuilder mergedCommit = new CommitBuilder();
@@ -444,6 +452,8 @@ public class GitUtils {
     		}
     	} catch (IOException e) {
     		throw new RuntimeException(e);
+		} finally {
+			UseOursOnConflict.set(prevUseOursOnConflict);
 		}
     }
     
@@ -521,19 +531,24 @@ public class GitUtils {
 		}
 	}
 
+	@Nullable
 	public static List<String> readLines(Repository repository, RevCommit commit, String path, 
 			WhitespaceOption whitespaceOption) {
 		try {
-			TreeWalk treeWalk = Preconditions.checkNotNull(TreeWalk.forPath(repository, path, commit.getTree()));
-			ObjectId blobId = treeWalk.getObjectId(0);
-			ObjectReader objectReader = treeWalk.getObjectReader();
-			BlobIdent blobIdent = new BlobIdent(commit.name(), path, FileMode.REGULAR_FILE.getBits()); 
-			Blob blob = new Blob(blobIdent, blobId, objectReader);
-			List<String> normalizedLines = new ArrayList<>();
-			for (String line: Preconditions.checkNotNull(blob.getText()).getLines()) {
-				normalizedLines.add(whitespaceOption.process(line));
+			TreeWalk treeWalk = TreeWalk.forPath(repository, path, commit.getTree());
+			if (treeWalk != null) {
+				ObjectId blobId = treeWalk.getObjectId(0);
+				ObjectReader objectReader = treeWalk.getObjectReader();
+				BlobIdent blobIdent = new BlobIdent(commit.name(), path, FileMode.REGULAR_FILE.getBits()); 
+				Blob blob = new Blob(blobIdent, blobId, objectReader);
+				List<String> normalizedLines = new ArrayList<>();
+				for (String line: Preconditions.checkNotNull(blob.getText()).getLines()) {
+					normalizedLines.add(whitespaceOption.process(line));
+				}
+				return normalizedLines;
+			} else {
+				return null;
 			}
-			return normalizedLines;
 		} catch (IOException e) {
 			throw new RuntimeException(e);
 		}

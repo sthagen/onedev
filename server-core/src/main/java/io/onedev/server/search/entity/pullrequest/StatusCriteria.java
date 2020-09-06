@@ -37,8 +37,8 @@ public class StatusCriteria extends EntityCriteria<PullRequest> {
 	}
 
 	@Override
-	public String asString() {
-		return quote(PullRequest.FIELD_STATUS) + " " 
+	public String toStringWithoutParens() {
+		return quote(PullRequest.NAME_STATUS) + " " 
 				+ PullRequestQuery.getRuleName(PullRequestQueryLexer.Is) + " " 
 				+ quote(value);
 	}

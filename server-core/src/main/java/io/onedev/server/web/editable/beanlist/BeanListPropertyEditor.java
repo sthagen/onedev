@@ -1,7 +1,5 @@
 package io.onedev.server.web.editable.beanlist;
 
-import static de.agilecoders.wicket.jquery.JQuery.$;
-
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -26,15 +24,15 @@ import org.apache.wicket.model.Model;
 import org.apache.wicket.util.convert.ConversionException;
 
 import io.onedev.commons.utils.ClassUtils;
+import io.onedev.server.util.Path;
+import io.onedev.server.util.PathNode;
+import io.onedev.server.util.PathNode.Indexed;
+import io.onedev.server.util.PathNode.Named;
 import io.onedev.server.util.ReflectionUtils;
 import io.onedev.server.web.behavior.sortable.SortBehavior;
 import io.onedev.server.web.behavior.sortable.SortPosition;
 import io.onedev.server.web.editable.BeanDescriptor;
 import io.onedev.server.web.editable.EditableUtils;
-import io.onedev.server.web.editable.Path;
-import io.onedev.server.web.editable.PathNode;
-import io.onedev.server.web.editable.PathNode.Indexed;
-import io.onedev.server.web.editable.PathNode.Named;
 import io.onedev.server.web.editable.PropertyContext;
 import io.onedev.server.web.editable.PropertyDescriptor;
 import io.onedev.server.web.editable.PropertyEditor;
@@ -145,22 +143,19 @@ public class BeanListPropertyEditor extends PropertyEditor<List<Serializable>> {
 				super.onSubmit(target, form);
 				markFormDirty(target);
 				
-				Component firstRow;
+				Component lastRow;
 				if (rows.size() != 0)
-					firstRow = rows.get(0);
+					lastRow = rows.get(rows.size() - 1);
 				else 
-					firstRow = null;
+					lastRow = null;
 				
 				Component newRow = addRow(newElement());
-				for (int i=0; i<rows.size()-1; i++) 
-					rows.swap(rows.size()-i-1, rows.size()-i-2);
-				
 				String script = String.format("$('<tr id=\"%s\"></tr>')", newRow.getMarkupId());
-				if (firstRow != null)
-					script += ".insertBefore('#" + firstRow.getMarkupId() + "');";
+				if (lastRow != null)
+					script += ".insertAfter('#" + lastRow.getMarkupId() + "');";
 				else
 					script += ".appendTo('#" + BeanListPropertyEditor.this.getMarkupId() + ">div>table>tbody');";
-
+				
 				target.prependJavaScript(script);
 				target.add(newRow);
 				target.add(noElements);
@@ -261,7 +256,7 @@ public class BeanListPropertyEditor extends PropertyEditor<List<Serializable>> {
 			protected void onSubmit(AjaxRequestTarget target, Form<?> form) {
 				super.onSubmit(target, form);
 				markFormDirty(target);
-				target.appendJavaScript($(row).chain("remove").get());
+				target.appendJavaScript(String.format("$('#%s').remove();", row.getMarkupId()));
 				rows.remove(row);
 				target.add(noElements);
 				onPropertyUpdating(target);

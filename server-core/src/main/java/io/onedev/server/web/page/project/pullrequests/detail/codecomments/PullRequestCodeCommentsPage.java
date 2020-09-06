@@ -1,8 +1,11 @@
 package io.onedev.server.web.page.project.pullrequests.detail.codecomments;
 
+import java.io.Serializable;
+
 import javax.annotation.Nullable;
 
 import org.apache.wicket.ajax.AjaxRequestTarget;
+import org.apache.wicket.model.IModel;
 import org.apache.wicket.request.IRequestHandler;
 import org.apache.wicket.request.Url;
 import org.apache.wicket.request.cycle.IRequestCycleListener;
@@ -13,11 +16,10 @@ import io.onedev.server.OneDev;
 import io.onedev.server.infomanager.UserInfoManager;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.PullRequest;
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.web.component.codecomment.CodeCommentListPanel;
 import io.onedev.server.web.page.project.pullrequests.detail.PullRequestDetailPage;
 import io.onedev.server.web.util.PagingHistorySupport;
-import io.onedev.server.web.util.QueryPosition;
 
 @SuppressWarnings("serial")
 public class PullRequestCodeCommentsPage extends PullRequestDetailPage {
@@ -28,9 +30,10 @@ public class PullRequestCodeCommentsPage extends PullRequestDetailPage {
 	
 	private String query;
 	
+	private CodeCommentListPanel commentList;
+	
 	public PullRequestCodeCommentsPage(PageParameters params) {
 		super(params);
-		
 		query = params.get(PARAM_QUERY).toString();
 	}
 
@@ -47,7 +50,7 @@ public class PullRequestCodeCommentsPage extends PullRequestDetailPage {
 
 			@Override
 			public PageParameters newPageParameters(int currentPage) {
-				PageParameters params = paramsOf(getPullRequest(), getPosition(), query);
+				PageParameters params = paramsOf(getPullRequest(), query);
 				params.add(PARAM_PAGE, currentPage+1);
 				return params;
 			}
@@ -59,7 +62,28 @@ public class PullRequestCodeCommentsPage extends PullRequestDetailPage {
 			
 		};
 		
-		add(new CodeCommentListPanel("codeComments", query) {
+		add(commentList = new CodeCommentListPanel("codeComments", new IModel<String>() {
+
+			@Override
+			public void detach() {
+			}
+
+			@Override
+			public String getObject() {
+				return query;
+			}
+
+			@Override
+			public void setObject(String object) {
+				query = object;
+				PageParameters params = getPageParameters();
+				params.set(PARAM_QUERY, query);
+				params.remove(PARAM_PAGE);
+				CharSequence url = RequestCycle.get().urlFor(PullRequestCodeCommentsPage.class, params);
+				pushState(RequestCycle.get().find(AjaxRequestTarget.class), url.toString(), query);
+			}
+			
+		}) {
 
 			@Override
 			protected Project getProject() {
@@ -69,12 +93,6 @@ public class PullRequestCodeCommentsPage extends PullRequestDetailPage {
 			@Override
 			protected PagingHistorySupport getPagingHistorySupport() {
 				return pagingHistorySupport;
-			}
-
-			@Override
-			protected void onQueryUpdated(AjaxRequestTarget target, String query) {
-				PageParameters params = paramsOf(getPullRequest(), getPosition(), query);
-				setResponsePage(PullRequestCodeCommentsPage.class, params);
 			}
 
 			@Override
@@ -129,8 +147,15 @@ public class PullRequestCodeCommentsPage extends PullRequestDetailPage {
 		});		
 	}
 
-	public static PageParameters paramsOf(PullRequest request, @Nullable QueryPosition position, @Nullable String query) {
-		PageParameters params = paramsOf(request, position);
+	@Override
+	protected void onPopState(AjaxRequestTarget target, Serializable data) {
+		query = (String) data;
+		getPageParameters().set(PARAM_QUERY, query);
+		target.add(commentList);
+	}
+	
+	public static PageParameters paramsOf(PullRequest request, @Nullable String query) {
+		PageParameters params = paramsOf(request);
 		if (query != null)
 			params.add(PARAM_QUERY, query);
 		return params;

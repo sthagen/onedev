@@ -20,7 +20,7 @@ import org.eclipse.jgit.lib.ObjectId;
 import io.onedev.commons.codeassist.FenceAware;
 import io.onedev.commons.utils.StringUtils;
 import io.onedev.server.OneDev;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.event.RefUpdated;
 import io.onedev.server.git.command.RevListCommand;
@@ -90,7 +90,7 @@ public class CommitQuery implements Serializable {
 					Revision.Scope scope;
 					if (criteria.revisionCriteria().DefaultBranch() != null)
 						value = project.getDefaultBranch();
-					else
+					else 
 						value = getValue(criteria.revisionCriteria().Value());
 					if (criteria.revisionCriteria().BUILD() != null) {
 						String numberStr = value;
@@ -99,11 +99,11 @@ public class CommitQuery implements Serializable {
 						if (NumberUtils.isDigits(numberStr)) {
 							Build build = OneDev.getInstance(BuildManager.class).find(project, Long.parseLong(numberStr));
 							if (build == null)
-								throw new OneException("Unable to find build: #" + value);
+								throw new GeneralException("Unable to find build: " + value);
 							else
 								value = build.getCommitHash();
 						} else {
-							throw new OneException("Invalid build number: " + numberStr);
+							throw new GeneralException("Invalid build number: " + numberStr);
 						}
 					}
 					if (criteria.revisionCriteria().SINCE() != null)
@@ -112,7 +112,7 @@ public class CommitQuery implements Serializable {
 						scope = Revision.Scope.UNTIL;
 					else
 						scope = null;
-					revisions.add(new Revision(value, scope));
+					revisions.add(new Revision(value, scope, criteria.revisionCriteria().getText()));
 				}
 			}
 			
@@ -159,6 +159,14 @@ public class CommitQuery implements Serializable {
 		criterias.addAll(query1.getCriterias());
 		criterias.addAll(query2.getCriterias());
 		return new CommitQuery(criterias);
+	}
+
+	@Override
+	public String toString() {
+		List<String> parts = new ArrayList<>();
+		for (CommitCriteria criteria: criterias)
+			parts.add(criteria.toString());
+		return StringUtils.join(parts, " ");
 	}
 	
 }

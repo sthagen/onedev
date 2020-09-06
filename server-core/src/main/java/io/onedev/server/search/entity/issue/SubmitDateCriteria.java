@@ -44,8 +44,8 @@ public class SubmitDateCriteria extends IssueCriteria {
 	}
 
 	@Override
-	public String asString() {
-		return quote(Issue.FIELD_SUBMIT_DATE) + " " 
+	public String toStringWithoutParens() {
+		return quote(Issue.NAME_SUBMIT_DATE) + " " 
 				+ IssueQuery.getRuleName(operator) + " " 
 				+ quote(value);
 	}

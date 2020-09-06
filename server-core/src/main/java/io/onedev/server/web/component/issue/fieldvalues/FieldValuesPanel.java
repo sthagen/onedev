@@ -26,23 +26,23 @@ import io.onedev.server.entitymanager.PullRequestManager;
 import io.onedev.server.entitymanager.SettingManager;
 import io.onedev.server.entitymanager.UserManager;
 import io.onedev.server.git.GitUtils;
-import io.onedev.server.issue.fieldspec.ChoiceField;
-import io.onedev.server.issue.fieldspec.FieldSpec;
 import io.onedev.server.model.Build;
 import io.onedev.server.model.Issue;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.PullRequest;
 import io.onedev.server.model.User;
 import io.onedev.server.model.support.administration.GlobalIssueSetting;
+import io.onedev.server.model.support.inputspec.SecretInput;
+import io.onedev.server.model.support.inputspec.choiceinput.choiceprovider.ChoiceProvider;
+import io.onedev.server.model.support.issue.fieldspec.ChoiceField;
+import io.onedev.server.model.support.issue.fieldspec.FieldSpec;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.ColorUtils;
 import io.onedev.server.util.ComponentContext;
 import io.onedev.server.util.EditContext;
 import io.onedev.server.util.Input;
-import io.onedev.server.util.SecurityUtils;
-import io.onedev.server.util.inputspec.SecretInput;
-import io.onedev.server.util.inputspec.choiceinput.choiceprovider.ChoiceProvider;
-import io.onedev.server.web.behavior.clipboard.CopyClipboardBehavior;
 import io.onedev.server.web.component.link.ViewStateAwarePageLink;
+import io.onedev.server.web.component.link.copytoclipboard.CopyToClipboardLink;
 import io.onedev.server.web.component.user.ident.Mode;
 import io.onedev.server.web.component.user.ident.UserIdentPanel;
 import io.onedev.server.web.editable.EditableUtils;
@@ -85,7 +85,7 @@ public abstract class FieldValuesPanel extends Panel implements EditContext {
 						if (issue != null) {
 							Fragment linkFrag = new Fragment("value", "linkFrag", FieldValuesPanel.this);
 							Link<Void> link = new BookmarkablePageLink<Void>("link", IssueActivitiesPage.class, 
-									IssueActivitiesPage.paramsOf(issue, null));
+									IssueActivitiesPage.paramsOf(issue));
 							link.add(new Label("label", "#" + issue.getNumber()));
 							linkFrag.add(link);
 							item.add(linkFrag);
@@ -98,7 +98,7 @@ public abstract class FieldValuesPanel extends Panel implements EditContext {
 						if (build != null) {
 							Fragment linkFrag = new Fragment("value", "linkFrag", FieldValuesPanel.this);
 							Link<Void> link = new BookmarkablePageLink<Void>("link", 
-									BuildDashboardPage.class, BuildDashboardPage.paramsOf(build, null));
+									BuildDashboardPage.class, BuildDashboardPage.paramsOf(build));
 							String buildInfo = "#" + build.getNumber();
 							if (build.getVersion() != null)
 								buildInfo += " (" + build.getVersion() + ")";
@@ -114,7 +114,7 @@ public abstract class FieldValuesPanel extends Panel implements EditContext {
 						if (request != null && SecurityUtils.canReadCode(request.getTargetProject())) {
 							Fragment linkFrag = new Fragment("value", "linkFrag", FieldValuesPanel.this);
 							Link<Void> link = new BookmarkablePageLink<Void>("link", PullRequestActivitiesPage.class, 
-									PullRequestActivitiesPage.paramsOf(request, null));
+									PullRequestActivitiesPage.paramsOf(request));
 							link.add(new Label("label", "#" + request.getNumber()));
 							linkFrag.add(link);
 							item.add(linkFrag);
@@ -132,12 +132,12 @@ public abstract class FieldValuesPanel extends Panel implements EditContext {
 								Link<Void> hashLink = new ViewStateAwarePageLink<Void>("hashLink", CommitDetailPage.class, params);
 								fragment.add(hashLink);
 								hashLink.add(new Label("hash", GitUtils.abbreviateSHA(value)));
-								fragment.add(new WebMarkupContainer("copyHash").add(new CopyClipboardBehavior(Model.of(value))));
+								fragment.add(new CopyToClipboardLink("copyHash", Model.of(value)));
 								item.add(fragment);
 							} else {
 								Fragment fragment = new Fragment("value", "notAccessibleCommitFrag", FieldValuesPanel.this);
 								fragment.add(new Label("hash", GitUtils.abbreviateSHA(value)));
-								fragment.add(new WebMarkupContainer("copyHash").add(new CopyClipboardBehavior(Model.of(value))));
+								fragment.add(new CopyToClipboardLink("copyHash", Model.of(value)));
 								item.add(fragment);
 							}
 						} else {
@@ -163,7 +163,7 @@ public abstract class FieldValuesPanel extends Panel implements EditContext {
 										"background-color: %s; color: %s;", 
 										backgroundColor, fontColor);
 								label.add(AttributeAppender.append("style", style));
-								label.add(AttributeAppender.append("class", "label"));
+								label.add(AttributeAppender.append("class", "badge"));
 							} finally {
 								ComponentContext.pop();
 							}

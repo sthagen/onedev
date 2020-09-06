@@ -54,21 +54,21 @@ import io.onedev.server.entitymanager.GroupManager;
 import io.onedev.server.entitymanager.PullRequestManager;
 import io.onedev.server.entitymanager.SettingManager;
 import io.onedev.server.entitymanager.UserManager;
-import io.onedev.server.infomanager.CodeCommentRelationInfoManager;
+import io.onedev.server.infomanager.PullRequestInfoManager;
 import io.onedev.server.infomanager.CommitInfoManager;
 import io.onedev.server.infomanager.UserInfoManager;
-import io.onedev.server.issue.fieldspec.FieldSpec;
 import io.onedev.server.model.support.EntityWatch;
 import io.onedev.server.model.support.LastUpdate;
 import io.onedev.server.model.support.administration.GlobalIssueSetting;
+import io.onedev.server.model.support.inputspec.InputSpec;
+import io.onedev.server.model.support.issue.fieldspec.FieldSpec;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.storage.AttachmentStorageSupport;
 import io.onedev.server.util.CollectionUtils;
 import io.onedev.server.util.Input;
 import io.onedev.server.util.ProjectScopedNumber;
 import io.onedev.server.util.Referenceable;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.util.facade.IssueFacade;
-import io.onedev.server.util.inputspec.InputSpec;
 import io.onedev.server.util.jackson.DefaultView;
 import io.onedev.server.web.editable.BeanDescriptor;
 import io.onedev.server.web.editable.PropertyDescriptor;
@@ -94,51 +94,51 @@ public class Issue extends AbstractEntity implements Referenceable, AttachmentSt
 
 	public static final String PROP_NUMBER_SCOPE = "numberScope";
 	
-	public static final String FIELD_NUMBER = "Number";
+	public static final String NAME_NUMBER = "Number";
 	
 	public static final String PROP_NUMBER = "number";
 	
-	public static final String FIELD_PROJECT = "Project";
+	public static final String NAME_PROJECT = "Project";
 	
 	public static final String PROP_PROJECT = "project";
 	
-	public static final String FIELD_STATE = "State";
+	public static final String NAME_STATE = "State";
 	
 	public static final String PROP_STATE = "state";
 	
-	public static final String FIELD_TITLE = "Title";
+	public static final String NAME_TITLE = "Title";
 	
 	public static final String PROP_TITLE = "title";
 	
-	public static final String FIELD_DESCRIPTION = "Description";
+	public static final String NAME_DESCRIPTION = "Description";
 	
 	public static final String PROP_DESCRIPTION = "description";
 	
-	public static final String FIELD_COMMENT = "Comment";
+	public static final String NAME_COMMENT = "Comment";
 	
 	public static final String PROP_COMMENTS = "comments";
 	
-	public static final String FIELD_SUBMITTER = "Submitter";
+	public static final String NAME_SUBMITTER = "Submitter";
 	
 	public static final String PROP_SUBMITTER = "submitter";
 	
-	public static final String FIELD_SUBMIT_DATE = "Submit Date";
+	public static final String NAME_SUBMIT_DATE = "Submit Date";
 	
 	public static final String PROP_SUBMIT_DATE = "submitDate";
 	
-	public static final String FIELD_VOTE_COUNT = "Vote Count";
+	public static final String NAME_VOTE_COUNT = "Vote Count";
 	
 	public static final String PROP_VOTE_COUNT = "voteCount";
 	
-	public static final String FIELD_COMMENT_COUNT = "Comment Count";
+	public static final String NAME_COMMENT_COUNT = "Comment Count";
 	
 	public static final String PROP_COMMENT_COUNT = "commentCount";
 	
-	public static final String FIELD_UPDATE_DATE = "Update Date";
+	public static final String NAME_UPDATE_DATE = "Update Date";
 	
 	public static final String PROP_LAST_UPDATE = "lastUpdate";
 	
-	public static final String FIELD_MILESTONE = "Milestone";
+	public static final String NAME_MILESTONE = "Milestone";
 	
 	public static final String PROP_MILESTONE = "milestone";
 	
@@ -149,22 +149,22 @@ public class Issue extends AbstractEntity implements Referenceable, AttachmentSt
 	public static final String PROP_NO_SPACE_TITLE = "noSpaceTitle";
 	
 	public static final Set<String> ALL_FIELDS = Sets.newHashSet(
-			FIELD_PROJECT, FIELD_NUMBER, FIELD_STATE, FIELD_TITLE, FIELD_SUBMITTER, 
-			FIELD_DESCRIPTION, FIELD_COMMENT, FIELD_SUBMIT_DATE, FIELD_UPDATE_DATE, 
-			FIELD_VOTE_COUNT, FIELD_COMMENT_COUNT, FIELD_MILESTONE);
+			NAME_PROJECT, NAME_NUMBER, NAME_STATE, NAME_TITLE, NAME_SUBMITTER, 
+			NAME_DESCRIPTION, NAME_COMMENT, NAME_SUBMIT_DATE, NAME_UPDATE_DATE, 
+			NAME_VOTE_COUNT, NAME_COMMENT_COUNT, NAME_MILESTONE);
 	
 	public static final List<String> QUERY_FIELDS = Lists.newArrayList(
-			FIELD_PROJECT, FIELD_NUMBER, FIELD_STATE, FIELD_TITLE, FIELD_DESCRIPTION, 
-			FIELD_COMMENT, FIELD_SUBMIT_DATE, FIELD_UPDATE_DATE, FIELD_VOTE_COUNT, 
-			FIELD_COMMENT_COUNT, FIELD_MILESTONE);
+			NAME_PROJECT, NAME_NUMBER, NAME_STATE, NAME_TITLE, NAME_DESCRIPTION, 
+			NAME_COMMENT, NAME_SUBMIT_DATE, NAME_UPDATE_DATE, NAME_VOTE_COUNT, 
+			NAME_COMMENT_COUNT, NAME_MILESTONE);
 
 	public static final Map<String, String> ORDER_FIELDS = CollectionUtils.newLinkedHashMap(
-			FIELD_VOTE_COUNT, PROP_VOTE_COUNT,
-			FIELD_COMMENT_COUNT, PROP_COMMENT_COUNT,
-			FIELD_NUMBER, PROP_NUMBER,
-			FIELD_SUBMIT_DATE, PROP_SUBMIT_DATE,
-			FIELD_PROJECT, PROP_PROJECT,
-			FIELD_UPDATE_DATE, PROP_LAST_UPDATE + "." + LastUpdate.PROP_DATE);	
+			NAME_VOTE_COUNT, PROP_VOTE_COUNT,
+			NAME_COMMENT_COUNT, PROP_COMMENT_COUNT,
+			NAME_NUMBER, PROP_NUMBER,
+			NAME_SUBMIT_DATE, PROP_SUBMIT_DATE,
+			NAME_PROJECT, PROP_PROJECT,
+			NAME_UPDATE_DATE, PROP_LAST_UPDATE + "." + LastUpdate.PROP_DATE);	
 	
 	@Column(nullable=false)
 	private String state;
@@ -517,6 +517,7 @@ public class Issue extends AbstractEntity implements Referenceable, AttachmentSt
 			if (fieldNames.contains(it.next().getName()))
 				it.remove();
 		}
+		fieldInputs = null;
 	}
 	
 	public void setFieldValues(Map<String, Object> fieldValues) {
@@ -567,13 +568,17 @@ public class Issue extends AbstractEntity implements Referenceable, AttachmentSt
 			UserManager userManager = OneDev.getInstance(UserManager.class);
 			for (IssueField field: getFields()) {
 				if (field.getType().equals(InputSpec.USER)) {
-					User user = userManager.findByName(field.getValue());
-					if (user != null)
-						participants.add(user);
+					if (field.getValue() != null) {
+						User user = userManager.findByName(field.getValue());
+						if (user != null)
+							participants.add(user);
+					}
 				} else if (field.getType().equals(InputSpec.GROUP)) {
-					Group group = OneDev.getInstance(GroupManager.class).find(field.getValue());
-					if (group != null)
-						participants.addAll(group.getMembers());
+					if (field.getValue() != null) {
+						Group group = OneDev.getInstance(GroupManager.class).find(field.getValue());
+						if (group != null)
+							participants.addAll(group.getMembers());
+					}
 				}
 			}
 			for (IssueComment comment: getComments()) {
@@ -621,10 +626,10 @@ public class Issue extends AbstractEntity implements Referenceable, AttachmentSt
 		if (pullRequests == null) {
 			pullRequests = new ArrayList<>();
 
-			CodeCommentRelationInfoManager codeCommentRelationInfoManager = OneDev.getInstance(CodeCommentRelationInfoManager.class); 
+			PullRequestInfoManager infoManager = OneDev.getInstance(PullRequestInfoManager.class); 
 			Collection<Long> pullRequestIds = new HashSet<>();
 			for (ObjectId commit: getCommits()) 
-				pullRequestIds.addAll(codeCommentRelationInfoManager.getPullRequestIds(getProject(), commit));		
+				pullRequestIds.addAll(infoManager.getPullRequestIds(getProject(), commit));		
 			
 			for (Long requestId: pullRequestIds) {
 				PullRequest request = OneDev.getInstance(PullRequestManager.class).get(requestId);
@@ -678,7 +683,7 @@ public class Issue extends AbstractEntity implements Referenceable, AttachmentSt
 		return new ProjectScopedNumber(getProject(), getNumber());
 	}
 	
-	public String describe() {
+	public String getNumberAndTitle() {
 		return "#" + getNumber() + " - " + getTitle();
 	}
 	

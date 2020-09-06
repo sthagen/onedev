@@ -30,24 +30,24 @@ import org.apache.wicket.request.mapper.parameter.PageParameters;
 import org.unbescape.html.HtmlEscape;
 
 import io.onedev.server.OneDev;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.entitymanager.IssueChangeManager;
 import io.onedev.server.entitymanager.IssueManager;
 import io.onedev.server.entitymanager.SettingManager;
 import io.onedev.server.entitymanager.UserManager;
-import io.onedev.server.issue.BoardSpec;
-import io.onedev.server.issue.StateSpec;
-import io.onedev.server.issue.TransitionSpec;
-import io.onedev.server.issue.fieldspec.ChoiceField;
-import io.onedev.server.issue.fieldspec.FieldSpec;
-import io.onedev.server.issue.fieldspec.UserChoiceField;
-import io.onedev.server.issue.transitiontrigger.PressButtonTrigger;
 import io.onedev.server.model.Issue;
 import io.onedev.server.model.Milestone;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.User;
 import io.onedev.server.model.support.administration.GlobalIssueSetting;
-import io.onedev.server.model.support.issue.ProjectIssueSetting;
+import io.onedev.server.model.support.inputspec.choiceinput.choiceprovider.ChoiceProvider;
+import io.onedev.server.model.support.issue.BoardSpec;
+import io.onedev.server.model.support.issue.StateSpec;
+import io.onedev.server.model.support.issue.TransitionSpec;
+import io.onedev.server.model.support.issue.fieldspec.ChoiceField;
+import io.onedev.server.model.support.issue.fieldspec.FieldSpec;
+import io.onedev.server.model.support.issue.fieldspec.UserChoiceField;
+import io.onedev.server.model.support.issue.transitiontrigger.PressButtonTrigger;
 import io.onedev.server.search.entity.issue.ChoiceFieldCriteria;
 import io.onedev.server.search.entity.issue.FieldOperatorCriteria;
 import io.onedev.server.search.entity.issue.IssueCriteria;
@@ -55,10 +55,9 @@ import io.onedev.server.search.entity.issue.IssueQuery;
 import io.onedev.server.search.entity.issue.IssueQueryLexer;
 import io.onedev.server.search.entity.issue.MilestoneCriteria;
 import io.onedev.server.search.entity.issue.StateCriteria;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.ComponentContext;
 import io.onedev.server.util.EditContext;
-import io.onedev.server.util.SecurityUtils;
-import io.onedev.server.util.inputspec.choiceinput.choiceprovider.ChoiceProvider;
 import io.onedev.server.web.behavior.AbstractPostAjaxBehavior;
 import io.onedev.server.web.component.modal.ModalLink;
 import io.onedev.server.web.component.modal.ModalPanel;
@@ -81,7 +80,7 @@ abstract class BoardColumnPanel extends Panel implements EditContext {
 				if (getMilestone() != null)
 					criterias.add(new MilestoneCriteria(getMilestone().getName()));
 				String identifyField = getBoard().getIdentifyField();
-				if (identifyField.equals(Issue.FIELD_STATE)) {
+				if (identifyField.equals(Issue.NAME_STATE)) {
 					criterias.add(new StateCriteria(getColumn()));
 				} else if (getColumn() != null) {
 					criterias.add(new ChoiceFieldCriteria(identifyField, 
@@ -104,7 +103,7 @@ abstract class BoardColumnPanel extends Panel implements EditContext {
 			if (getQuery() != null) {
 				try {
 					return OneDev.getInstance(IssueManager.class).count(getProject(), getQuery().getCriteria());
-				} catch(OneException e) {
+				} catch(GeneralException e) {
 					return 0;
 				}
 			} else {
@@ -153,11 +152,10 @@ abstract class BoardColumnPanel extends Panel implements EditContext {
 							Issue issue = issueDragging.getIssue();
 							if (Objects.equals(issue.getMilestone(), getMilestone())) { 
 								// move issue between board columns
-								ProjectIssueSetting workflow = getProject().getIssueSetting();
 								String identifyField = getBoard().getIdentifyField();
-								if (identifyField.equals(Issue.FIELD_STATE)) {
+								if (identifyField.equals(Issue.NAME_STATE)) {
 									issue = SerializationUtils.clone(issue);
-									for (TransitionSpec transition: workflow.getTransitionSpecs(true)) {
+									for (TransitionSpec transition: getIssueSetting().getTransitionSpecs()) {
 										if (transition.canTransitManually(issue, getColumn())) {
 											issue.setState(getColumn());
 											break;
@@ -222,7 +220,7 @@ abstract class BoardColumnPanel extends Panel implements EditContext {
 		String identifyField = getBoard().getIdentifyField();
 		if (getColumn() != null) {
 			title = HtmlEscape.escapeHtml5(getColumn());
-			if (identifyField.equals(Issue.FIELD_STATE)) {
+			if (identifyField.equals(Issue.NAME_STATE)) {
 				StateSpec stateSpec = getIssueSetting().getStateSpec(getColumn());
 				if (stateSpec != null)
 					color = stateSpec.getColor();
@@ -300,7 +298,7 @@ abstract class BoardColumnPanel extends Panel implements EditContext {
 				super.onConfigure();
 				setVisible(getQuery() != null 
 						&& SecurityUtils.getUser() != null
-						&& (!getBoard().getIdentifyField().equals(Issue.FIELD_STATE) 
+						&& (!getBoard().getIdentifyField().equals(Issue.NAME_STATE) 
 								|| getColumn().equals(getIssueSetting().getInitialStateSpec().getName())));
 			}
 			
@@ -340,10 +338,9 @@ abstract class BoardColumnPanel extends Panel implements EditContext {
 					
 					OneDev.getInstance(IssueChangeManager.class).changeMilestone(issue, getMilestone());
 					markAccepted(target, issue, true);
-				} else if (fieldName.equals(Issue.FIELD_STATE)) {
-					ProjectIssueSetting workflow = getProject().getIssueSetting();
+				} else if (fieldName.equals(Issue.NAME_STATE)) {
 					AtomicReference<TransitionSpec> transitionRef = new AtomicReference<>(null);
-					for (TransitionSpec transition: workflow.getTransitionSpecs(true)) {
+					for (TransitionSpec transition: getIssueSetting().getTransitionSpecs()) {
 						if (transition.canTransitManually(issue, getColumn())) {
 							transitionRef.set(transition);
 							break;
@@ -395,14 +392,14 @@ abstract class BoardColumnPanel extends Panel implements EditContext {
 							
 						};
 					} else {
-						issue.removeFields(transitionRef.get().getRemoveFields());
-						OneDev.getInstance(IssueChangeManager.class).changeState(issue, getColumn(), new HashMap<>(), null);
+						OneDev.getInstance(IssueChangeManager.class).changeState(issue, getColumn(), 
+								new HashMap<>(), transitionRef.get().getRemoveFields(), null);
 						markAccepted(target, issue, true);
 					}
 				} else {
 					FieldSpec fieldSpec = getIssueSetting().getFieldSpec(fieldName);
 					if (fieldSpec == null)
-						throw new OneException("Undefined custom field: " + fieldName);
+						throw new GeneralException("Undefined custom field: " + fieldName);
 					
 					if (!SecurityUtils.canEditIssueField(getProject(), fieldSpec.getName()))
 						throw new UnauthorizedException("Permission denied");

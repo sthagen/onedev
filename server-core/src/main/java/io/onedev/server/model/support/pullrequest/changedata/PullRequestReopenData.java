@@ -4,11 +4,11 @@ import javax.annotation.Nullable;
 
 import org.apache.wicket.Component;
 
+import io.onedev.server.OneDev;
+import io.onedev.server.entitymanager.PullRequestChangeManager;
 import io.onedev.server.model.PullRequest;
 import io.onedev.server.model.PullRequestChange;
-import io.onedev.server.util.CommentSupport;
-import io.onedev.server.util.diff.DiffSupport;
-import io.onedev.server.web.page.project.pullrequests.detail.activities.activity.DiffAndCommentAwarePanel;
+import io.onedev.server.util.CommentAware;
 
 public class PullRequestReopenData implements PullRequestChangeData {
 
@@ -24,13 +24,13 @@ public class PullRequestReopenData implements PullRequestChangeData {
 	public String getActivity(PullRequest withRequest) {
 		String activity = "reopened";
 		if (withRequest != null)
-			activity += " pull request " + withRequest.describe();
+			activity += " pull request " + withRequest.getNumberAndTitle();
 		return activity;
 	}
 
 	@Override
-	public CommentSupport getCommentSupport() {
-		return new CommentSupport() {
+	public CommentAware getCommentAware() {
+		return new CommentAware() {
 
 			private static final long serialVersionUID = 1L;
 
@@ -49,21 +49,17 @@ public class PullRequestReopenData implements PullRequestChangeData {
 
 	@Override
 	public Component render(String componentId, PullRequestChange change) {
-		return new DiffAndCommentAwarePanel(componentId) {
-			
+		Long changeId = change.getId();
+		return new PullRequestChangeCommentPanel(componentId) {
+
 			private static final long serialVersionUID = 1L;
 
 			@Override
 			protected PullRequestChange getChange() {
-				return change;
-			}
-
-			@Override
-			protected DiffSupport getDiffSupport() {
-				return null;
+				return OneDev.getInstance(PullRequestChangeManager.class).load(changeId);
 			}
 			
-		};
+		};		
 	}
 	
 }

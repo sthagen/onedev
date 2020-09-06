@@ -1,10 +1,10 @@
 package io.onedev.server.buildspec.job;
 
+import static io.onedev.server.model.Build.NAME_COMMIT;
+import static io.onedev.server.model.Build.NAME_JOB;
 import static io.onedev.server.search.entity.build.BuildQuery.getRuleName;
 import static io.onedev.server.search.entity.build.BuildQueryLexer.And;
 import static io.onedev.server.search.entity.build.BuildQueryLexer.Is;
-import static io.onedev.server.model.Build.FIELD_COMMIT;
-import static io.onedev.server.model.Build.FIELD_JOB;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -13,10 +13,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import javax.annotation.Nullable;
+import javax.servlet.http.HttpServletRequest;
 import javax.validation.ConstraintValidatorContext;
 import javax.validation.Valid;
 import javax.validation.constraints.Min;
+import javax.validation.constraints.NotNull;
 import javax.validation.constraints.Size;
+import javax.ws.rs.core.HttpHeaders;
 
 import org.apache.wicket.Component;
 import org.eclipse.jgit.lib.ObjectId;
@@ -24,9 +28,12 @@ import org.eclipse.jgit.revwalk.RevCommit;
 import org.hibernate.validator.constraints.NotEmpty;
 
 import io.onedev.commons.codeassist.InputSuggestion;
+import io.onedev.k8shelper.KubernetesHelper;
 import io.onedev.server.buildspec.BuildSpec;
 import io.onedev.server.buildspec.BuildSpecAware;
 import io.onedev.server.buildspec.job.action.PostBuildAction;
+import io.onedev.server.buildspec.job.gitcredential.DefaultCredential;
+import io.onedev.server.buildspec.job.gitcredential.GitCredential;
 import io.onedev.server.buildspec.job.paramspec.ParamSpec;
 import io.onedev.server.buildspec.job.paramsupply.ParamSupply;
 import io.onedev.server.buildspec.job.trigger.JobTrigger;
@@ -79,8 +86,8 @@ public class Job implements Serializable, Validatable {
 	
 	private Integer cloneDepth;
 	
-	private List<SubmoduleCredential> submoduleCredentials = new ArrayList<>();
-	
+	private GitCredential cloneCredential = new DefaultCredential();
+
 	private List<JobDependency> jobDependencies = new ArrayList<>();
 	
 	private List<ProjectDependency> projectDependencies = new ArrayList<>();
@@ -124,7 +131,7 @@ public class Job implements Serializable, Validatable {
 	}
 
 	@Editable(order=110, description="Specify docker image of the job. "
-			+ "<b>Note:</b> Type <tt>@</tt> to <a href='https://code.onedev.io/projects/onedev-manual/blob/master/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
+			+ "<b>Note:</b> Type <tt>@</tt> to <a href='$docRoot/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
 	@Interpolative(variableSuggester="suggestVariables")
 	@NotEmpty
 	public String getImage() {
@@ -162,9 +169,9 @@ public class Job implements Serializable, Validatable {
 	}
 	
 	@Editable(order=120, name="Commands", description="Specify content of Linux shell script or Windows command batch to execute in above image. "
-			+ "It will be executed under <a href='https://code.onedev.io/projects/onedev-manual/blob/master/pages/concepts.md#job-workspace' target='_blank'>job workspace</a>, which may contain files of your repository and "
+			+ "It will be executed under <a href='$docRoot/pages/concepts.md#job-workspace' target='_blank'>job workspace</a>, which may contain files of your repository and "
 			+ "dependency artifacts based on your configuration below. "
-			+ "<b>Note:</b> Type <tt>@</tt> to <a href='https://code.onedev.io/projects/onedev-manual/blob/master/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
+			+ "<b>Note:</b> Type <tt>@</tt> to <a href='$docRoot/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
 	@Interpolative
 	@Code(language = Code.SHELL, variableProvider="getVariables")
 	@Size(min=1, message="may not be empty")
@@ -210,7 +217,7 @@ public class Job implements Serializable, Validatable {
 	}
 
 	@Editable(order=9000, group="Source Retrieval", description="Whether or not to retrieve files under the repository "
-			+ "into <a href='https://code.onedev.io/projects/onedev-manual/blob/master/pages/concepts.md#job-workspace' target='_blank'>job workspace</a>")
+			+ "into <a href='$docRoot/pages/concepts.md#job-workspace' target='_blank'>job workspace</a>")
 	public boolean isRetrieveSource() {
 		return retrieveSource;
 	}
@@ -230,16 +237,17 @@ public class Job implements Serializable, Validatable {
 		this.cloneDepth = cloneDepth;
 	}
 
-	@Editable(order=9100, group="Source Retrieval", description="For git submodules accessing via http/https, you will "
-			+ "need to specify credentials here if required")
-	@Valid
+	@Editable(order=9060, group="Source Retrieval", description="By default code is cloned via an auto-generated credential, "
+			+ "which only has read permission over current project. In case the job needs to <a href='$docRoot/pages/push-in-job.md' target='_blank'>push code to server</a>, or want "
+			+ "to <a href='$docRoot/pages/clone-submodules-via-ssh.md' target='_blank'>clone private submodules</a>, you should supply custom credential with appropriate permissions here")
 	@ShowCondition("isRetrieveSourceEnabled")
-	public List<SubmoduleCredential> getSubmoduleCredentials() {
-		return submoduleCredentials;
+	@NotNull
+	public GitCredential getCloneCredential() {
+		return cloneCredential;
 	}
 
-	public void setSubmoduleCredentials(List<SubmoduleCredential> submoduleCredentials) {
-		this.submoduleCredentials = submoduleCredentials;
+	public void setCloneCredential(GitCredential cloneCredential) {
+		this.cloneCredential = cloneCredential;
 	}
 
 	@SuppressWarnings("unused")
@@ -280,10 +288,10 @@ public class Job implements Serializable, Validatable {
 	}
 
 	@Editable(order=9115, group="Artifacts & Reports", description="Optionally specify files to publish as job artifacts. "
-			+ "Artifact files are relative to <a href='https://code.onedev.io/projects/onedev-manual/blob/master/pages/concepts.md#job-workspace' target='_blank'>job workspace</a>, and may use * or ? for pattern match. "
-			+ "<b>Note:</b> Type <tt>@</tt> to <a href='https://code.onedev.io/projects/onedev-manual/blob/master/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
+			+ "Artifact files are relative to <a href='$docRoot/pages/concepts.md#job-workspace' target='_blank'>job workspace</a>, and may use * or ? for pattern match. "
+			+ "<b>Note:</b> Type <tt>@</tt> to <a href='$docRoot/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
 	@Interpolative(variableSuggester="suggestVariables")
-	@Patterns(interpolative = true)
+	@Patterns(interpolative = true, path=true)
 	@NameOfEmptyValue("No artifacts")
 	public String getArtifacts() {
 		return artifacts;
@@ -338,7 +346,7 @@ public class Job implements Serializable, Validatable {
 	
 	@Editable(order=9200, name="CPU Requirement", group="Resource Requirements", description="Specify CPU requirement of the job. "
 			+ "Refer to <a href='https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/#meaning-of-cpu' target='_blank'>kubernetes documentation</a> for details. "
-			+ "<b>Note:</b> Type <tt>@</tt> to <a href='https://code.onedev.io/projects/onedev-manual/blob/master/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
+			+ "<b>Note:</b> Type <tt>@</tt> to <a href='$docRoot/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
 	@Interpolative(variableSuggester="suggestVariables")
 	@NotEmpty
 	public String getCpuRequirement() {
@@ -351,7 +359,7 @@ public class Job implements Serializable, Validatable {
 
 	@Editable(order=9300, group="Resource Requirements", description="Specify memory requirement of the job. "
 			+ "Refer to <a href='https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/#meaning-of-memory' target='_blank'>kubernetes documentation</a> for details. "
-			+ "<b>Note:</b> Type <tt>@</tt> to <a href='https://code.onedev.io/projects/onedev-manual/blob/master/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
+			+ "<b>Note:</b> Type <tt>@</tt> to <a href='$docRoot/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
 	@Interpolative(variableSuggester="suggestVariables")
 	@NotEmpty
 	public String getMemoryRequirement() {
@@ -407,10 +415,12 @@ public class Job implements Serializable, Validatable {
 		this.defaultFixedIssuesFilter = defaultFixedIssuesFilterQuery;
 	}
 
-	public JobTrigger getMatchedTrigger(ProjectEvent event) {
+	@Nullable
+	public JobTriggerMatch getTriggerMatch(ProjectEvent event) {
 		for (JobTrigger trigger: getTriggers()) {
-			if (trigger.matches(event, this))
-				return trigger;
+			SubmitReason reason = trigger.matches(event, this);
+			if (reason != null)
+				return new JobTriggerMatch(trigger, reason);
 		}
 		return null;
 	}
@@ -460,22 +470,6 @@ public class Job implements Serializable, Validatable {
 			}
 		}
 		
-		if (retrieveSource) {
-			int index = 0;
-			for (SubmoduleCredential credential: getSubmoduleCredentials()) {
-				if (credential.getUrl() != null 
-						&& !credential.getUrl().startsWith("http://") 
-						&& !credential.getUrl().startsWith("https://")) {
-					isValid = false;
-					context.buildConstraintViolationWithTemplate("Can only provide credentials for submodules accessing via http/https")
-							.addPropertyNode("submoduleCredentials").addPropertyNode("url")
-								.inIterable().atIndex(index)
-							.addConstraintViolation();
-				}
-				index++;
-			}
-		}
-		
 		if (!isValid)
 			context.disableDefaultConstraintViolation();
 		
@@ -490,9 +484,9 @@ public class Job implements Serializable, Validatable {
 	
 	public static String getBuildQuery(ObjectId commitId, String jobName) {
 		return "" 
-				+ Criteria.quote(FIELD_COMMIT) + " " + getRuleName(Is) + " " + Criteria.quote(commitId.name()) 
+				+ Criteria.quote(NAME_COMMIT) + " " + getRuleName(Is) + " " + Criteria.quote(commitId.name()) 
 				+ " " + getRuleName(And) + " "
-				+ Criteria.quote(FIELD_JOB) + " " + getRuleName(Is) + " " + Criteria.quote(jobName);
+				+ Criteria.quote(NAME_JOB) + " " + getRuleName(Is) + " " + Criteria.quote(jobName);
 	}
 	
 	public static List<String> getChoices() {
@@ -515,6 +509,15 @@ public class Job implements Serializable, Validatable {
 			}
 		}
 		return choices;
+	}
+
+	@Nullable
+	public static String getToken(HttpServletRequest request) {
+		String bearer = request.getHeader(HttpHeaders.AUTHORIZATION);
+		if (bearer != null && bearer.startsWith(KubernetesHelper.BEARER + " "))
+			return bearer.substring(KubernetesHelper.BEARER.length() + 1);
+		else
+			return null;
 	}
 	
 }

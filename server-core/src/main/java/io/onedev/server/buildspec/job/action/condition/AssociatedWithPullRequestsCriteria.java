@@ -9,11 +9,11 @@ public class AssociatedWithPullRequestsCriteria extends Criteria<Build> {
 
 	@Override
 	public boolean matches(Build build) {
-		return !build.getPullRequestBuilds().isEmpty();
+		return !build.getVerifications().isEmpty();
 	}
 
 	@Override
-	public String asString() {
+	public String toStringWithoutParens() {
 		return ActionCondition.getRuleName(ActionConditionLexer.AssociatedWithPullRequests);
 	}
 

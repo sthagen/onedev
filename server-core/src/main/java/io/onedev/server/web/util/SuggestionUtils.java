@@ -16,6 +16,7 @@ import javax.annotation.Nullable;
 
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.jgit.lib.ObjectId;
+import org.hibernate.criterion.Restrictions;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -48,8 +49,9 @@ import io.onedev.server.model.PullRequest;
 import io.onedev.server.model.User;
 import io.onedev.server.model.support.administration.GroovyScript;
 import io.onedev.server.model.support.build.JobSecret;
+import io.onedev.server.persistence.dao.EntityCriteria;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.security.permission.AccessProject;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.util.match.PatternApplied;
 import io.onedev.server.util.match.WildcardUtils;
 import io.onedev.server.util.script.ScriptContribution;
@@ -148,7 +150,7 @@ public class SuggestionUtils {
 			variables.put(VariableInterpolator.PREFIX_PARAMS + paramSpec.getName(), paramSpec.getDescription());
 		for (Property property: buildSpec.getProperties())
 			variables.put(VariableInterpolator.PREFIX_PROPERTIES + property.getName(), null);
-		for (JobSecret secret: project.getBuildSetting().getHierarchySecrets(project))
+		for (JobSecret secret: project.getBuildSetting().getJobSecrets())
 			variables.put(VariableInterpolator.PREFIX_SECRETS + secret.getName(), null);
 		for (GroovyScript script: OneDev.getInstance(SettingManager.class).getGroovyScripts()) 
 			variables.put(VariableInterpolator.PREFIX_SCRIPTS + script.getName(), null);
@@ -173,18 +175,24 @@ public class SuggestionUtils {
 	public static List<InputSuggestion> suggestUsers(String matchWith) {
 		matchWith = matchWith.toLowerCase();
 		List<InputSuggestion> suggestions = new ArrayList<>();
-		for (User user: OneDev.getInstance(UserManager.class).query()) {
+
+		EntityCriteria<User> criteria = EntityCriteria.of(User.class);
+		criteria.add(Restrictions.or(
+				Restrictions.ilike(User.PROP_NAME, "%" + matchWith + "%"), 
+				Restrictions.ilike(User.PROP_EMAIL, "%" + matchWith + "%"),
+				Restrictions.ilike(User.PROP_FULL_NAME, "%" + matchWith + "%")));
+		criteria.add(Restrictions.not(Restrictions.eq("id", User.SYSTEM_ID)));
+		
+		for (User user: OneDev.getInstance(UserManager.class).query(criteria)) {
 			LinearRange match = LinearRange.match(user.getName(), matchWith);
-			if (match != null) {
-				String description;
-				if (!user.getDisplayName().equals(user.getName()))
-					description = user.getDisplayName();
-				else
-					description = null;
-				suggestions.add(new InputSuggestion(user.getName(), description, match));
-				if (suggestions.size() >= InputAssistBehavior.MAX_SUGGESTIONS)
-					break;
-			}
+			String description;
+			if (!user.getDisplayName().equals(user.getName()))
+				description = user.getDisplayName();
+			else
+				description = null;
+			suggestions.add(new InputSuggestion(user.getName(), description, match));
+			if (suggestions.size() >= InputAssistBehavior.MAX_SUGGESTIONS)
+				break;
 		}
 		return suggestions;
 	}

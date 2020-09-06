@@ -1,44 +1,25 @@
 package io.onedev.server.web.page.project.pullrequests.detail;
 
-import static io.onedev.server.model.Build.FIELD_JOB;
 import static io.onedev.server.model.support.pullrequest.MergeStrategy.CREATE_MERGE_COMMIT;
 import static io.onedev.server.model.support.pullrequest.MergeStrategy.CREATE_MERGE_COMMIT_IF_NECESSARY;
 import static io.onedev.server.model.support.pullrequest.MergeStrategy.REBASE_SOURCE_BRANCH_COMMITS;
 import static io.onedev.server.model.support.pullrequest.MergeStrategy.SQUASH_SOURCE_BRANCH_COMMITS;
-import static io.onedev.server.search.entity.build.BuildQuery.getRuleName;
-import static io.onedev.server.search.entity.build.BuildQueryLexer.And;
-import static io.onedev.server.search.entity.build.BuildQueryLexer.AssociatedWithPullRequest;
-import static io.onedev.server.search.entity.build.BuildQueryLexer.Is;
-import static io.onedev.server.util.criteria.Criteria.quote;
-import static io.onedev.server.web.page.project.pullrequests.detail.PullRequestOperation.APPROVE;
-import static io.onedev.server.web.page.project.pullrequests.detail.PullRequestOperation.DELETE_SOURCE_BRANCH;
-import static io.onedev.server.web.page.project.pullrequests.detail.PullRequestOperation.DISCARD;
-import static io.onedev.server.web.page.project.pullrequests.detail.PullRequestOperation.REOPEN;
-import static io.onedev.server.web.page.project.pullrequests.detail.PullRequestOperation.REQUEST_FOR_CHANGES;
-import static io.onedev.server.web.page.project.pullrequests.detail.PullRequestOperation.RESTORE_SOURCE_BRANCH;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
-import javax.annotation.Nullable;
 import javax.persistence.EntityNotFoundException;
 
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.text.WordUtils;
-import org.apache.wicket.AttributeModifier;
 import org.apache.wicket.Component;
-import org.apache.wicket.MarkupContainer;
 import org.apache.wicket.Page;
 import org.apache.wicket.RestartResponseException;
 import org.apache.wicket.Session;
 import org.apache.wicket.ajax.AjaxRequestTarget;
-import org.apache.wicket.ajax.attributes.AjaxRequestAttributes;
 import org.apache.wicket.ajax.form.OnChangeAjaxBehavior;
 import org.apache.wicket.ajax.markup.html.AjaxLink;
 import org.apache.wicket.ajax.markup.html.form.AjaxButton;
@@ -52,12 +33,9 @@ import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.markup.html.form.DropDownChoice;
 import org.apache.wicket.markup.html.form.Form;
-import org.apache.wicket.markup.html.form.FormComponent;
 import org.apache.wicket.markup.html.form.TextField;
 import org.apache.wicket.markup.html.link.BookmarkablePageLink;
 import org.apache.wicket.markup.html.link.Link;
-import org.apache.wicket.markup.html.list.ListItem;
-import org.apache.wicket.markup.html.list.ListView;
 import org.apache.wicket.markup.html.panel.Fragment;
 import org.apache.wicket.model.AbstractReadOnlyModel;
 import org.apache.wicket.model.IModel;
@@ -68,66 +46,58 @@ import org.apache.wicket.request.IRequestHandler;
 import org.apache.wicket.request.Url;
 import org.apache.wicket.request.cycle.IRequestCycleListener;
 import org.apache.wicket.request.cycle.RequestCycle;
+import org.apache.wicket.request.flow.RedirectToUrlException;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
-import org.apache.wicket.util.visit.IVisit;
-import org.apache.wicket.util.visit.IVisitor;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import de.agilecoders.wicket.core.markup.html.bootstrap.common.NotificationPanel;
-import edu.emory.mathcs.backport.java.util.Collections;
 import io.onedev.server.OneDev;
-import io.onedev.server.OneException;
 import io.onedev.server.entitymanager.PullRequestChangeManager;
 import io.onedev.server.entitymanager.PullRequestManager;
-import io.onedev.server.entitymanager.PullRequestUpdateManager;
+import io.onedev.server.entitymanager.PullRequestReviewManager;
 import io.onedev.server.entitymanager.PullRequestWatchManager;
-import io.onedev.server.entitymanager.UserManager;
+import io.onedev.server.git.GitUtils;
 import io.onedev.server.infomanager.UserInfoManager;
 import io.onedev.server.model.AbstractEntity;
-import io.onedev.server.model.Build;
-import io.onedev.server.model.Build.Status;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.PullRequest;
-import io.onedev.server.model.PullRequestBuild;
-import io.onedev.server.model.PullRequestUpdate;
+import io.onedev.server.model.PullRequestReview;
+import io.onedev.server.model.PullRequestVerification;
 import io.onedev.server.model.PullRequestWatch;
 import io.onedev.server.model.User;
 import io.onedev.server.model.support.EntityWatch;
 import io.onedev.server.model.support.pullrequest.MergePreview;
 import io.onedev.server.model.support.pullrequest.MergeStrategy;
+import io.onedev.server.model.support.pullrequest.ReviewResult;
 import io.onedev.server.search.entity.EntityQuery;
 import io.onedev.server.search.entity.pullrequest.PullRequestQuery;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.DateUtils;
-import io.onedev.server.util.ProjectAndBranch;
 import io.onedev.server.util.ProjectScopedNumber;
-import io.onedev.server.util.SecurityUtils;
-import io.onedev.server.web.ajaxlistener.ConfirmLeaveListener;
+import io.onedev.server.web.WebSession;
 import io.onedev.server.web.behavior.ReferenceInputBehavior;
 import io.onedev.server.web.behavior.WebSocketObserver;
 import io.onedev.server.web.component.branch.BranchLink;
-import io.onedev.server.web.component.build.simplelist.SimpleBuildListPanel;
-import io.onedev.server.web.component.build.status.BuildStatusIcon;
 import io.onedev.server.web.component.entity.nav.EntityNavPanel;
 import io.onedev.server.web.component.entity.watches.EntityWatchesPanel;
 import io.onedev.server.web.component.floating.FloatingPanel;
 import io.onedev.server.web.component.link.DropdownLink;
 import io.onedev.server.web.component.link.ViewStateAwarePageLink;
-import io.onedev.server.web.component.markdown.AttachmentSupport;
-import io.onedev.server.web.component.project.comment.CommentInput;
-import io.onedev.server.web.component.review.ReviewListPanel;
+import io.onedev.server.web.component.modal.ModalLink;
+import io.onedev.server.web.component.modal.ModalPanel;
+import io.onedev.server.web.component.project.gitprotocol.GitProtocolPanel;
+import io.onedev.server.web.component.pullrequest.assignment.AssignmentListPanel;
+import io.onedev.server.web.component.pullrequest.build.PullRequestJobsPanel;
+import io.onedev.server.web.component.pullrequest.review.ReviewListPanel;
 import io.onedev.server.web.component.sideinfo.SideInfoLink;
 import io.onedev.server.web.component.sideinfo.SideInfoPanel;
 import io.onedev.server.web.component.tabbable.PageTab;
-import io.onedev.server.web.component.tabbable.PageTabLink;
+import io.onedev.server.web.component.tabbable.PageTabHead;
 import io.onedev.server.web.component.tabbable.Tab;
 import io.onedev.server.web.component.tabbable.Tabbable;
 import io.onedev.server.web.component.user.ident.Mode;
 import io.onedev.server.web.component.user.ident.UserIdentPanel;
 import io.onedev.server.web.page.project.ProjectPage;
-import io.onedev.server.web.page.project.builds.ProjectBuildsPage;
 import io.onedev.server.web.page.project.pullrequests.InvalidPullRequestPage;
 import io.onedev.server.web.page.project.pullrequests.ProjectPullRequestsPage;
 import io.onedev.server.web.page.project.pullrequests.create.NewPullRequestPage;
@@ -135,41 +105,37 @@ import io.onedev.server.web.page.project.pullrequests.detail.activities.PullRequ
 import io.onedev.server.web.page.project.pullrequests.detail.changes.PullRequestChangesPage;
 import io.onedev.server.web.page.project.pullrequests.detail.codecomments.PullRequestCodeCommentsPage;
 import io.onedev.server.web.page.project.pullrequests.detail.mergepreview.MergePreviewPage;
-import io.onedev.server.web.util.ConfirmOnClick;
-import io.onedev.server.web.util.ProjectAttachmentSupport;
+import io.onedev.server.web.page.project.pullrequests.detail.operationconfirm.CommentableOperationConfirmPanel;
+import io.onedev.server.web.page.project.pullrequests.detail.operationconfirm.MergeConfirmPanel;
+import io.onedev.server.web.util.ConfirmClickModifier;
+import io.onedev.server.web.util.Cursor;
+import io.onedev.server.web.util.CursorSupport;
 import io.onedev.server.web.util.PullRequestAware;
-import io.onedev.server.web.util.QueryPosition;
-import io.onedev.server.web.util.QueryPositionSupport;
 import io.onedev.server.web.util.ReferenceTransformer;
-import io.onedev.server.web.util.WicketUtils;
 
 @SuppressWarnings("serial")
 public abstract class PullRequestDetailPage extends ProjectPage implements PullRequestAware {
 
 	public static final String PARAM_REQUEST = "request";
 	
-	private static final String HINT_ID = "hint";
-	
 	protected final IModel<PullRequest> requestModel;
-	
-	private final QueryPosition position;
 	
 	private boolean isEditingTitle;
 	
 	private String title;
 	
-	private Long reviewUpdateId;
+	private Long latestUpdateId;
 	
 	private MergeStrategy mergeStrategy;
-	
-	private PullRequestOperation activeOperation;
 	
 	public PullRequestDetailPage(PageParameters params) {
 		super(params);
 		
 		String requestNumberString = params.get(PARAM_REQUEST).toString();
-		if (StringUtils.isBlank(requestNumberString))
-			throw new RestartResponseException(ProjectPullRequestsPage.class, ProjectPullRequestsPage.paramsOf(getProject(), null, 0));
+		if (StringUtils.isBlank(requestNumberString)) {
+			throw new RestartResponseException(ProjectPullRequestsPage.class, 
+					ProjectPullRequestsPage.paramsOf(getProject(), null, 0));
+		}
 		
 		requestModel = new LoadableDetachableModel<PullRequest>() {
 
@@ -177,32 +143,31 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 			protected PullRequest load() {
 				Long requestNumber = Long.valueOf(requestNumberString);
 				PullRequest request = getPullRequestManager().find(getProject(), requestNumber);
-				if (request == null)
-					throw new EntityNotFoundException("Unable to find pull request #" + requestNumber + " in project " + getProject());
+				if (request == null) {
+					throw new EntityNotFoundException("Unable to find pull request #" 
+							+ requestNumber + " in project " + getProject());
+				}
 				else if (!request.getTargetProject().equals(getProject()))
-					throw new RestartResponseException(getPageClass(), paramsOf(request, position));
+					throw new RestartResponseException(getPageClass(), paramsOf(request));
 				else
 					return request;
 			}
 
 		};
 		
-		if (!getPullRequest().isValid())
-			throw new RestartResponseException(InvalidPullRequestPage.class, InvalidPullRequestPage.paramsOf(getPullRequest()));
+		if (!getPullRequest().isValid()) {
+			throw new RestartResponseException(InvalidPullRequestPage.class, 
+					InvalidPullRequestPage.paramsOf(getPullRequest()));
+		}
 			
-		reviewUpdateId = requestModel.getObject().getLatestUpdate().getId();
-		
-		position = QueryPosition.from(params);
+		latestUpdateId = requestModel.getObject().getLatestUpdate().getId();
 	}
 
 	private PullRequestManager getPullRequestManager() {
 		return OneDev.getInstance(PullRequestManager.class);
 	}
 	
-	@Override
-	protected void onInitialize() {
-		super.onInitialize();
-
+	private WebMarkupContainer newRequestHead() {
 		WebMarkupContainer requestHead = new WebMarkupContainer("requestHead");
 		requestHead.setOutputMarkupId(true);
 		add(requestHead);
@@ -321,17 +286,25 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 			
 		});
 		
-		add(newStatusAndBranchesContainer());
+		return requestHead;
+	}
+	
+	@Override
+	protected void onInitialize() {
+		super.onInitialize();
 
+		add(newRequestHead());
+		add(newStatusAndBranchesContainer());
 		WebMarkupContainer summaryContainer = new WebMarkupContainer("requestSummary") {
 
 			@Override
-			protected void onBeforeRender() {
-				super.onBeforeRender();
-				WicketUtils.markLastVisibleChild(this);
+			public void renderHead(IHeaderResponse response) {
+				super.renderHead(response);
+				response.render(OnDomReadyHeaderItem.forScript("onedev.server.pullRequestDetail.onSummaryDomReady();"));
 			}
-
+			
 		};
+		
 		summaryContainer.add(new WebSocketObserver() {
 
 			@Override
@@ -341,30 +314,12 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 
 			@Override
 			public void onObservableChanged(IPartialPageRequestHandler handler) {
-				for (Component child: summaryContainer) {
-					if (child instanceof MarkupContainer) {
-						MarkupContainer container = (MarkupContainer) child;
-						Form<?> form = container.visitChildren(Form.class, new IVisitor<Form<?>, Form<?>>() {
-
-							@Override
-							public void component(Form<?> object, IVisit<Form<?>> visit) {
-								visit.stop(object);
-							}
-							
-						});
-						if (form == null) {
-							handler.add(child);
-						}
-					} else if (!(child instanceof Form)) {
-						handler.add(child);
-					}
-				}
-				WicketUtils.markLastVisibleChild(summaryContainer);
+				handler.add(component);
 				handler.appendJavaScript("setTimeout(function() {$(window).resize();}, 0);");
 			}
 			
 		});
-		summaryContainer.setOutputMarkupPlaceholderTag(true);
+		summaryContainer.setOutputMarkupId(true);
 		add(summaryContainer);
 
 		summaryContainer.add(new Label("checkError", new AbstractReadOnlyModel<String>() {
@@ -382,9 +337,9 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 				setVisible(getPullRequest().getCheckError() != null);
 			}
 			
-		}.setOutputMarkupPlaceholderTag(true));
+		});
 
-		summaryContainer.add(new WebMarkupContainer("discardedNote") {
+		summaryContainer.add(new WebMarkupContainer("discarded") {
 
 			@Override
 			protected void onConfigure() {
@@ -392,14 +347,216 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 				setVisible(getPullRequest().isDiscarded());
 			}
 			
-		}.setOutputMarkupPlaceholderTag(true));
+		});
 		
-		summaryContainer.add(newMergedNoteContainer());
-		summaryContainer.add(newMergeStatusContainer());
+		summaryContainer.add(new WebMarkupContainer("fastForwarded") {
+
+			@Override
+			protected void onConfigure() {
+				super.onConfigure();
+				
+				PullRequest request = getPullRequest();
+				MergePreview preview = request.getLastMergePreview();
+				setVisible(request.isMerged() && preview != null 
+						&& preview.getHeadCommitHash().equals(preview.getMergeCommitHash()));
+			}
+			
+		});
+		summaryContainer.add(new WebMarkupContainer("merged") {
+
+			@Override
+			protected void onConfigure() {
+				super.onConfigure();
+				
+				PullRequest request = getPullRequest();
+				MergePreview preview = request.getLastMergePreview();
+				setVisible(request.isMerged() && preview != null 
+						&& (preview.getMergeStrategy() == CREATE_MERGE_COMMIT 
+								|| preview.getMergeStrategy() == CREATE_MERGE_COMMIT_IF_NECESSARY 
+										&& !preview.getHeadCommitHash().equals(preview.getMergeCommitHash())));
+			}
+			
+		});
+		summaryContainer.add(new WebMarkupContainer("mergedOutside") {
+
+			@Override
+			protected void onConfigure() {
+				super.onConfigure();
+				
+				setVisible(getPullRequest().isMerged() && getPullRequest().getLastMergePreview() == null);
+			}
+			
+		});
+		summaryContainer.add(new WebMarkupContainer("squashed") {
+
+			@Override
+			protected void onConfigure() {
+				super.onConfigure();
+				
+				PullRequest request = getPullRequest();
+				MergePreview preview = request.getLastMergePreview();
+				setVisible(request.isMerged() && preview != null 
+						&& preview.getMergeStrategy() == SQUASH_SOURCE_BRANCH_COMMITS);
+			}
+			
+		});
+		summaryContainer.add(new WebMarkupContainer("rebased") {
+
+			@Override
+			protected void onConfigure() {
+				super.onConfigure();
+				
+				PullRequest request = getPullRequest();
+				MergePreview preview = request.getMergePreview();
+				setVisible(request.isMerged() && preview != null 
+						&& preview.getMergeStrategy() == REBASE_SOURCE_BRANCH_COMMITS);
+			}
+			
+		});
 		
-		summaryContainer.add(newOperationsContainer());
+		summaryContainer.add(new WebMarkupContainer("calculatingMergePreview") {
+
+			@Override
+			protected void onConfigure() {
+				super.onConfigure();
+				setVisible(getPullRequest().isOpen() && getPullRequest().getMergePreview() == null);
+			}
+			
+		});
+		summaryContainer.add(new WebMarkupContainer("hasMergeConflict") {
+			
+			@Override
+			protected void onInitialize() {
+				super.onInitialize();
+				
+				add(new DropdownLink("resolveInstructions") {
+
+					@Override
+					protected void onInitialize(FloatingPanel dropdown) {
+						dropdown.add(AttributeAppender.append("class", "conflict-resolve-instruction"));
+					}
+					
+					@Override
+					protected void onConfigure() {
+						super.onConfigure();
+						setVisible(getPullRequest().getSource() != null);
+					}
+
+					@Override
+					protected Component newContent(String id, FloatingPanel dropdown) {
+						if (getPullRequest().getTargetProject().equals(getPullRequest().getSourceProject())) {
+							return new ConflictResolveInstructionPanel(id) {
+
+								@Override
+								protected PullRequest getPullRequest() {
+									return PullRequestDetailPage.this.getPullRequest();
+								}
+
+							};
+						} else {
+							return new GitProtocolPanel(id) {
+								
+								@Override
+								protected Component newContent(String componentId) {
+									return new ConflictResolveInstructionPanel(componentId) {
+
+										@Override
+										protected PullRequest getPullRequest() {
+											return PullRequestDetailPage.this.getPullRequest();
+										}
+
+									};
+								}
+								
+								@Override
+								protected Project getProject() {
+									return getPullRequest().getTargetProject();
+								}
+
+							};
+						}
+					}
+					
+				});
+			}
+
+			@Override
+			protected void onConfigure() {
+				super.onConfigure();
+				MergePreview preview = getPullRequest().getMergePreview();
+				setVisible(getPullRequest().isOpen() 
+						&& preview != null 
+						&& preview.getMergeCommitHash() == null);
+			}
+
+		});
+		summaryContainer.add(new WebMarkupContainer("calculatedMergePreview") {
+			
+			@Override
+			protected void onConfigure() {
+				super.onConfigure();
+				MergePreview preview = getPullRequest().getMergePreview();
+				setVisible(getPullRequest().isOpen() 
+						&& preview != null 
+						&& preview.getMergeCommitHash() != null);
+			}
+
+		});		
 		
-		WicketUtils.markLastVisibleChild(summaryContainer);
+		summaryContainer.add(new WebMarkupContainer("requestedForChanges") {
+
+			@Override
+			protected void onConfigure() {
+				super.onConfigure();
+				setVisible(getPullRequest().isOpen() && requestedForChanges());
+			}
+			
+		});
+		summaryContainer.add(new WebMarkupContainer("waitingForReviews") {
+
+			@Override
+			protected void onConfigure() {
+				super.onConfigure();
+				
+				setVisible(getPullRequest().isOpen() && !requestedForChanges() 
+						&& getPullRequest().getReviews().stream().anyMatch(it-> it.getResult()==null));
+			}
+			
+		});
+		summaryContainer.add(new WebMarkupContainer("unsuccessfulBuilds") {
+
+			@Override
+			protected void onConfigure() {
+				super.onConfigure();
+				setVisible(getPullRequest().isOpen() && hasUnsuccessfulRequiredBuilds());
+			}
+			
+		});
+		summaryContainer.add(new WebMarkupContainer("unfinishedBuilds") {
+
+			@Override
+			protected void onConfigure() {
+				super.onConfigure();
+				
+				Stream<PullRequestVerification> stream = getPullRequest().getVerifications().stream();
+				setVisible(getPullRequest().isOpen() && !hasUnsuccessfulRequiredBuilds() 
+						&& stream.anyMatch(it-> it.isRequired() && !it.getBuild().isFinished()));
+			}
+			
+		});
+		summaryContainer.add(new WebMarkupContainer("mergeableByCodeWriters") {
+
+			@Override
+			protected void onConfigure() {
+				super.onConfigure();
+				setVisible(getPullRequest().isOpen() && !SecurityUtils.canWriteCode(getProject()) 
+						&& getPullRequest().isAllReviewsApproved() && getPullRequest().isRequiredBuildsSuccessful());
+			}
+			
+		});
+		
+		add(newOperationsContainer());
+		add(newMoreInfoContainer());
 		
 		List<Tab> tabs = new ArrayList<>();
 		
@@ -461,8 +618,20 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 			}
 			
 		});
-		
-		add(new SideInfoPanel("moreInfo") {
+	}
+	
+	private boolean requestedForChanges() {
+		return getPullRequest().getReviews().stream().anyMatch(
+				it-> it.getResult()!=null && !it.getResult().isApproved());
+	}
+	
+	private boolean hasUnsuccessfulRequiredBuilds() {
+		return getPullRequest().getVerifications().stream().anyMatch(
+				it-> it.isRequired() && it.getBuild().isFinished() && !it.getBuild().isSuccessful());		
+	}
+	
+	private WebMarkupContainer newMoreInfoContainer() {
+		return new SideInfoPanel("moreInfo") {
 
 			@Override
 			protected Component newContent(String componentId) {
@@ -470,8 +639,8 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 				fragment.add(new EntityNavPanel<PullRequest>("requestNav") {
 
 					@Override
-					protected EntityQuery<PullRequest> parse(String queryString) {
-						return PullRequestQuery.parse(getProject(), queryString);
+					protected EntityQuery<PullRequest> parse(String queryString, boolean inProject) {
+						return PullRequestQuery.parse(inProject?getProject():null, queryString);
 					}
 
 					@Override
@@ -480,23 +649,23 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 					}
 
 					@Override
-					protected List<PullRequest> query(EntityQuery<PullRequest> query, int offset, int count) {
-						return getPullRequestManager().query(getProject(), query, offset, count);
+					protected List<PullRequest> query(EntityQuery<PullRequest> query, int offset, int count, boolean inProject) {
+						return getPullRequestManager().query(inProject?getProject():null, query, offset, count, false, false);
 					}
 
 					@Override
-					protected QueryPositionSupport<PullRequest> getQueryPositionSupport() {
-						return new QueryPositionSupport<PullRequest>() {
+					protected CursorSupport<PullRequest> getCursorSupport() {
+						return new CursorSupport<PullRequest>() {
 
 							@Override
-							public QueryPosition getPosition() {
-								return position;
+							public Cursor getCursor() {
+								return WebSession.get().getPullRequestCursor();
 							}
 
 							@Override
-							public void navTo(AjaxRequestTarget target, PullRequest entity, QueryPosition position) {
-								PageParameters params = PullRequestDetailPage.paramsOf(entity, position);
-								setResponsePage(getPageClass(), params);
+							public void navTo(AjaxRequestTarget target, PullRequest entity, Cursor cursor) {
+								WebSession.get().setPullRequestCursor(cursor);
+								setResponsePage(getPageClass(), paramsOf(entity));
 							}
 							
 						};
@@ -505,110 +674,89 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 				});
 				
 				fragment.add(newMergeStrategyContainer());
-				fragment.add(new ReviewListPanel("reviews", requestModel));
-				
-				fragment.add(new ListView<JobBuilds>("jobs", new LoadableDetachableModel<List<JobBuilds>>() {
+				fragment.add(new ReviewListPanel("reviews") {
 
 					@Override
-					protected List<JobBuilds> load() {
-						PullRequest request = getPullRequest();
-						Map<String, List<PullRequestBuild>> map = new HashMap<>();
-						for (PullRequestBuild pullRequestBuild: request.getPullRequestBuilds()) {
-							String jobName = pullRequestBuild.getBuild().getJobName();
-							List<PullRequestBuild> list = map.get(jobName);
-							if (list == null) {
-								list = new ArrayList<>();
-								map.put(jobName, list);
-							}
-							list.add(pullRequestBuild);
-						}
-						List<JobBuilds> listOfJobBuilds = new ArrayList<>();
-						for (Map.Entry<String, List<PullRequestBuild>> entry: map.entrySet()) {
-							List<Build> builds = entry.getValue().stream().map(it->it.getBuild()).collect(Collectors.toList());
-							Collections.sort(builds);
-							listOfJobBuilds.add(new JobBuilds(entry.getKey(), entry.getValue().iterator().next().isRequired(), builds));
-						}
-						Collections.sort(listOfJobBuilds, new Comparator<JobBuilds>() {
-
-							@Override
-							public int compare(JobBuilds o1, JobBuilds o2) {
-								return o1.getBuilds().iterator().next().getId().compareTo(o2.getBuilds().iterator().next().getId());
-							}
-							
-						});
-						return listOfJobBuilds;
+					protected PullRequest getPullRequest() {
+						return PullRequestDetailPage.this.getPullRequest();
 					}
 					
-				}) {
-
-					@Override
-					protected void populateItem(ListItem<JobBuilds> item) {
-						JobBuilds jobBuilds = item.getModelObject();
-
-						String jobName = jobBuilds.getJobName();
-						Status status = Status.getOverallStatus(jobBuilds.getBuilds()
-								.stream()
-								.map(it->it.getStatus())
-								.collect(Collectors.toSet()));
-						
-						WebMarkupContainer link = new DropdownLink("job") {
-
-							@Override
-							protected Component newContent(String id, FloatingPanel dropdown) {
-								return new SimpleBuildListPanel(id, new LoadableDetachableModel<List<Build>>() {
-
-									@Override
-									protected List<Build> load() {
-										return item.getModelObject().getBuilds();
-									}
-									
-								}) {
-									
-									@Override
-									protected Component newListLink(String componentId) {
-										String query = "" 
-												+ getRuleName(AssociatedWithPullRequest) + " " + quote("#" + getPullRequest().getNumber()) 
-												+ " " + getRuleName(And) + " "
-												+ quote(FIELD_JOB) + " " + getRuleName(Is) + " " + quote(jobName);
-										return new BookmarkablePageLink<Void>(componentId, ProjectBuildsPage.class, 
-												ProjectBuildsPage.paramsOf(getPullRequest().getTargetProject(), query, 0));
-									}
-									
-								};
-							}
-
-							@Override
-							protected void onComponentTag(ComponentTag tag) {
-								super.onComponentTag(tag);
-								String title;
-								if (status != null) {
-									if (status != Status.SUCCESSFUL)
-										title = "Some builds are "; 
-									else
-										title = "Builds are "; 
-									title += status.getDisplayName().toLowerCase() + ", click for details";
-								} else {
-									title = "No builds";
-								}
-								tag.put("title", title);
-							}
-							
-						};
-										
-						link.add(new BuildStatusIcon("status", Model.of(status)));
-						item.add(link);
-
-						if (jobBuilds.isRequired())
-							link.add(new Label("name", jobName + " (required)"));
-						else
-							link.add(new Label("name", jobName));
-						item.add(link);
-					}
+				});
+				fragment.add(new WebMarkupContainer("reviewerHelp") {
 
 					@Override
 					protected void onConfigure() {
 						super.onConfigure();
-						setVisible(!getModelObject().isEmpty());
+						setVisible(!getPullRequest().isMerged() && SecurityUtils.canModify(getPullRequest()));
+					}
+					
+				});
+				fragment.add(new WebMarkupContainer("hiddenJobsNote") {
+
+					@Override
+					protected void onConfigure() {
+						super.onConfigure();
+						
+						boolean hasHiddenJobs = false;
+						for (String jobName: getPullRequest().getVerifications().stream()
+								.map(it->it.getBuild().getJobName()).collect(Collectors.toSet())) {
+							if (!SecurityUtils.canAccess(getProject(), jobName)) {
+								hasHiddenJobs = true;
+								break;
+							}
+						}
+						setVisible(hasHiddenJobs);
+					}
+					
+				});
+				fragment.add(new PullRequestJobsPanel("jobs") {
+
+					@Override
+					protected PullRequest getPullRequest() {
+						return PullRequestDetailPage.this.getPullRequest();
+					}
+					
+					@Override
+					protected void onConfigure() {
+						super.onConfigure();
+						setVisible(!getPullRequest().getVerifications().isEmpty());
+					}
+
+				});
+				fragment.add(new WebMarkupContainer("jobsHelp") {
+					
+					@Override
+					protected void onConfigure() {
+						super.onConfigure();
+
+						boolean hasVisibleRequiredJobs = false;
+						for (String jobName: getPullRequest().getVerifications().stream()
+								.filter(it->it.isRequired())
+								.map(it->it.getBuild().getJobName())
+								.collect(Collectors.toSet())) {
+							if (SecurityUtils.canAccess(getProject(), jobName)) {
+								hasVisibleRequiredJobs = true;
+								break;
+							}
+						}
+						setVisible(hasVisibleRequiredJobs);
+					}
+					
+				});
+				fragment.add(new AssignmentListPanel("assignments") {
+
+					@Override
+					protected PullRequest getPullRequest() {
+						return PullRequestDetailPage.this.getPullRequest();
+					}
+					
+				});
+				fragment.add(new WebMarkupContainer("assigneeHelp") {
+
+					@Override
+					protected void onConfigure() {
+						super.onConfigure();
+						setVisible(!getPullRequest().isMerged() && SecurityUtils.canModify(getPullRequest()));
 					}
 					
 				});
@@ -651,8 +799,8 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 				fragment.setOutputMarkupId(true);
 				return fragment;
 			}
-			
-		});
+
+		};
 	}
 	
 	private WebMarkupContainer newManageContainer() {
@@ -680,15 +828,16 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 			public void onClick() {
 				PullRequest request = getPullRequest();
 				getPullRequestManager().delete(request);
-				Session.get().success("Pull request #" + request.getNumber() + " is deleted");
-				PageParameters params = ProjectPullRequestsPage.paramsOf(
-						getProject(), 
-						QueryPosition.getQuery(position), 
-						QueryPosition.getPage(position) + 1);
-				setResponsePage(ProjectPullRequestsPage.class, params);
+				Session.get().success("Pull request #" + request.getNumber() + " deleted");
+				
+				String redirectUrlAfterDelete = WebSession.get().getRedirectUrlAfterDelete(PullRequest.class);
+				if (redirectUrlAfterDelete != null)
+					throw new RedirectToUrlException(redirectUrlAfterDelete);
+				else
+					setResponsePage(ProjectPullRequestsPage.class, ProjectPullRequestsPage.paramsOf(getProject()));
 			}
 			
-		}.add(new ConfirmOnClick("Do you really want to delete this pull request?")));
+		}.add(new ConfirmClickModifier("Do you really want to delete this pull request?")));
 		return container;
 	}
 	
@@ -803,11 +952,11 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 					public String getObject() {
 						PullRequest request = getPullRequest();
 						if (request.isDiscarded())
-							return " label-danger";
+							return " badge-danger";
 						else if (request.isMerged())
-							return " label-success";
+							return " badge-success";
 						else
-							return " label-warning";
+							return " badge-warning";
 					}
 					
 				}));
@@ -820,9 +969,9 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 		statusAndBranchesContainer.add(new UserIdentPanel("user", submitter, Mode.NAME));
 		statusAndBranchesContainer.add(new Label("date", DateUtils.formatAge(request.getSubmitDate())));
 		
-		statusAndBranchesContainer.add(new BranchLink("target", request.getTarget(), null));
+		statusAndBranchesContainer.add(new BranchLink("target", request.getTarget()));
 		if (request.getSourceProject() != null) {
-			statusAndBranchesContainer.add(new BranchLink("source", request.getSource(), getPullRequest()));
+			statusAndBranchesContainer.add(new BranchLink("source", request.getSource()));
 		} else {
 			statusAndBranchesContainer.add(new Label("source", "unknown") {
 
@@ -840,453 +989,395 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 		return statusAndBranchesContainer;
 	}
 
-	private WebMarkupContainer newMergeStatusContainer() {
-		WebMarkupContainer mergeStatusContainer = new WebMarkupContainer("mergeStatus") {
-
-			@Override
-			protected void onConfigure() {
-				super.onConfigure();
-				
-				PullRequest request = getPullRequest();
-				setVisible(request.isOpen());
-			}
-			
-		};
-		mergeStatusContainer.setOutputMarkupPlaceholderTag(true);
-		
-		mergeStatusContainer.add(new WebMarkupContainer("calculating") {
-
-			@Override
-			protected void onConfigure() {
-				super.onConfigure();
-				setVisible(getPullRequest().getMergePreview() == null);
-			}
-			
-		});
-		mergeStatusContainer.add(new WebMarkupContainer("conflict") {
-			
-			@Override
-			protected void onInitialize() {
-				super.onInitialize();
-				
-				add(new DropdownLink("resolveInstructions") {
-
-					@Override
-					protected void onConfigure() {
-						super.onConfigure();
-						setVisible(getPullRequest().getSource() != null);
-					}
-
-					@Override
-					protected Component newContent(String id, FloatingPanel dropdown) {
-						return new ConflictResolveInstructionPanel(id) {
-
-							@Override
-							protected PullRequest getPullRequest() {
-								return PullRequestDetailPage.this.getPullRequest();
-							}
-							
-						};
-					}
-					
-				});
-			}
-
-			@Override
-			protected void onConfigure() {
-				super.onConfigure();
-				MergePreview preview = getPullRequest().getMergePreview();
-				setVisible(preview != null && preview.getMerged() == null);
-			}
-
-		});
-		mergeStatusContainer.add(new WebMarkupContainer("noConflict") {
-			
-			@Override
-			protected void onConfigure() {
-				super.onConfigure();
-				MergePreview preview = getPullRequest().getMergePreview();
-				setVisible(preview != null && preview.getMerged() != null);
-			}
-
-		});
-		
-		return mergeStatusContainer;
-	}
-	
-	private AttributeAppender newOperationAppender(PullRequestOperation operation) {
-		return AttributeAppender.append("class", new AbstractReadOnlyModel<String>() {
-
-			@Override
-			public String getObject() {
-				return operation == activeOperation?"active":""; 
-			}
-			
-		});
-	}
-	
 	private WebMarkupContainer newOperationsContainer() {
-		WebMarkupContainer operationsContainer = new WebMarkupContainer("operations") {
+		WebMarkupContainer operationsContainer = new WebMarkupContainer("requestOperations");
+		operationsContainer.add(new WebSocketObserver() {
 
 			@Override
-			protected void onConfigure() {
-				super.onConfigure();
-				
-				boolean hasVisibleChildren = false;
-				for (int i=0; i<size(); i++) {
-					@SuppressWarnings("deprecation")
-					Component child = get(i);
-					child.configure();
-					if (child.isVisible()) {
-						hasVisibleChildren = true;
-						break;
-					}
-				}
-				
-				setVisible(hasVisibleChildren);
+			public Collection<String> getObservables() {
+				return Sets.newHashSet(PullRequest.getWebSocketObservable(getPullRequest().getId()));
+			}
+
+			@Override
+			public void onObservableChanged(IPartialPageRequestHandler handler) {
+				handler.add(component);
+				handler.appendJavaScript("setTimeout(function() {$(window).resize();}, 0);");
 			}
 			
-		};
+		});
+		
 		operationsContainer.setOutputMarkupPlaceholderTag(true);
 		
-		String confirmId = "confirm";
+		operationsContainer.setVisible(SecurityUtils.getUser() != null);
 		
-		operationsContainer.add(new AjaxLink<Void>("approve") {
+		operationsContainer.add(new ModalLink("approve") {
 
 			@Override
-			public void onClick(AjaxRequestTarget target) {
-				activeOperation = APPROVE;
-				reviewUpdateId = getPullRequest().getLatestUpdate().getId();
-				operationsContainer.replace(newOperationConfirm(confirmId, APPROVE, operationsContainer));
-				target.add(operationsContainer);
-				target.appendJavaScript("setTimeout(function() {$(window).resize();}, 0);");
+			protected String getModalCssClass() {
+				return "modal-lg";
 			}
 
-			@Override
-			protected void onConfigure() {
-				super.onConfigure();
-				setVisible(APPROVE.canOperate(getPullRequest()));
-			}
-			
-		}.add(newOperationAppender(APPROVE)));
-		
-		operationsContainer.add(new AjaxLink<Void>("requestForChanges") {
-
-			@Override
-			public void onClick(AjaxRequestTarget target) {
-				activeOperation = REQUEST_FOR_CHANGES;
-				reviewUpdateId = getPullRequest().getLatestUpdate().getId();
-				operationsContainer.replace(newOperationConfirm(confirmId, REQUEST_FOR_CHANGES, operationsContainer));
-				target.add(operationsContainer);
-				target.appendJavaScript("setTimeout(function() {$(window).resize();}, 0);");
-			}
-
-			@Override
-			protected void onConfigure() {
-				super.onConfigure();
-				setVisible(REQUEST_FOR_CHANGES.canOperate(getPullRequest()));
-			}
-			
-		}.add(newOperationAppender(REQUEST_FOR_CHANGES)));
-		
-		operationsContainer.add(new AjaxLink<Void>("discard") {
-
-			@Override
-			public void onClick(AjaxRequestTarget target) {
-				activeOperation = DISCARD;
-				operationsContainer.replace(newOperationConfirm(confirmId, DISCARD, operationsContainer));
-				target.add(operationsContainer);
-				target.appendJavaScript("setTimeout(function() {$(window).resize();}, 0);");
+			private boolean canOperate() {
+				PullRequest request = getPullRequest();
+				if (request.isOpen()) {
+					PullRequestReview review = request.getReview(SecurityUtils.getUser());
+					return review == null || review.getResult() == null || !review.getResult().isApproved();
+				} else {
+					return false;
+				}
 			}
 			
 			@Override
 			protected void onConfigure() {
 				super.onConfigure();
-				setVisible(DISCARD.canOperate(getPullRequest()));
+				setVisible(canOperate());
 			}
 
-		}.add(newOperationAppender(DISCARD)));
+			@Override
+			protected Component newContent(String id, ModalPanel modal) {
+				return new CommentableOperationConfirmPanel(id, modal, latestUpdateId) {
+					
+					@Override
+					protected boolean operate() {
+						if (canOperate()) {
+							User user = SecurityUtils.getUser();
+							PullRequest request = getPullRequest();
+							PullRequestReview review = request.getReview(user);
+							if (review == null) {
+								review = new PullRequestReview();
+								review.setRequest(request);
+								review.setUser(user);
+							}
+							ReviewResult result = new ReviewResult();
+							result.setApproved(true);
+							result.setComment(getComment());
+							result.setCommit(request.getLatestUpdate().getHeadCommitHash());
+							review.setResult(result);
+							OneDev.getInstance(PullRequestReviewManager.class).review(review);
+							Session.get().success("Approved");
+							return true;
+						} else {
+							return false; 
+						}
+					}
+					
+					@Override
+					protected String getTitle() {
+						return "Confirm Approve";
+					}
+				};
+			}
+			
+		});
 		
-		operationsContainer.add(new AjaxLink<Void>("reopen") {
+		operationsContainer.add(new ModalLink("requestForChanges") {
 
 			@Override
-			public void onClick(AjaxRequestTarget target) {
-				activeOperation = REOPEN;
-				operationsContainer.replace(newOperationConfirm(confirmId, REOPEN, operationsContainer));
-				target.add(operationsContainer);
-				target.appendJavaScript("setTimeout(function() {$(window).resize();}, 0);");
+			protected String getModalCssClass() {
+				return "modal-lg";
+			}
+
+			private boolean canOperate() {
+				PullRequest request = getPullRequest();
+				if (request.isOpen()) {
+					PullRequestReview review = request.getReview(SecurityUtils.getUser());
+					return review == null || review.getResult() == null || review.getResult().isApproved();
+				} else {
+					return false;
+				}
 			}
 			
 			@Override
 			protected void onConfigure() {
 				super.onConfigure();
-				setVisible(REOPEN.canOperate(getPullRequest()));
+				setVisible(canOperate());
 			}
 
-		}.add(newOperationAppender(REOPEN)));
-		
-		operationsContainer.add(new AjaxLink<Void>("deleteSourceBranch") {
-
 			@Override
-			public void onClick(AjaxRequestTarget target) {
-				activeOperation = DELETE_SOURCE_BRANCH;
-				operationsContainer.replace(newOperationConfirm(confirmId, DELETE_SOURCE_BRANCH, operationsContainer));
-				target.add(operationsContainer);
-				target.appendJavaScript("setTimeout(function() {$(window).resize();}, 0);");
+			protected Component newContent(String id, ModalPanel modal) {
+				return new CommentableOperationConfirmPanel(id, modal, latestUpdateId) {
+					
+					@Override
+					protected boolean operate() {
+						if (canOperate()) {
+							User user = SecurityUtils.getUser();
+							PullRequest request = getPullRequest();
+							PullRequestReview review = request.getReview(user);
+							if (review == null) {
+								review = new PullRequestReview();
+								review.setRequest(request);
+								review.setUser(user);
+							}
+							ReviewResult result = new ReviewResult();
+							result.setApproved(false);
+							result.setComment(getComment());
+							result.setCommit(request.getLatestUpdate().getHeadCommitHash());
+							review.setResult(result);
+							OneDev.getInstance(PullRequestReviewManager.class).review(review);
+							Session.get().success("Requested For changes");
+							return true;
+						} else {
+							return false; 
+						}
+					}
+					
+					@Override
+					protected String getTitle() {
+						return "Confirm Request For Changes";
+					}
+				};
+			}
+			
+		});
+		
+		operationsContainer.add(new ModalLink("merge") {
+
+			private boolean canOperate() {
+				PullRequest request = getPullRequest();
+				MergePreview preview = request.getMergePreview();
+				return request.isOpen()
+						&& request.isAllReviewsApproved() 
+						&& request.isRequiredBuildsSuccessful()
+						&& request.getCheckError() == null 
+						&& preview != null 
+						&& preview.getMergeCommitHash() != null
+						&& SecurityUtils.canWriteCode(request.getTargetProject());
 			}
 			
 			@Override
 			protected void onConfigure() {
 				super.onConfigure();
-				setVisible(DELETE_SOURCE_BRANCH.canOperate(getPullRequest()));
+				setVisible(canOperate());
 			}
 
-		}.add(newOperationAppender(DELETE_SOURCE_BRANCH)));
+			@Override
+			protected Component newContent(String id, ModalPanel modal) {
+				return new MergeConfirmPanel(id, modal, latestUpdateId) {
+
+					@Override
+					protected boolean operate() {
+						if (canOperate()) {
+							OneDev.getInstance(PullRequestManager.class).merge(getPullRequest(), getCommitMessage());
+							return true;
+						} else {
+							return false;
+						}
+					}
+					
+				};
+			}
+			
+		});
 		
-		operationsContainer.add(new AjaxLink<Void>("restoreSourceBranch") {
+		operationsContainer.add(new ModalLink("discard") {
 
 			@Override
-			public void onClick(AjaxRequestTarget target) {
-				activeOperation = RESTORE_SOURCE_BRANCH;
-				operationsContainer.replace(newOperationConfirm(confirmId, RESTORE_SOURCE_BRANCH, operationsContainer));
-				target.add(operationsContainer);
-				target.appendJavaScript("setTimeout(function() {$(window).resize();}, 0);");
+			protected String getModalCssClass() {
+				return "modal-lg";
+			}
+
+			private boolean canOperate() {
+				return getPullRequest().isOpen() && SecurityUtils.canModify(getPullRequest());
 			}
 			
 			@Override
 			protected void onConfigure() {
 				super.onConfigure();
-				setVisible(RESTORE_SOURCE_BRANCH.canOperate(getPullRequest()));
+				setVisible(canOperate());
 			}
 
-		}.add(newOperationAppender(RESTORE_SOURCE_BRANCH)));
+			@Override
+			protected Component newContent(String id, ModalPanel modal) {
+				return new CommentableOperationConfirmPanel(id, modal, latestUpdateId) {
+					
+					@Override
+					protected boolean operate() {
+						if (canOperate()) {
+							OneDev.getInstance(PullRequestManager.class).discard(getPullRequest(), getComment());			
+							return true;
+						} else {
+							return false; 
+						}
+					}
+					
+					@Override
+					protected String getTitle() {
+						return "Confirm Discard";
+					}
+				};
+			}
+			
+		});
 		
-		operationsContainer.add(new WebMarkupContainer(confirmId).setVisible(false));
+		operationsContainer.add(new ModalLink("reopen") {
+
+			@Override
+			protected String getModalCssClass() {
+				return "modal-lg";
+			}
+
+			private boolean canOperate() {
+				PullRequest request = getPullRequest();
+				PullRequestManager pullRequestManager = OneDev.getInstance(PullRequestManager.class);
+				return !request.isOpen() 
+						&& SecurityUtils.canModify(request)
+						&& request.getTarget().getObjectName(false) != null
+						&& request.getSourceProject() != null 
+						&& request.getSource().getObjectName(false) != null
+						&& pullRequestManager.findEffective(request.getTarget(), request.getSource()) == null
+						&& !GitUtils.isMergedInto(request.getTargetProject().getRepository(), null,
+								request.getSource().getObjectId(), request.getTarget().getObjectId());
+			}
+			
+			@Override
+			protected void onConfigure() {
+				super.onConfigure();
+				setVisible(canOperate());
+			}
+
+			@Override
+			protected Component newContent(String id, ModalPanel modal) {
+				return new CommentableOperationConfirmPanel(id, modal, latestUpdateId) {
+					
+					@Override
+					protected boolean operate() {
+						if (canOperate()) {
+							OneDev.getInstance(PullRequestManager.class).reopen(getPullRequest(), getComment());
+							return true;
+						} else {
+							return false; 
+						}
+					}
+					
+					@Override
+					protected String getTitle() {
+						return "Confirm Reopen";
+					}
+				};
+			}
+			
+		});
+		
+		operationsContainer.add(new ModalLink("deleteSourceBranch") {
+
+			@Override
+			protected String getModalCssClass() {
+				return "modal-lg";
+			}
+
+			private boolean canOperate() {
+				PullRequest request = getPullRequest();
+				PullRequestManager pullRequestManager = OneDev.getInstance(PullRequestManager.class);
+				MergePreview preview = request.getLastMergePreview();
+				return request.isMerged()
+						&& request.getSourceProject() != null		
+						&& request.getSource().getObjectName(false) != null
+						&& !request.getSource().isDefault()
+						&& preview != null
+						&& (request.getSource().getObjectName().equals(preview.getHeadCommitHash()) 
+								|| request.getSource().getObjectName().equals(preview.getMergeCommitHash()))
+						&& SecurityUtils.canModify(request)
+						&& SecurityUtils.canDeleteBranch(request.getSourceProject(), request.getSourceBranch())
+						&& pullRequestManager.queryOpenTo(request.getSource()).isEmpty();
+			}
+			
+			@Override
+			protected void onConfigure() {
+				super.onConfigure();
+				setVisible(canOperate());
+			}
+
+			@Override
+			protected Component newContent(String id, ModalPanel modal) {
+				return new CommentableOperationConfirmPanel(id, modal, latestUpdateId) {
+					
+					@Override
+					protected boolean operate() {
+						if (canOperate()) {
+							OneDev.getInstance(PullRequestManager.class).deleteSourceBranch(getPullRequest(), getComment());
+							Session.get().success("Deleted source branch");
+							return true;
+						} else {
+							return false; 
+						}
+					}
+					
+					@Override
+					protected String getTitle() {
+						return "Confirm Delete Source Branch";
+					}
+				};
+			}
+			
+		});
+		
+		operationsContainer.add(new ModalLink("restoreSourceBranch") {
+
+			@Override
+			protected String getModalCssClass() {
+				return "modal-lg";
+			}
+
+			private boolean canOperate() {
+				PullRequest request = getPullRequest();
+				return request.getSourceProject() != null 
+						&& request.getSource().getObjectName(false) == null 
+						&& SecurityUtils.canModify(request) 
+						&& SecurityUtils.canWriteCode(request.getSourceProject());
+			}
+			
+			@Override
+			protected void onConfigure() {
+				super.onConfigure();
+				setVisible(canOperate());
+			}
+
+			@Override
+			protected Component newContent(String id, ModalPanel modal) {
+				return new CommentableOperationConfirmPanel(id, modal, latestUpdateId) {
+					
+					@Override
+					protected boolean operate() {
+						if (canOperate()) {
+							OneDev.getInstance(PullRequestManager.class).restoreSourceBranch(getPullRequest(), getComment());
+							Session.get().success("Restored source branch");
+							return true;
+						} else {
+							return false; 
+						}
+					}
+					
+					@Override
+					protected String getTitle() {
+						return "Confirm Restore Source Branch";
+					}
+				};
+			}
+			
+		});
 		
 		return operationsContainer;
 	}
 	
-	private Component newOperationConfirm(String id, PullRequestOperation operation, 
-			WebMarkupContainer operationsContainer) {
-		PullRequest request = getPullRequest();
-
-		Fragment fragment = new Fragment(id, "operationConfirmFrag", this);
-		Form<?> form = new Form<Void>("form");
-		fragment.add(form);
-
-		ProjectAndBranch source = request.getSource();
-		Preconditions.checkNotNull(source);
-		
-		FormComponent<String> noteInput;
-		form.add(noteInput = new CommentInput("note", Model.of(""), false) {
-
-			@Override
-			protected AttachmentSupport getAttachmentSupport() {
-				return new ProjectAttachmentSupport(requestModel.getObject().getTargetProject(), 
-						requestModel.getObject().getUUID());
-			}
-
-			@Override
-			protected Project getProject() {
-				return requestModel.getObject().getTargetProject();
-			}
-
-			@Override
-			protected List<User> getMentionables() {
-				return OneDev.getInstance(UserManager.class).queryAndSort(getPullRequest().getParticipants());
-			}
-			
-			@Override
-			protected List<AttributeModifier> getInputModifiers() {
-				return Lists.newArrayList(AttributeModifier.replace("placeholder", "Leave a note"));
-			}
-			
-		});
-		
-		WebMarkupContainer hint = new WebMarkupContainer(HINT_ID);
-		hint.setOutputMarkupPlaceholderTag(true);
-		hint.setVisible(false);
-		fragment.add(hint);
-		
-		NotificationPanel feedback = new NotificationPanel("feedback", form);
-		feedback.setOutputMarkupPlaceholderTag(true);
-		fragment.add(feedback);
-		
-		form.add(new AjaxButton("submit") {
-
-			@Override
-			protected void onSubmit(AjaxRequestTarget target, Form<?> form) {
-				super.onSubmit(target, form);
-				
-				PullRequest request = getPullRequest();
-				if ((operation == APPROVE || operation == REQUEST_FOR_CHANGES) && 
-						!getPullRequest().getLatestUpdate().getId().equals(reviewUpdateId)) {
-					Long prevReviewUpdateId = reviewUpdateId;
-					WebMarkupContainer hint = new UnreviewedChangesPanel(HINT_ID, 
-							new LoadableDetachableModel<PullRequestUpdate>() {
-
-						@Override
-						protected PullRequestUpdate load() {
-							return OneDev.getInstance(PullRequestUpdateManager.class).load(prevReviewUpdateId);
-						}
-						
-					});
-					hint.setOutputMarkupPlaceholderTag(true);
-					fragment.replace(hint);
-					
-					target.add(feedback);
-					target.add(hint);
-					target.appendJavaScript("setTimeout(function() {$(window).resize();}, 0);");
-					reviewUpdateId = getPullRequest().getLatestUpdate().getId();
-				} else if (!operation.canOperate(request)) {
-					error("Not allowed to " + getOperationName(operation) + " at this point");
-					target.add(feedback);
-					target.add(hint);
-					target.appendJavaScript("setTimeout(function() {$(window).resize();}, 0);");
-				} else {
-					try {
-						operation.operate(request, noteInput.getModelObject());
-						setResponsePage(PullRequestActivitiesPage.class, PullRequestActivitiesPage.paramsOf(getPullRequest(), position));
-					} catch (OneException e) {
-						error(e.getMessage());
-						target.add(feedback);
-						target.add(hint);
-						target.appendJavaScript("setTimeout(function() {$(window).resize();}, 0);");
-					}
-				}
-			}
-
-		});
-		form.add(new AjaxLink<Void>("cancel") {
-
-			@Override
-			protected void updateAjaxAttributes(AjaxRequestAttributes attributes) {
-				super.updateAjaxAttributes(attributes);
-				attributes.getAjaxCallListeners().add(new ConfirmLeaveListener());
-			}
-
-			@Override
-			public void onClick(AjaxRequestTarget target) {
-				activeOperation = null;
-				fragment.replaceWith(new WebMarkupContainer(id).setVisible(false));
-				target.add(operationsContainer);
-				target.appendJavaScript("setTimeout(function() {$(window).resize();}, 0);");
-			}
-			
-		});		
-		
-		return fragment;
-	}
-	
-	private String getOperationName(PullRequestOperation operation) {
-		return WordUtils.capitalizeFully(operation.name()).replace("_", " ").toLowerCase();		
-	}
-
-	private WebMarkupContainer newMergedNoteContainer() {
-		WebMarkupContainer mergedNoteContainer = new WebMarkupContainer("mergedNote") {
-
-			@Override
-			protected void onConfigure() {
-				super.onConfigure();
-				setVisible(getPullRequest().isMerged());
-			}
-			
-		};
-		mergedNoteContainer.setOutputMarkupPlaceholderTag(true);
-		
-		mergedNoteContainer.add(new WebMarkupContainer("fastForwarded") {
-
-			@Override
-			protected void onConfigure() {
-				super.onConfigure();
-				
-				PullRequest request = getPullRequest();
-				MergePreview preview = request.getLastMergePreview();
-				setVisible(preview != null && preview.getRequestHead().equals(preview.getMerged()));
-			}
-			
-		});
-		mergedNoteContainer.add(new WebMarkupContainer("merged") {
-
-			@Override
-			protected void onConfigure() {
-				super.onConfigure();
-				
-				PullRequest request = getPullRequest();
-				MergePreview preview = request.getLastMergePreview();
-				setVisible(preview != null 
-						&& !preview.getRequestHead().equals(preview.getMerged())
-						&& (preview.getMergeStrategy() == CREATE_MERGE_COMMIT || preview.getMergeStrategy() == CREATE_MERGE_COMMIT_IF_NECESSARY));
-			}
-			
-		});
-		mergedNoteContainer.add(new WebMarkupContainer("mergedOutside") {
-
-			@Override
-			protected void onConfigure() {
-				super.onConfigure();
-				
-				setVisible(getPullRequest().getLastMergePreview() == null);
-			}
-			
-		});
-		mergedNoteContainer.add(new WebMarkupContainer("squashed") {
-
-			@Override
-			protected void onConfigure() {
-				super.onConfigure();
-				
-				PullRequest request = getPullRequest();
-				MergePreview preview = request.getLastMergePreview();
-				setVisible(preview != null 
-						&& !preview.getRequestHead().equals(preview.getMerged())
-						&& preview.getMergeStrategy() == SQUASH_SOURCE_BRANCH_COMMITS);
-			}
-			
-		});
-		mergedNoteContainer.add(new WebMarkupContainer("rebased") {
-
-			@Override
-			protected void onConfigure() {
-				super.onConfigure();
-				
-				PullRequest request = getPullRequest();
-				MergePreview preview = request.getMergePreview();
-				setVisible(preview != null 
-						&& !preview.getRequestHead().equals(preview.getMerged())
-						&& preview.getMergeStrategy() == REBASE_SOURCE_BRANCH_COMMITS);
-			}
-			
-		});
-		
-		return mergedNoteContainer;
-	}
-
 	@Override
 	protected void onDetach() {
 		requestModel.detach();
 		super.onDetach();
 	}
 
-	public static PageParameters paramsOf(PullRequest request, @Nullable QueryPosition position) {
-		return paramsOf(request.getFQN(), position);
+	public static PageParameters paramsOf(PullRequest request) {
+		return paramsOf(request.getFQN());
 	}
 	
-	public static PageParameters paramsOf(ProjectScopedNumber requestFQN, @Nullable QueryPosition position) {
+	public static PageParameters paramsOf(ProjectScopedNumber requestFQN) {
 		PageParameters params = ProjectPage.paramsOf(requestFQN.getProject());
 		params.add(PARAM_REQUEST, requestFQN.getNumber());
-		if (position != null)
-			position.fill(params);
 		return params;
 	}
 	
 	@Override
 	public PullRequest getPullRequest() {
 		return requestModel.getObject();
-	}
-	
-	public QueryPosition getPosition() {
-		return position;
 	}
 	
 	@Override
@@ -1313,7 +1404,7 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 			if (getMainPageClass() == PullRequestCodeCommentsPage.class) {
 				Fragment fragment = new Fragment(componentId, "codeCommentsTabLinkFrag", PullRequestDetailPage.this);
 				Link<Void> link = new ViewStateAwarePageLink<Void>("link", 
-						PullRequestCodeCommentsPage.class, paramsOf(getPullRequest(), position));
+						PullRequestCodeCommentsPage.class, paramsOf(getPullRequest()));
 				link.add(AttributeAppender.append("class", new LoadableDetachableModel<String>() {
 
 					@Override
@@ -1345,11 +1436,11 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 				fragment.add(link);
 				return fragment;
 			} else {
-				return new PageTabLink(componentId, this) {
+				return new PageTabHead(componentId, this) {
 
 					@Override
 					protected Link<?> newLink(String linkId, Class<? extends Page> pageClass) {
-						return new ViewStateAwarePageLink<Void>(linkId, pageClass, paramsOf(getPullRequest(), position));
+						return new ViewStateAwarePageLink<Void>(linkId, pageClass, paramsOf(getPullRequest()));
 					}
 					
 				};
@@ -1358,30 +1449,4 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 		
 	}
 	
-	private static class JobBuilds {
-		private final String jobName;
-
-		private final boolean required;
-		
-		private final List<Build> builds;
-		
-		public JobBuilds(String jobName, boolean required, List<Build> builds) {
-			this.jobName = jobName;
-			this.required = required;
-			this.builds = builds;
-		}
-
-		public String getJobName() {
-			return jobName;
-		}
-
-		public boolean isRequired() {
-			return required;
-		}
-
-		public List<Build> getBuilds() {
-			return builds;
-		}
-		
-	}
 }

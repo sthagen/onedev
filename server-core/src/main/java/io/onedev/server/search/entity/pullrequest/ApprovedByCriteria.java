@@ -20,37 +20,31 @@ public class ApprovedByCriteria extends EntityCriteria<PullRequest> {
 
 	private final User user;
 	
-	private final String value;
-	
-	public ApprovedByCriteria(String value) {
-		user = EntityQuery.getUser(value);
-		this.value = value;
+	public ApprovedByCriteria(User user) {
+		this.user = user;
 	}
 	
 	@Override
 	public Predicate getPredicate(Root<PullRequest> root, CriteriaBuilder builder) {
 		Join<?, ?> join = root.join(PullRequest.PROP_REVIEWS, JoinType.LEFT);
 		Path<?> userPath = EntityQuery.getPath(join, PullRequestReview.PROP_USER);
-		Path<?> excludeDatePath = EntityQuery.getPath(join, PullRequestReview.PROP_EXCLUDE_DATE);
 		Path<?> approvedPath = EntityQuery.getPath(join, PullRequestReview.PROP_RESULT + "." + ReviewResult.PROP_APPROVED);
 		join.on(builder.and(
 				builder.equal(userPath, user), 
-				builder.isNull(excludeDatePath), 
 				builder.equal(approvedPath, true)));
 		return join.isNotNull();
 	}
 
 	@Override
 	public boolean matches(PullRequest request) {
-		PullRequestReview review = request.getReview(this.user);
-		return review != null && review.getExcludeDate() == null && review.getResult() != null
-				&& review.getResult().isApproved();
+		PullRequestReview review = request.getReview(user);
+		return review != null && review.getResult() != null && review.getResult().isApproved();
 	}
 
 	@Override
-	public String asString() {
+	public String toStringWithoutParens() {
 		return PullRequestQuery.getRuleName(PullRequestQueryLexer.ApprovedBy) + " " 
-				+ quote(value);
+				+ quote(user.getName());
 	}
 
 }

@@ -1,5 +1,7 @@
 package io.onedev.server.model;
 
+import static io.onedev.server.model.CodeComment.PROP_CREATE_DATE;
+
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -39,18 +41,17 @@ import io.onedev.server.git.GitUtils;
 import io.onedev.server.infomanager.UserInfoManager;
 import io.onedev.server.model.support.CompareContext;
 import io.onedev.server.model.support.LastUpdate;
-import io.onedev.server.model.support.MarkPos;
+import io.onedev.server.model.support.Mark;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.storage.AttachmentStorageSupport;
 import io.onedev.server.util.CollectionUtils;
-import io.onedev.server.util.SecurityUtils;
-import static io.onedev.server.model.CodeComment.*;
 import io.onedev.server.util.diff.DiffUtils;
 import io.onedev.server.util.diff.WhitespaceOption;
 
 @Entity
 @Table(indexes={
 		@Index(columnList="o_project_id"), @Index(columnList="o_user_id"),
-		@Index(columnList=MarkPos.PROP_COMMIT), @Index(columnList=MarkPos.PROP_PATH), 
+		@Index(columnList=Mark.PROP_COMMIT_HASH), @Index(columnList=Mark.PROP_PATH), 
 		@Index(columnList=PROP_CREATE_DATE), @Index(columnList=LastUpdate.COLUMN_DATE)})
 public class CodeComment extends AbstractEntity implements AttachmentStorageSupport {
 	
@@ -58,43 +59,43 @@ public class CodeComment extends AbstractEntity implements AttachmentStorageSupp
 	
 	public static final String PROP_PROJECT = "project";
 	
-	public static final String FIELD_CONTENT = "Content";
+	public static final String PROP_REQUEST = "request";
+	
+	public static final String NAME_CONTENT = "Content";
 	
 	public static final String PROP_CONTENT = "content";
 	
-	public static final String FIELD_REPLY = "Reply";
+	public static final String NAME_REPLY = "Reply";
 	
-	public static final String FIELD_PATH = "Path";
+	public static final String NAME_PATH = "Path";
 	
-	public static final String PROP_MARK_POS = "markPos";
+	public static final String PROP_MARK = "mark";
 	
-	public static final String FIELD_REPLY_COUNT = "Reply Count";
+	public static final String NAME_REPLY_COUNT = "Reply Count";
 	
 	public static final String PROP_REPLY_COUNT = "replyCount";
 	
-	public static final String FIELD_CREATE_DATE = "Create Date";
+	public static final String NAME_CREATE_DATE = "Create Date";
 	
 	public static final String PROP_CREATE_DATE = "createDate";
 	
-	public static final String FIELD_UPDATE_DATE = "Update Date";
+	public static final String NAME_UPDATE_DATE = "Update Date";
 	
 	public static final String PROP_LAST_UPDATE = "lastUpdate";
 	
 	public static final String PROP_USER = "user";
-	
-	public static final String PROP_RELATIONS = "relations";
 	
 	public static final String PROP_REPLIES = "replies";
 
 	public static final String PROP_ID = "id";
 	
 	public static final List<String> QUERY_FIELDS = Lists.newArrayList(
-			FIELD_CONTENT, FIELD_REPLY, FIELD_PATH, FIELD_CREATE_DATE, FIELD_UPDATE_DATE, FIELD_REPLY_COUNT);
+			NAME_CONTENT, NAME_REPLY, NAME_PATH, NAME_CREATE_DATE, NAME_UPDATE_DATE, NAME_REPLY_COUNT);
 
 	public static final Map<String, String> ORDER_FIELDS = CollectionUtils.newLinkedHashMap(
-			FIELD_CREATE_DATE, PROP_CREATE_DATE,
-			FIELD_UPDATE_DATE, PROP_LAST_UPDATE + "." + LastUpdate.PROP_DATE,
-			FIELD_REPLY_COUNT, PROP_REPLY_COUNT);
+			NAME_CREATE_DATE, PROP_CREATE_DATE,
+			NAME_UPDATE_DATE, PROP_LAST_UPDATE + "." + LastUpdate.PROP_DATE,
+			NAME_REPLY_COUNT, PROP_REPLY_COUNT);
 	
 	@ManyToOne(fetch=FetchType.LAZY)
 	@JoinColumn(nullable=false)
@@ -118,16 +119,16 @@ public class CodeComment extends AbstractEntity implements AttachmentStorageSupp
 	private int replyCount;
 
 	@Embedded
-	private MarkPos markPos;
+	private Mark mark;
 	
 	@Embedded
 	private CompareContext compareContext;
+
+	@ManyToOne(fetch=FetchType.LAZY)
+	private PullRequest request;
 	
 	@OneToMany(mappedBy="comment", cascade=CascadeType.REMOVE)
 	private Collection<CodeCommentReply> replies = new ArrayList<>();
-	
-	@OneToMany(mappedBy="comment", cascade=CascadeType.REMOVE)
-	private Collection<CodeCommentRelation> relations = new ArrayList<>();
 	
 	@Column(nullable=false)
 	private String uuid = UUID.randomUUID().toString();
@@ -142,6 +143,15 @@ public class CodeComment extends AbstractEntity implements AttachmentStorageSupp
 
 	public void setProject(Project project) {
 		this.project = project;
+	}
+
+	@Nullable
+	public PullRequest getRequest() {
+		return request;
+	}
+
+	public void setRequest(PullRequest request) {
+		this.request = request;
 	}
 
 	@Nullable
@@ -186,12 +196,12 @@ public class CodeComment extends AbstractEntity implements AttachmentStorageSupp
 		this.replyCount = replyCount;
 	}
 
-	public MarkPos getMarkPos() {
-		return markPos;
+	public Mark getMark() {
+		return mark;
 	}
 
-	public void setMarkPos(MarkPos markPos) {
-		this.markPos = markPos;
+	public void setMark(Mark mark) {
+		this.mark = mark;
 	}
 
 	public Collection<CodeCommentReply> getReplies() {
@@ -200,14 +210,6 @@ public class CodeComment extends AbstractEntity implements AttachmentStorageSupp
 
 	public void setReplies(Collection<CodeCommentReply> replies) {
 		this.replies = replies;
-	}
-
-	public Collection<CodeCommentRelation> getRelations() {
-		return relations;
-	}
-
-	public void setRelations(Collection<CodeCommentRelation> relations) {
-		this.relations = relations;
 	}
 
 	public String getUUID() {
@@ -245,45 +247,50 @@ public class CodeComment extends AbstractEntity implements AttachmentStorageSupp
 	}
 	
 	public ComparingInfo getComparingInfo() {
-		return new ComparingInfo(markPos.getCommit(), compareContext);
+		return new ComparingInfo(mark.getCommitHash(), compareContext);
 	}
 	
 	public boolean isValid() {
-		return project.getRepository().hasObject(ObjectId.fromString(markPos.getCommit()));
+		try {
+			return project.getRepository().getObjectDatabase().has(ObjectId.fromString(mark.getCommitHash()));
+		} catch (IOException e) {
+			throw new RuntimeException(e);
+		}
 	}
 	
 	@Nullable
 	public PlanarRange mapRange(BlobIdent blobIdent) {
 		RevCommit commit = project.getRevCommit(blobIdent.revision, true);
-		if (commit.name().equals(getMarkPos().getCommit())) {
-			return getMarkPos().getRange();
+		if (commit.name().equals(getMark().getCommitHash())) {
+			return getMark().getRange();
 		} else {
-			List<String> newLines = GitUtils.readLines(getProject().getRepository(), 
-					commit, blobIdent.path, WhitespaceOption.DEFAULT);
-			List<String> oldLines = GitUtils.readLines(getProject().getRepository(), 
-					project.getRevCommit(getMarkPos().getCommit(), true), getMarkPos().getPath(), 
-					WhitespaceOption.DEFAULT);
-			return DiffUtils.mapRange(DiffUtils.mapLines(oldLines, newLines), getMarkPos().getRange());
+			List<String> newLines = Preconditions.checkNotNull(
+					GitUtils.readLines(getProject().getRepository(), commit, blobIdent.path, WhitespaceOption.DEFAULT));
+			
+			RevCommit commitOfComment = project.getRevCommit(getMark().getCommitHash(), true);
+			List<String> oldLines = Preconditions.checkNotNull(
+					GitUtils.readLines(getProject().getRepository(), commitOfComment, getMark().getPath(), WhitespaceOption.DEFAULT));
+			return DiffUtils.mapRange(DiffUtils.mapLines(oldLines, newLines), getMark().getRange());
 		}
 	}
 	
 	public boolean isContextChanged(PullRequest request) {
 		if (contextChanged == null) {
-			if (request.getHeadCommitHash().equals(markPos.getCommit())) {
+			if (request.getLatestUpdate().getHeadCommitHash().equals(mark.getCommitHash())) {
 				contextChanged = false;
 			} else {
 				Project project = request.getTargetProject();
 				try (RevWalk revWalk = new RevWalk(project.getRepository())) {
-					TreeWalk treeWalk = TreeWalk.forPath(project.getRepository(), markPos.getPath(), 
-							request.getHeadCommit().getTree());
+					TreeWalk treeWalk = TreeWalk.forPath(project.getRepository(), mark.getPath(), 
+							request.getLatestUpdate().getHeadCommit().getTree());
 					if (treeWalk != null) {
 						ObjectId blobId = treeWalk.getObjectId(0);
 						if (treeWalk.getRawMode(0) == FileMode.REGULAR_FILE.getBits()) {
-							BlobIdent blobIdent = new BlobIdent(request.getHeadCommitHash(), markPos.getPath(), 
-									treeWalk.getRawMode(0));
+							BlobIdent blobIdent = new BlobIdent(request.getLatestUpdate().getHeadCommitHash(), 
+									mark.getPath(), treeWalk.getRawMode(0));
 							Blob newBlob = new Blob(blobIdent, blobId, treeWalk.getObjectReader()); 
-							Blob oldBlob = project.getBlob(new BlobIdent(markPos.getCommit(), 
-									markPos.getPath(), FileMode.REGULAR_FILE.getBits()), true);
+							Blob oldBlob = project.getBlob(new BlobIdent(mark.getCommitHash(), 
+									mark.getPath(), FileMode.REGULAR_FILE.getBits()), true);
 							Preconditions.checkState(oldBlob != null && oldBlob.getText() != null);
 							
 							List<String> oldLines = new ArrayList<>();
@@ -295,8 +302,8 @@ public class CodeComment extends AbstractEntity implements AttachmentStorageSupp
 								newLines.add(WhitespaceOption.DEFAULT.process(line));
 							
 							Map<Integer, Integer> lineMapping = DiffUtils.mapLines(oldLines, newLines);
-							int oldBeginLine = markPos.getRange().getFromRow();
-							int oldEndLine = markPos.getRange().getToRow();
+							int oldBeginLine = mark.getRange().getFromRow();
+							int oldEndLine = mark.getRange().getToRow();
 							Integer newBeginLine = lineMapping.get(oldBeginLine);
 							if (newBeginLine != null) {
 								for (int oldLine=oldBeginLine; oldLine<=oldEndLine; oldLine++) {
@@ -333,17 +340,17 @@ public class CodeComment extends AbstractEntity implements AttachmentStorageSupp
 
 		private static final long serialVersionUID = 1L;
 
-		private final String commit;
+		private final String commitHash;
 		
 		private final CompareContext compareContext;
 		
 		public ComparingInfo(String commit, CompareContext compareContext) {
-			this.commit = commit;
+			this.commitHash = commit;
 			this.compareContext = compareContext;
 		}
 		
-		public String getCommit() {
-			return commit;
+		public String getCommitHash() {
+			return commitHash;
 		}
 
 		public CompareContext getCompareContext() {

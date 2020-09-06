@@ -31,16 +31,24 @@ import io.onedev.server.web.page.project.pullrequests.detail.changes.PullRequest
 @Singleton
 public class DefaultUrlManager implements UrlManager {
 
-	private final SettingManager configManager;
+	private final SettingManager settingManager;
 	
 	@Inject
-	public DefaultUrlManager(SettingManager configManager) {
-		this.configManager = configManager;
+	public DefaultUrlManager(SettingManager settingManager) {
+		this.settingManager = settingManager;
 	}
 	
 	@Override
 	public String urlFor(Project project) {
-		return configManager.getSystemSetting().getServerUrl() + "/projects/" + project.getName();
+		return settingManager.getSystemSetting().getServerUrl() + "/projects/" + project.getName();
+	}
+
+	@Override
+	public String cloneUrlFor(Project project, boolean ssh) {
+		if (ssh)
+			return settingManager.getSshSetting().getServerUrl() + "/" + project.getName();
+		else
+			return settingManager.getSystemSetting().getServerUrl() + "/" + project.getName();
 	}
 	
 	@Override
@@ -52,7 +60,7 @@ public class DefaultUrlManager implements UrlManager {
 			return urlFor(request) + "/changes" + paramsEncoder.encodePageParameters(params);
 		} else {
 			CompareContext compareContext = comment.getCompareContext();
-			if (!compareContext.getCompareCommit().equals(comment.getMarkPos().getCommit())) {
+			if (!compareContext.getCompareCommitHash().equals(comment.getMark().getCommitHash())) {
 				String url = urlFor(comment.getProject());
 				PageParameters params = new PageParameters();
 				RevisionComparePage.fillParams(params, RevisionComparePage.getState(comment));
@@ -63,8 +71,8 @@ public class DefaultUrlManager implements UrlManager {
 				ProjectBlobPage.State state = ProjectBlobPage.getState(comment);
 				state.blobIdent.path = null;
 				state.blobIdent.revision = null;
-				params.set(0, comment.getMarkPos().getCommit());
-				List<String> pathSegments = Splitter.on("/").splitToList(comment.getMarkPos().getPath());
+				params.set(0, comment.getMark().getCommitHash());
+				List<String> pathSegments = Splitter.on("/").splitToList(comment.getMark().getPath());
 				for (int i=0; i<pathSegments.size(); i++) {
 					params.set(i+1, pathSegments.get(i));
 				}
@@ -76,8 +84,7 @@ public class DefaultUrlManager implements UrlManager {
 
 	@Override
 	public String urlFor(CodeCommentReply reply, PullRequest request) {
-		String url = urlFor(reply.getComment(), request);
-		return url + "#" + reply.getAnchor();
+		return urlFor(reply.getComment(), request) + "#" + reply.getAnchor();
 	}
 
 	@Override
@@ -87,14 +94,12 @@ public class DefaultUrlManager implements UrlManager {
 
 	@Override
 	public String urlFor(PullRequestComment comment) {
-		String url = urlFor(comment.getRequest());
-		return url + "#" + comment.getAnchor();
+		return urlFor(comment.getRequest()) + "/activities#" + comment.getAnchor();
 	}
 
 	@Override
 	public String urlFor(PullRequestChange change) {
-		String url = urlFor(change.getRequest());
-		return url + "#" + change.getAnchor();
+		return urlFor(change.getRequest()) + "/activities#" + change.getAnchor();
 	}
 
 	@Override
@@ -109,12 +114,12 @@ public class DefaultUrlManager implements UrlManager {
 	
 	@Override
 	public String urlFor(IssueComment comment) {
-		return urlFor(comment.getIssue()) + "#" + comment.getAnchor();
+		return urlFor(comment.getIssue()) + "/activities#" + comment.getAnchor();
 	}
 
 	@Override
 	public String urlFor(IssueChange change) {
-		return urlFor(change.getIssue()) + "#" + change.getAnchor();
+		return urlFor(change.getIssue()) + "/activities#" + change.getAnchor();
 	}
 
 	@Override

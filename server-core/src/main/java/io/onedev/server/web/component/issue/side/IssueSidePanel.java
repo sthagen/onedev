@@ -57,9 +57,9 @@ import io.onedev.server.model.support.administration.GlobalIssueSetting;
 import io.onedev.server.search.entity.EntityQuery;
 import io.onedev.server.search.entity.issue.IssueQuery;
 import io.onedev.server.search.entity.issue.StateCriteria;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.Input;
 import io.onedev.server.util.IssueUtils;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.web.ajaxlistener.AppendLoadingIndicatorListener;
 import io.onedev.server.web.behavior.WebSocketObserver;
 import io.onedev.server.web.component.entity.nav.EntityNavPanel;
@@ -76,7 +76,7 @@ import io.onedev.server.web.editable.BeanContext;
 import io.onedev.server.web.editable.BeanEditor;
 import io.onedev.server.web.page.project.issues.milestones.MilestoneDetailPage;
 import io.onedev.server.web.page.security.LoginPage;
-import io.onedev.server.web.util.QueryPositionSupport;
+import io.onedev.server.web.util.CursorSupport;
 
 @SuppressWarnings("serial")
 public abstract class IssueSidePanel extends Panel {
@@ -92,8 +92,8 @@ public abstract class IssueSidePanel extends Panel {
 		addOrReplace(new EntityNavPanel<Issue>("issueNav") {
 
 			@Override
-			protected EntityQuery<Issue> parse(String queryString) {
-				return IssueQuery.parse(getProject(), queryString, true, true, false, false, false);
+			protected EntityQuery<Issue> parse(String queryString, boolean inProject) {
+				return IssueQuery.parse(inProject?getProject():null, queryString, true, true, false, false, false);
 			}
 
 			@Override
@@ -102,13 +102,13 @@ public abstract class IssueSidePanel extends Panel {
 			}
 
 			@Override
-			protected List<Issue> query(EntityQuery<Issue> query, int offset, int count) {
-				return getIssueManager().query(getProject(), query, offset, count);
+			protected List<Issue> query(EntityQuery<Issue> query, int offset, int count, boolean inProject) {
+				return getIssueManager().query(inProject?getProject():null, query, offset, count, false);
 			}
 
 			@Override
-			protected QueryPositionSupport<Issue> getQueryPositionSupport() {
-				return IssueSidePanel.this.getQueryPositionSupport();
+			protected CursorSupport<Issue> getCursorSupport() {
+				return IssueSidePanel.this.getCursorSupport();
 			}
 			
 		});
@@ -556,7 +556,7 @@ public abstract class IssueSidePanel extends Panel {
 	protected abstract Issue getIssue();
 
 	@Nullable
-	protected abstract QueryPositionSupport<Issue> getQueryPositionSupport();
+	protected abstract CursorSupport<Issue> getCursorSupport();
 	
 	protected abstract Component newDeleteLink(String componentId);
 }

@@ -45,8 +45,8 @@ public class UpdateDateCriteria extends EntityCriteria<CodeComment>  {
 	}
 
 	@Override
-	public String asString() {
-		return quote(CodeComment.FIELD_UPDATE_DATE) + " " 
+	public String toStringWithoutParens() {
+		return quote(CodeComment.NAME_UPDATE_DATE) + " " 
 				+ CodeCommentQuery.getRuleName(operator) + " " 
 				+ quote(rawValue);
 	}

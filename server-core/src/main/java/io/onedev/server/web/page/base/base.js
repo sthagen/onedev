@@ -12,87 +12,50 @@ String.prototype.escapeHtml = function() {
  };
  
 onedev.server = {
-	setupCollapse: function(triggerId, targetId) {
-		var trigger = $("#" + triggerId);
-		var target = $("#" + targetId);
-		
-		// This script can still be called if CollapseBehavior is added to a 
-		// a component enclosed in an invisible wicket:enclosure. So we 
-		// should check if relevant element exists.
-		if (!trigger[0] || !target[0])
-			return;
-		
-		target[0].trigger = trigger[0];
-
-		target.on("shown.bs.collapse hidden.bs.collapse", function() {
-			var $floating = target.closest(".floating");
-			if ($floating.length != 0) {
-				var borderTop = $(window).scrollTop();
-				var borderBottom = borderTop + $(window).height();
-				var borderLeft = $(window).scrollLeft();
-				var borderRight = borderLeft + $(window).width();
-
-				var left = $floating.position().left;
-				var top = $floating.position().top;
-				var width = $floating.outerWidth();
-				var height = $floating.outerHeight();
-				
-				if (left < borderLeft || left + width > borderRight 
-						|| top < borderTop || top + height > borderBottom) {
-					if ($floating.data("alignment"))
-						$floating.align($floating.data("alignment"));
-				}
+	day: {
+		format: function(day) {
+			return day.year + "-" + (day.monthOfYear + 1) + "-" + day.dayOfMonth;
+		},
+		compare: function(day1, day2) {
+			if (day1.year < day2.year)
+				return -1;
+			else if (day1.year > day2.year)
+				return 1;
+			else if (day1.monthOfYear < day2.monthOfYear)
+				return -1;
+			else if (day1.monthOfYear > day2.monthOfYear)
+				return 1;
+			else
+				return day1.dayOfMonth - day2.dayOfMonth;
+		},
+		fromDate: function(date) {
+			return {
+				year: date.getFullYear(),
+				monthOfYear: date.getMonth(),
+				dayOfMonth: date.getDate()
 			}
-			
-		});
-		
-		trigger.click(function() {
-			if (target[0].collapsibleIds == undefined) {
-				if (!target.hasClass("in")) {
-					target.collapse("show");
-					$(target[0].trigger).removeClass("collapsed");
-				} else {
-					target.collapse("hide");
-					$(target[0].trigger).addClass("collapsed");
-				}
-			} else if (!target.hasClass("in")) {
-				for (var i in target[0].collapsibleIds) {
-					var collapsible = $("#" + target[0].collapsibleIds[i]);
-					if (collapsible.hasClass("in")) {
-						collapsible.collapse("hide");
-						$(collapsible[0].trigger).addClass("collapsed");
-					}
-				}
-				target.collapse("show");
-				$(target[0].trigger).removeClass("collapsed");
+		},
+		toDate: function(day) {
+			return new Date(day.year, day.monthOfYear, day.dayOfMonth, 0, 0, 0, 0);
+		},
+		fromValue: function(dayValue) {
+			return {
+				year: dayValue>>>16, 
+				monthOfYear: ((dayValue&0x0000ffff)>>>8),
+				dayOfMonth: dayValue&0x000000ff
 			}
-		});
-	},
-	
-	setupAccordion: function(accordionId) {
-		var accordion = $("#" + accordionId);
-		var collapsibleIds = new Array();
-		accordion.find(".collapse:not(#" + accordionId + " .collapse .collapse, #" + accordionId + " .accordion .collapse)").each(function() {
-			collapsibleIds.push(this.id);
-		});
-		if (collapsibleIds[0]) {
-			var collapsible = $("#" + collapsibleIds[0]);
-			collapsible.removeClass("collapse");
-			collapsible.addClass("in");
-		}
-		for (var i in collapsibleIds) {
-			var collapsible = $("#" + collapsibleIds[i]);
-			if (i == 0) {
-				$(collapsible[0].trigger).removeClass("collapsed");
-				collapsible.removeClass("collapse");
-				collapsible.addClass("in");
-			} else {
-				$(collapsible[0].trigger).addClass("collapsed");
-			}
-			collapsible[0].collapsibleIds = collapsibleIds;
+		},
+		toValue: function(day) {
+			return (day.year<<16) | (day.monthOfYear<<8) | day.dayOfMonth;
+		},
+		plus(day, numberOfDays) {
+			return onedev.server.day.fromDate(onedev.server.day.toDate({
+				year: day.year,
+				monthOfYear: day.monthOfYear,
+				dayOfMonth: day.dayOfMonth+numberOfDays
+			}));
 		}
 	},
-	
 	form: {
 		/*
 		 * This function can be called to mark enclosing form of specified element dirty. It should be
@@ -120,7 +83,7 @@ onedev.server = {
 				$(container).find(fieldSelector).on(events, function() {
 					onedev.server.form.markDirty($form);
 				});
-				if ($form.find(".has-error").length != 0) {
+				if ($form.find(".is-invalid").length != 0) {
 					$form.addClass("dirty");
 				}
 				onedev.server.form.dirtyChanged($form);
@@ -298,19 +261,19 @@ onedev.server = {
 			setTimeout(function() {
 				// do not use :visible selector directly for performance reason 
 				var focusibleSelector = "input[type=text], input[type=password], input:not([type]), textarea, .CodeMirror";
-				var inErrorSelector = ".has-error";
+				var inErrorSelector = ".is-invalid";
                 var $inError = $containers.find(inErrorSelector).addBack(inErrorSelector).filter(":visible:first");
                 if ($inError.length == 0) {
 				    inErrorSelector = ".feedbackPanelERROR";
                     $inError = $containers.find(inErrorSelector).addBack(inErrorSelector).filter(":visible:first");
                 }
+
 				if ($inError.length != 0) {
 					var $focusable = $inError.find(focusibleSelector).addBack(focusibleSelector).filter(":visible");
 					if ($focusable.hasClass("CodeMirror") && $focusable[0].CodeMirror.options.readOnly == false) {
 						$focusable[0].CodeMirror.focus();					
-                    } else if ($focusable.length != 0 
-                            && $focusable.closest(".select2-container").length == 0 
-                            && $focusable.closest(".no-autofocus").length == 0) {
+                    } else if ($focusable.length != 0 && !$focusable.hasClass("select2-input") 
+							&& $focusable.closest(".no-autofocus").length == 0) {						
 						$focusable.focus();
 					} else {
 						$inError[0].scrollIntoView({behavior: "smooth", block: "center"});
@@ -532,6 +495,16 @@ onedev.server = {
 				onedev.server.history.setVisited();
 			}, 100);
 		},
+		replaceState: function(url, data) {
+			var state = {data: data};
+			onedev.server.history.current = {state: state, url: url};
+			history.replaceState(state, '', url);
+			
+			// Let others have a chance to do something before marking the page as visited
+			setTimeout(function() {
+				onedev.server.history.setVisited();
+			}, 100);
+		},
 		
 		/*
 		 * visited flag is used to determine whether or not a page is newly visited 
@@ -639,18 +612,24 @@ onedev.server = {
 	
 	setupInputClear: function() {
 		function installClearer($container) {
-			$container.find(".clearable-wrapper").each(function() {
+			var selector = ".clearable-wrapper";
+			var $clearableWrappers = $container.closest(selector);
+			if ($clearableWrappers.length == 0)
+				$clearableWrappers = $container.find(selector).addBack(selector);
+			$clearableWrappers.each(function() {
 				var $wrapper = $(this);
                 var $input = $wrapper.find("input[type=text], input:not([type])");
 				if (!$input.hasClass("clearable")) {
 					$input.addClass("clearable");
-					var $clear = $("<a class='input-clear'>x</a>");
+					var $clear = $("<a class='input-clear'><svg class='icon'><use xlink:href='" + onedev.server.icons + "#times'/></svg></a>");
 					$wrapper.append($clear);
-					if ($input.next().hasClass("input-group-btn"))
-						$clear.addClass("input-group-clear");
+					if ($input.next().hasClass("input-group-append")) {
+						$clear.addClass("input-group-clear input-group-clear-" + $input.next().children("button").length);
+					}
 					$clear.click(function() {
 						$input.val("");
 						$input.focus();
+						$input.trigger("clear");
 						$input.trigger("input");
 					});
 					function setVisibility() {
@@ -676,7 +655,8 @@ onedev.server = {
 		});		
 	},
 	
-	onDomReady: function() {
+	onDomReady: function(icons) {
+		onedev.server.icons = icons;
 		$(window).resize(function() {
 			$(document).find(".resize-aware").trigger("resized");
 		});
@@ -686,7 +666,6 @@ onedev.server = {
 		
 		onedev.server.setupAjaxLoadingIndicator();
 		onedev.server.form.setupDirtyCheck();
-		onedev.server.focus.setupAutoFocus();
 		onedev.server.setupWebsocketCallback();
 		onedev.server.mouseState.track();
 		onedev.server.ajaxRequests.track();
@@ -706,6 +685,7 @@ onedev.server = {
 	
 	onWindowLoad: function() {
 		onedev.server.setupAutoSize();
+		onedev.server.focus.setupAutoFocus();
 		
 		/*
 		 * Browser will also issue resize event after window is loaded, but that is too late, 
@@ -731,8 +711,11 @@ onedev.server = {
 		
 		if (location.hash && !onedev.server.viewState.getFromHistory()) {
 			// Scroll anchors into view (for instance the markdown headline)
-			var element = document.getElementsByName(decodeURIComponent(location.hash.slice(1)))[0];
-			if (element)
+			var nameOrId = decodeURIComponent(location.hash.slice(1));
+			var element = document.getElementById(nameOrId);
+			if (!element)
+				element = document.getElementsByName(nameOrId)[0];
+			if (element) 
 				element.scrollIntoView();
 		}
 	}

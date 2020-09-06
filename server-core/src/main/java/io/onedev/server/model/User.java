@@ -1,5 +1,10 @@
 package io.onedev.server.model;
 
+import static io.onedev.server.model.User.PROP_EMAIL;
+import static io.onedev.server.model.User.PROP_FULL_NAME;
+import static io.onedev.server.model.User.PROP_NAME;
+import static io.onedev.server.model.User.PROP_ACCESS_TOKEN;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -10,12 +15,15 @@ import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import javax.persistence.CascadeType;
 import javax.persistence.Column;
+import javax.persistence.Embedded;
 import javax.persistence.Entity;
 import javax.persistence.Index;
 import javax.persistence.Lob;
 import javax.persistence.OneToMany;
 import javax.persistence.Table;
+import javax.persistence.UniqueConstraint;
 
+import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.shiro.authc.AuthenticationInfo;
 import org.apache.shiro.subject.PrincipalCollection;
 import org.apache.shiro.subject.SimplePrincipalCollection;
@@ -29,14 +37,17 @@ import org.hibernate.validator.constraints.NotEmpty;
 import com.fasterxml.jackson.annotation.JsonView;
 import com.google.common.base.MoreObjects;
 
+import io.onedev.server.OneDev;
+import io.onedev.server.entitymanager.SettingManager;
 import io.onedev.server.model.support.NamedProjectQuery;
 import io.onedev.server.model.support.QuerySetting;
-import io.onedev.server.model.support.WebHook;
+import io.onedev.server.model.support.SsoInfo;
+import io.onedev.server.model.support.administration.authenticator.Authenticator;
+import io.onedev.server.model.support.administration.sso.SsoConnector;
 import io.onedev.server.model.support.build.NamedBuildQuery;
-import io.onedev.server.model.support.build.UserBuildSetting;
 import io.onedev.server.model.support.issue.NamedIssueQuery;
 import io.onedev.server.model.support.pullrequest.NamedPullRequestQuery;
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.jackson.DefaultView;
 import io.onedev.server.util.match.MatchScoreUtils;
 import io.onedev.server.util.validation.annotation.UserName;
@@ -46,18 +57,42 @@ import io.onedev.server.web.editable.annotation.Editable;
 import io.onedev.server.web.editable.annotation.Password;
 
 @Entity
-@Table(indexes={@Index(columnList="email"), @Index(columnList="fullName")})
+@Table(
+		indexes={@Index(columnList=PROP_NAME), @Index(columnList=PROP_EMAIL), 
+				@Index(columnList=PROP_FULL_NAME), @Index(columnList=SsoInfo.COLUMN_CONNECTOR), 
+				@Index(columnList=SsoInfo.COLUMN_SUBJECT), @Index(columnList=PROP_ACCESS_TOKEN)}, 
+		uniqueConstraints={@UniqueConstraint(columnNames={SsoInfo.COLUMN_CONNECTOR, SsoInfo.COLUMN_SUBJECT})})
 @Cache(usage=CacheConcurrencyStrategy.READ_WRITE)
 @Editable
 public class User extends AbstractEntity implements AuthenticationInfo {
 
 	private static final long serialVersionUID = 1L;
 	
+	public static final int ACCESS_TOKEN_LEN = 40;
+	
 	public static final Long SYSTEM_ID = -1L;
 	
 	public static final Long ROOT_ID = 1L;
 	
 	public static final String EXTERNAL_MANAGED = "external_managed";
+	
+	public static final String PROP_NAME = "name";
+	
+	public static final String PROP_EMAIL = "email";
+	
+	public static final String PROP_PASSWORD = "password";
+	
+	public static final String PROP_FULL_NAME = "fullName";
+	
+	public static final String PROP_SSO_INFO = "ssoInfo";
+	
+	public static final String PROP_ACCESS_TOKEN = "accessToken";
+	
+	public static final String AUTH_SOURCE_BUILTIN_USER_STORE = "Builtin User Store";
+	
+	public static final String AUTH_SOURCE_EXTERNAL_AUTHENTICATOR = "External Authenticator";
+	
+	public static final String AUTH_SOURCE_SSO_PROVIDER = "SSO Provider: ";
 	
 	private static ThreadLocal<Stack<User>> stack =  new ThreadLocal<Stack<User>>() {
 
@@ -77,25 +112,37 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 
 	private String fullName;
 	
+	@Embedded
+	private SsoInfo ssoInfo = new SsoInfo();
+	
 	@Column(unique=true, nullable=false)
 	private String email;
 	
+	@Column(unique=true, nullable=false)
+	private String accessToken = RandomStringUtils.randomAlphanumeric(ACCESS_TOKEN_LEN);
+	
 	@OneToMany(mappedBy="user", cascade=CascadeType.REMOVE)
 	@Cache(usage=CacheConcurrencyStrategy.READ_WRITE)
-	private Collection<UserAuthorization> projectAuthorizations = new ArrayList<>();
+	private Collection<UserAuthorization> authorizations = new ArrayList<>();
 	
 	@OneToMany(mappedBy="user", cascade=CascadeType.REMOVE)
 	@Cache(usage=CacheConcurrencyStrategy.READ_WRITE)
 	private Collection<Membership> memberships = new ArrayList<>();
 	
 	@OneToMany(mappedBy="user", cascade=CascadeType.REMOVE)
-	private Collection<PullRequestReview> reviews = new ArrayList<>();
+	private Collection<PullRequestReview> pullRequestReviews = new ArrayList<>();
+	
+	@OneToMany(mappedBy="user", cascade=CascadeType.REMOVE)
+	private Collection<PullRequestAssignment> pullRequestAssignments = new ArrayList<>();
 	
     @OneToMany(mappedBy="user", cascade=CascadeType.REMOVE)
-    private Collection<PullRequestWatch> requestWatches = new ArrayList<>();
+    private Collection<PullRequestWatch> pullRequestWatches = new ArrayList<>();
 
     @OneToMany(mappedBy="user", cascade=CascadeType.REMOVE)
     private Collection<IssueWatch> issueWatches = new ArrayList<>();
+    
+    @OneToMany(mappedBy="user", cascade=CascadeType.REMOVE)
+    private Collection<IssueVote> issueVotes = new ArrayList<>();
     
     @OneToMany(mappedBy="user", cascade=CascadeType.REMOVE)
     private Collection<IssueQuerySetting> projectIssueQuerySettings = new ArrayList<>();
@@ -112,9 +159,9 @@ public class User extends AbstractEntity implements AuthenticationInfo {
     @OneToMany(mappedBy="user", cascade=CascadeType.REMOVE)
     private Collection<CodeCommentQuerySetting> projectCodeCommentQuerySettings = new ArrayList<>();
     
-    @OneToMany(mappedBy="owner")
+    @OneToMany(mappedBy="owner", cascade=CascadeType.REMOVE)
 	@Cache(usage=CacheConcurrencyStrategy.READ_WRITE)
-    private Collection<Project> projects = new ArrayList<>();
+    private Collection<SshKey> sshKeys = new ArrayList<>();
     
 	@Lob
 	@Column(nullable=false, length=65535)
@@ -155,15 +202,6 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 	@Lob
 	@Column(nullable=false, length=65535)
 	private LinkedHashSet<String> buildQuerySubscriptions = new LinkedHashSet<>();
-	
-	@Lob
-	@Column(length=65535, nullable=false)
-	private UserBuildSetting buildSetting = new UserBuildSetting();
-	
-	@Lob
-	@Column(length=65535, nullable=false)
-	@JsonView(DefaultView.class)
-	private ArrayList<WebHook> webHooks = new ArrayList<>();
 	
     private transient Collection<Group> groups;
     
@@ -361,14 +399,6 @@ public class User extends AbstractEntity implements AuthenticationInfo {
     	return SecurityUtils.asSubject(getId());
     }
 
-    public Collection<Project> getProjects() {
-		return projects;
-	}
-
-	public void setProjects(Collection<Project> projects) {
-		this.projects = projects;
-	}
-
 	@Editable(name="Login Name", order=100)
 	@UserName
 	@NotEmpty
@@ -396,6 +426,10 @@ public class User extends AbstractEntity implements AuthenticationInfo {
     public void setPassword(String password) {
     	this.password = password;
     }
+
+    public boolean isExternalManaged() {
+    	return getPassword().equals(EXTERNAL_MANAGED);
+    }
     
 	@Editable(order=200)
 	public String getFullName() {
@@ -406,6 +440,22 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 		this.fullName = fullName;
 	}
 	
+	public SsoInfo getSsoInfo() {
+		return ssoInfo;
+	}
+
+	public void setSsoInfo(SsoInfo ssoInfo) {
+		this.ssoInfo = ssoInfo;
+	}
+
+	public String getAccessToken() {
+		return accessToken;
+	}
+
+	public void setAccessToken(String accessToken) {
+		this.accessToken = accessToken;
+	}
+
 	@Editable(order=300)
 	@NotEmpty
 	@Email
@@ -421,7 +471,7 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 		return memberships;
 	}
 
-	public void setGroups(Collection<Membership> memberships) {
+	public void setMemberships(Collection<Membership> memberships) {
 		this.memberships = memberships;
 	}
 
@@ -454,28 +504,12 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 		return SYSTEM_ID.equals(getId());
 	}
 	
-	public Collection<UserAuthorization> getProjectAuthorizations() {
-		return projectAuthorizations;
+	public Collection<UserAuthorization> getAuthorizations() {
+		return authorizations;
 	}
 
-	public void setProjectAuthorizations(Collection<UserAuthorization> projectAuthorizations) {
-		this.projectAuthorizations = projectAuthorizations;
-	}
-	
-	public UserBuildSetting getBuildSetting() {
-		return buildSetting;
-	}
-
-	public void setBuildSetting(UserBuildSetting buildSetting) {
-		this.buildSetting = buildSetting;
-	}
-
-	public ArrayList<WebHook> getWebHooks() {
-		return webHooks;
-	}
-
-	public void setWebHooks(ArrayList<WebHook> webHooks) {
-		this.webHooks = webHooks;
+	public void setAuthorizations(Collection<UserAuthorization> authorizations) {
+		this.authorizations = authorizations;
 	}
 
 	@Override
@@ -526,5 +560,54 @@ public class User extends AbstractEntity implements AuthenticationInfo {
 		else 
 			return SecurityUtils.getUser();
 	}
-	
+
+    public Collection<SshKey> getSshKeys() {
+        return sshKeys;
+    }
+
+    public void setSshKeys(Collection<SshKey> sshKeys) {
+        this.sshKeys = sshKeys;
+    }
+    
+    public boolean isSshKeyExternalManaged() {
+    	if (isExternalManaged()) {
+    		if (getSsoInfo().getConnector() != null) {
+    			return false;
+    		} else {
+	    		Authenticator authenticator = OneDev.getInstance(SettingManager.class).getAuthenticator();
+	    		return authenticator != null && authenticator.isManagingSshKeys();
+    		}
+    	} else {
+    		return false;
+    	}
+    }
+    
+    public boolean isMembershipExternalManaged() {
+    	if (isExternalManaged()) {
+    		SettingManager settingManager = OneDev.getInstance(SettingManager.class);
+    		if (getSsoInfo().getConnector() != null) {
+    			SsoConnector ssoConnector = settingManager.getSsoConnectors().stream()
+    					.filter(it->it.getName().equals(getSsoInfo().getConnector()))
+    					.findFirst().orElse(null);
+    			return ssoConnector != null && ssoConnector.isManagingMemberships();
+    		} else {
+	    		Authenticator authenticator = settingManager.getAuthenticator();
+	    		return authenticator != null && authenticator.isManagingMemberships();
+    		}
+    	} else {
+    		return false;
+    	}
+    }
+
+    public String getAuthSource() {
+		if (isExternalManaged()) {
+			if (getSsoInfo().getConnector() != null)
+				return AUTH_SOURCE_SSO_PROVIDER + getSsoInfo().getConnector();
+			else
+				return AUTH_SOURCE_EXTERNAL_AUTHENTICATOR;
+		} else {
+			return AUTH_SOURCE_BUILTIN_USER_STORE;
+		}
+    }
+	    
 }

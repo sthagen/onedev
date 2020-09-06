@@ -40,10 +40,10 @@ import org.apache.shiro.web.filter.mgt.FilterChainManager;
 import org.apache.shiro.web.filter.mgt.FilterChainResolver;
 import org.apache.shiro.web.mgt.WebSecurityManager;
 import org.apache.shiro.web.servlet.ShiroFilter;
+import org.apache.sshd.common.keyprovider.KeyPairProvider;
 import org.apache.wicket.Application;
 import org.apache.wicket.core.request.mapper.StalePageException;
 import org.apache.wicket.protocol.http.PageExpiredException;
-import org.apache.wicket.protocol.http.WebApplication;
 import org.apache.wicket.protocol.http.WicketFilter;
 import org.apache.wicket.protocol.http.WicketServlet;
 import org.eclipse.jetty.servlet.ServletContextHandler;
@@ -60,6 +60,7 @@ import org.hibernate.boot.model.naming.PhysicalNamingStrategy;
 import org.hibernate.collection.internal.PersistentBag;
 import org.hibernate.exception.ConstraintViolationException;
 import org.hibernate.type.Type;
+import org.hibernate.validator.messageinterpolation.ParameterMessageInterpolator;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Lists;
@@ -94,7 +95,6 @@ import io.onedev.server.entitymanager.BuildParamManager;
 import io.onedev.server.entitymanager.BuildQuerySettingManager;
 import io.onedev.server.entitymanager.CodeCommentManager;
 import io.onedev.server.entitymanager.CodeCommentQuerySettingManager;
-import io.onedev.server.entitymanager.CodeCommentRelationManager;
 import io.onedev.server.entitymanager.CodeCommentReplyManager;
 import io.onedev.server.entitymanager.CommitQuerySettingManager;
 import io.onedev.server.entitymanager.GroupAuthorizationManager;
@@ -109,16 +109,18 @@ import io.onedev.server.entitymanager.IssueWatchManager;
 import io.onedev.server.entitymanager.MembershipManager;
 import io.onedev.server.entitymanager.MilestoneManager;
 import io.onedev.server.entitymanager.ProjectManager;
-import io.onedev.server.entitymanager.PullRequestBuildManager;
+import io.onedev.server.entitymanager.PullRequestAssignmentManager;
 import io.onedev.server.entitymanager.PullRequestChangeManager;
 import io.onedev.server.entitymanager.PullRequestCommentManager;
 import io.onedev.server.entitymanager.PullRequestManager;
 import io.onedev.server.entitymanager.PullRequestQuerySettingManager;
 import io.onedev.server.entitymanager.PullRequestReviewManager;
 import io.onedev.server.entitymanager.PullRequestUpdateManager;
+import io.onedev.server.entitymanager.PullRequestVerificationManager;
 import io.onedev.server.entitymanager.PullRequestWatchManager;
 import io.onedev.server.entitymanager.RoleManager;
 import io.onedev.server.entitymanager.SettingManager;
+import io.onedev.server.entitymanager.SshKeyManager;
 import io.onedev.server.entitymanager.UrlManager;
 import io.onedev.server.entitymanager.UserAuthorizationManager;
 import io.onedev.server.entitymanager.UserManager;
@@ -128,7 +130,6 @@ import io.onedev.server.entitymanager.impl.DefaultBuildParamManager;
 import io.onedev.server.entitymanager.impl.DefaultBuildQuerySettingManager;
 import io.onedev.server.entitymanager.impl.DefaultCodeCommentManager;
 import io.onedev.server.entitymanager.impl.DefaultCodeCommentQuerySettingManager;
-import io.onedev.server.entitymanager.impl.DefaultCodeCommentRelationManager;
 import io.onedev.server.entitymanager.impl.DefaultCodeCommentReplyManager;
 import io.onedev.server.entitymanager.impl.DefaultCommitQuerySettingManager;
 import io.onedev.server.entitymanager.impl.DefaultGroupAuthorizationManager;
@@ -143,27 +144,30 @@ import io.onedev.server.entitymanager.impl.DefaultIssueWatchManager;
 import io.onedev.server.entitymanager.impl.DefaultMembershipManager;
 import io.onedev.server.entitymanager.impl.DefaultMilestoneManager;
 import io.onedev.server.entitymanager.impl.DefaultProjectManager;
-import io.onedev.server.entitymanager.impl.DefaultPullRequestBuildManager;
+import io.onedev.server.entitymanager.impl.DefaultPullRequestAssignmentManager;
 import io.onedev.server.entitymanager.impl.DefaultPullRequestChangeManager;
 import io.onedev.server.entitymanager.impl.DefaultPullRequestCommentManager;
 import io.onedev.server.entitymanager.impl.DefaultPullRequestManager;
 import io.onedev.server.entitymanager.impl.DefaultPullRequestQuerySettingManager;
 import io.onedev.server.entitymanager.impl.DefaultPullRequestReviewManager;
 import io.onedev.server.entitymanager.impl.DefaultPullRequestUpdateManager;
+import io.onedev.server.entitymanager.impl.DefaultPullRequestVerificationManager;
 import io.onedev.server.entitymanager.impl.DefaultPullRequestWatchManager;
 import io.onedev.server.entitymanager.impl.DefaultRoleManager;
 import io.onedev.server.entitymanager.impl.DefaultSettingManager;
+import io.onedev.server.entitymanager.impl.DefaultSshKeyManager;
 import io.onedev.server.entitymanager.impl.DefaultUserAuthorizationManager;
 import io.onedev.server.entitymanager.impl.DefaultUserManager;
 import io.onedev.server.git.GitFilter;
-import io.onedev.server.git.GitPostReceiveCallback;
-import io.onedev.server.git.GitPreReceiveCallback;
+import io.onedev.server.git.GitSshCommandCreator;
 import io.onedev.server.git.config.GitConfig;
-import io.onedev.server.infomanager.CodeCommentRelationInfoManager;
+import io.onedev.server.git.hookcallback.GitPostReceiveCallback;
+import io.onedev.server.git.hookcallback.GitPreReceiveCallback;
 import io.onedev.server.infomanager.CommitInfoManager;
-import io.onedev.server.infomanager.DefaultCodeCommentRelationInfoManager;
 import io.onedev.server.infomanager.DefaultCommitInfoManager;
+import io.onedev.server.infomanager.DefaultPullRequestInfoManager;
 import io.onedev.server.infomanager.DefaultUserInfoManager;
+import io.onedev.server.infomanager.PullRequestInfoManager;
 import io.onedev.server.infomanager.UserInfoManager;
 import io.onedev.server.maintenance.ApplyDatabaseConstraints;
 import io.onedev.server.maintenance.BackupDatabase;
@@ -214,24 +218,30 @@ import io.onedev.server.search.code.DefaultSearchManager;
 import io.onedev.server.search.code.IndexManager;
 import io.onedev.server.search.code.SearchManager;
 import io.onedev.server.security.BasicAuthenticationFilter;
+import io.onedev.server.security.BearerAuthenticationFilter;
 import io.onedev.server.security.CodePullAuthorizationSource;
 import io.onedev.server.security.FilterChainConfigurator;
-import io.onedev.server.security.OneAuthorizingRealm;
-import io.onedev.server.security.OneFilterChainResolver;
-import io.onedev.server.security.OnePasswordService;
-import io.onedev.server.security.OneRememberMeManager;
-import io.onedev.server.security.OneWebSecurityManager;
+import io.onedev.server.security.DefaultFilterChainResolver;
+import io.onedev.server.security.DefaultPasswordService;
+import io.onedev.server.security.DefaultRememberMeManager;
+import io.onedev.server.security.DefaultWebSecurityManager;
+import io.onedev.server.security.SecurityUtils;
+import io.onedev.server.security.realm.AbstractAuthorizingRealm;
+import io.onedev.server.ssh.DefaultKeyPairProvider;
+import io.onedev.server.ssh.DefaultSshAuthenticator;
+import io.onedev.server.ssh.SshAuthenticator;
+import io.onedev.server.ssh.SshCommandCreator;
+import io.onedev.server.ssh.SshServerLauncher;
 import io.onedev.server.storage.AttachmentStorageManager;
 import io.onedev.server.storage.DefaultAttachmentStorageManager;
 import io.onedev.server.storage.DefaultStorageManager;
 import io.onedev.server.storage.StorageManager;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.util.jackson.ObjectMapperConfigurator;
 import io.onedev.server.util.jackson.ObjectMapperProvider;
 import io.onedev.server.util.jackson.git.GitObjectMapperConfigurator;
 import io.onedev.server.util.jackson.hibernate.HibernateObjectMapperConfigurator;
-import io.onedev.server.util.jetty.DefaultJettyRunner;
-import io.onedev.server.util.jetty.JettyRunner;
+import io.onedev.server.util.jetty.DefaultJettyLauncher;
+import io.onedev.server.util.jetty.JettyLauncher;
 import io.onedev.server.util.markdown.DefaultMarkdownManager;
 import io.onedev.server.util.markdown.EntityReferenceManager;
 import io.onedev.server.util.markdown.MarkdownManager;
@@ -256,7 +266,7 @@ import io.onedev.server.web.DefaultUrlManager;
 import io.onedev.server.web.DefaultWicketFilter;
 import io.onedev.server.web.DefaultWicketServlet;
 import io.onedev.server.web.ExpectedExceptionContribution;
-import io.onedev.server.web.OneWebApplication;
+import io.onedev.server.web.WebApplication;
 import io.onedev.server.web.ResourcePackScopeContribution;
 import io.onedev.server.web.WebApplicationConfigurator;
 import io.onedev.server.web.avatar.AvatarManager;
@@ -270,7 +280,7 @@ import io.onedev.server.web.editable.DefaultEditSupportRegistry;
 import io.onedev.server.web.editable.EditSupport;
 import io.onedev.server.web.editable.EditSupportLocator;
 import io.onedev.server.web.editable.EditSupportRegistry;
-import io.onedev.server.web.mapper.OnePageMapper;
+import io.onedev.server.web.mapper.DynamicPathPageMapper;
 import io.onedev.server.web.page.DashboardPage;
 import io.onedev.server.web.page.base.BasePage;
 import io.onedev.server.web.page.layout.BuildListTab;
@@ -300,8 +310,8 @@ public class CoreModule extends AbstractPluginModule {
 	protected void configure() {
 		super.configure();
 		
-		bind(JettyRunner.class).to(DefaultJettyRunner.class);
-		bind(ServletContextHandler.class).toProvider(DefaultJettyRunner.class);
+		bind(JettyLauncher.class).to(DefaultJettyLauncher.class);
+		bind(ServletContextHandler.class).toProvider(DefaultJettyLauncher.class);
 		
 		bind(ObjectMapper.class).toProvider(ObjectMapperProvider.class).in(Singleton.class);
 		
@@ -309,7 +319,10 @@ public class CoreModule extends AbstractPluginModule {
 
 			@Override
 			public ValidatorFactory get() {
-				Configuration<?> configuration = Validation.byDefaultProvider().configure();
+				Configuration<?> configuration = Validation
+						.byDefaultProvider()
+						.configure()
+						.messageInterpolator(new ParameterMessageInterpolator());
 				return configuration.buildValidatorFactory();
 			}
 			
@@ -317,20 +330,19 @@ public class CoreModule extends AbstractPluginModule {
 		
 		bind(Validator.class).toProvider(ValidatorProvider.class).in(Singleton.class);
 
-		// configure markdown
-		bind(MarkdownManager.class).to(DefaultMarkdownManager.class);		
-		
 		configurePersistence();
+		configureSecurity();
 		configureRestServices();
 		configureWeb();
+		configureSsh();
+		configureGit();
 		configureBuild();
 		
-		bind(GitConfig.class).toProvider(GitConfigProvider.class);
-
 		/*
 		 * Declare bindings explicitly instead of using ImplementedBy annotation as
 		 * HK2 to guice bridge can only search in explicit bindings in Guice   
 		 */
+		bind(MarkdownManager.class).to(DefaultMarkdownManager.class);		
 		bind(StorageManager.class).to(DefaultStorageManager.class);
 		bind(SettingManager.class).to(DefaultSettingManager.class);
 		bind(DataManager.class).to(DefaultDataManager.class);
@@ -346,7 +358,7 @@ public class CoreModule extends AbstractPluginModule {
 		bind(BuildDependenceManager.class).to(DefaultBuildDependenceManager.class);
 		bind(JobManager.class).to(DefaultJobManager.class);
 		bind(LogManager.class).to(DefaultLogManager.class);
-		bind(PullRequestBuildManager.class).to(DefaultPullRequestBuildManager.class);
+		bind(PullRequestVerificationManager.class).to(DefaultPullRequestVerificationManager.class);
 		bind(MailManager.class).to(DefaultMailManager.class);
 		bind(IssueManager.class).to(DefaultIssueManager.class);
 		bind(IssueFieldManager.class).to(DefaultIssueFieldManager.class);
@@ -363,8 +375,7 @@ public class CoreModule extends AbstractPluginModule {
 		bind(PullRequestChangeManager.class).to(DefaultPullRequestChangeManager.class);
 		bind(CodeCommentReplyManager.class).to(DefaultCodeCommentReplyManager.class);
 		bind(AttachmentStorageManager.class).to(DefaultAttachmentStorageManager.class);
-		bind(CodeCommentRelationInfoManager.class).to(DefaultCodeCommentRelationInfoManager.class);
-		bind(CodeCommentRelationManager.class).to(DefaultCodeCommentRelationManager.class);
+		bind(PullRequestInfoManager.class).to(DefaultPullRequestInfoManager.class);
 		bind(WorkExecutor.class).to(DefaultWorkExecutor.class);
 		bind(PullRequestNotificationManager.class);
 		bind(CommitNotificationManager.class);
@@ -387,31 +398,11 @@ public class CoreModule extends AbstractPluginModule {
 		bind(CodeCommentQuerySettingManager.class).to(DefaultCodeCommentQuerySettingManager.class);
 		bind(CommitQuerySettingManager.class).to(DefaultCommitQuerySettingManager.class);
 		bind(BuildQuerySettingManager.class).to(DefaultBuildQuerySettingManager.class);
+		bind(PullRequestAssignmentManager.class).to(DefaultPullRequestAssignmentManager.class);
+		bind(SshKeyManager.class).to(DefaultSshKeyManager.class);
+		
 		bind(WebHookManager.class);
-
-		contribute(ObjectMapperConfigurator.class, GitObjectMapperConfigurator.class);
-	    contribute(ObjectMapperConfigurator.class, HibernateObjectMapperConfigurator.class);
-	    
-		bind(Realm.class).to(OneAuthorizingRealm.class);
-		bind(RememberMeManager.class).to(OneRememberMeManager.class);
-		bind(WebSecurityManager.class).to(OneWebSecurityManager.class);
-		bind(FilterChainResolver.class).to(OneFilterChainResolver.class);
-		bind(BasicAuthenticationFilter.class);
-		bind(PasswordService.class).to(OnePasswordService.class);
-		bind(ShiroFilter.class);
-		install(new ShiroAopModule());
-        contribute(FilterChainConfigurator.class, new FilterChainConfigurator() {
-
-            @Override
-            public void configure(FilterChainManager filterChainManager) {
-                filterChainManager.createChain("/**/info/refs", "noSessionCreation, authcBasic");
-                filterChainManager.createChain("/**/git-upload-pack", "noSessionCreation, authcBasic");
-                filterChainManager.createChain("/**/git-receive-pack", "noSessionCreation, authcBasic");
-            }
-            
-        });
-        contributeFromPackage(Authenticator.class, Authenticator.class);
-        
+		
 		contribute(ImplementationProvider.class, new ImplementationProvider() {
 
 			@Override
@@ -432,10 +423,6 @@ public class CoreModule extends AbstractPluginModule {
 		bind(SearchManager.class).to(DefaultSearchManager.class);
 		
 		bind(EntityValidator.class).to(DefaultEntityValidator.class);
-		
-		bind(GitFilter.class);
-		bind(GitPreReceiveCallback.class);
-		bind(GitPostReceiveCallback.class);
 		
 	    bind(ExecutorService.class).toProvider(new Provider<ExecutorService>() {
 
@@ -507,6 +494,45 @@ public class CoreModule extends AbstractPluginModule {
 	    });
 	}
 	
+	private void configureSsh() {
+		bind(KeyPairProvider.class).to(DefaultKeyPairProvider.class);
+		bind(SshAuthenticator.class).to(DefaultSshAuthenticator.class);
+		bind(SshServerLauncher.class);
+	}
+	
+	private void configureSecurity() {
+		contributeFromPackage(Realm.class, AbstractAuthorizingRealm.class);
+		
+		bind(RememberMeManager.class).to(DefaultRememberMeManager.class);
+		bind(WebSecurityManager.class).to(DefaultWebSecurityManager.class);
+		bind(FilterChainResolver.class).to(DefaultFilterChainResolver.class);
+		bind(BasicAuthenticationFilter.class);
+		bind(BearerAuthenticationFilter.class);
+		bind(PasswordService.class).to(DefaultPasswordService.class);
+		bind(ShiroFilter.class);
+		install(new ShiroAopModule());
+        contribute(FilterChainConfigurator.class, new FilterChainConfigurator() {
+
+            @Override
+            public void configure(FilterChainManager filterChainManager) {
+                filterChainManager.createChain("/**/info/refs", "noSessionCreation, authcBasic, authcBearer");
+                filterChainManager.createChain("/**/git-upload-pack", "noSessionCreation, authcBasic, authcBearer");
+                filterChainManager.createChain("/**/git-receive-pack", "noSessionCreation, authcBasic, authcBearer");
+            }
+            
+        });
+        contributeFromPackage(Authenticator.class, Authenticator.class);
+	}
+	
+	private void configureGit() {
+		contribute(ObjectMapperConfigurator.class, GitObjectMapperConfigurator.class);
+		bind(GitConfig.class).toProvider(GitConfigProvider.class);
+		bind(GitFilter.class);
+		bind(GitPreReceiveCallback.class);
+		bind(GitPostReceiveCallback.class);
+		contribute(SshCommandCreator.class, GitSshCommandCreator.class);
+	}
+	
 	private void configureRestServices() {
 		bind(ResourceConfig.class).toProvider(ResourceConfigProvider.class).in(Singleton.class);
 		bind(ServletContainer.class).to(DefaultServletContainer.class);
@@ -541,8 +567,8 @@ public class CoreModule extends AbstractPluginModule {
 		
 		contributeFromPackage(EditSupport.class, EditSupport.class);
 		
-		bind(WebApplication.class).to(OneWebApplication.class);
-		bind(Application.class).to(OneWebApplication.class);
+		bind(org.apache.wicket.protocol.http.WebApplication.class).to(WebApplication.class);
+		bind(Application.class).to(WebApplication.class);
 		bind(AvatarManager.class).to(DefaultAvatarManager.class);
 		bind(WebSocketManager.class).to(DefaultWebSocketManager.class);
 		
@@ -551,8 +577,8 @@ public class CoreModule extends AbstractPluginModule {
 		contribute(WebApplicationConfigurator.class, new WebApplicationConfigurator() {
 			
 			@Override
-			public void configure(WebApplication application) {
-				application.mount(new OnePageMapper("/test", TestPage.class));
+			public void configure(org.apache.wicket.protocol.http.WebApplication application) {
+				application.mount(new DynamicPathPageMapper("/test", TestPage.class));
 			}
 			
 		});
@@ -571,7 +597,7 @@ public class CoreModule extends AbstractPluginModule {
 			
 			@Override
 			public Collection<Class<?>> getResourcePackScopes() {
-				return Lists.newArrayList(OneWebApplication.class);
+				return Lists.newArrayList(WebApplication.class);
 			}
 			
 		});
@@ -582,7 +608,7 @@ public class CoreModule extends AbstractPluginModule {
 			public Collection<Class<? extends Exception>> getExpectedExceptionClasses() {
 				return Sets.newHashSet(ConstraintViolationException.class, EntityNotFoundException.class, 
 						ObjectNotFoundException.class, StaleStateException.class, UnauthorizedException.class, 
-						OneException.class, PageExpiredException.class, StalePageException.class);
+						GeneralException.class, PageExpiredException.class, StalePageException.class);
 			}
 			
 		});
@@ -638,6 +664,8 @@ public class CoreModule extends AbstractPluginModule {
 	}
 	
 	private void configurePersistence() {
+	    contribute(ObjectMapperConfigurator.class, HibernateObjectMapperConfigurator.class);
+	    
 		// Use an optional binding here in case our client does not like to 
 		// start persist service provided by this plugin
 		bind(Interceptor.class).to(HibernateInterceptor.class);

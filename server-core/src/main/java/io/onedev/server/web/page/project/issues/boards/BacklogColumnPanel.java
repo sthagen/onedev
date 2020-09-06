@@ -23,7 +23,7 @@ import org.apache.wicket.request.cycle.RequestCycle;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 
 import io.onedev.server.OneDev;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.entitymanager.IssueChangeManager;
 import io.onedev.server.entitymanager.IssueManager;
 import io.onedev.server.model.Issue;
@@ -31,7 +31,7 @@ import io.onedev.server.model.Project;
 import io.onedev.server.search.entity.issue.IssueCriteria;
 import io.onedev.server.search.entity.issue.IssueQuery;
 import io.onedev.server.search.entity.issue.MilestoneIsEmptyCriteria;
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.web.behavior.AbstractPostAjaxBehavior;
 import io.onedev.server.web.component.modal.ModalLink;
 import io.onedev.server.web.component.modal.ModalPanel;
@@ -65,7 +65,7 @@ abstract class BacklogColumnPanel extends Panel {
 			if (getQuery() != null) {
 				try {
 					return OneDev.getInstance(IssueManager.class).count(getProject(), getQuery().getCriteria());
-				} catch (OneException e) {
+				} catch (GeneralException e) {
 					return 0;
 				}
 			} else {

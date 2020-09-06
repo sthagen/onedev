@@ -7,6 +7,7 @@ import org.eclipse.jgit.lib.ObjectId;
 
 import io.onedev.commons.codeassist.InputSuggestion;
 import io.onedev.server.buildspec.job.Job;
+import io.onedev.server.buildspec.job.SubmitReason;
 import io.onedev.server.event.ProjectEvent;
 import io.onedev.server.event.pullrequest.PullRequestMergePreviewCalculated;
 import io.onedev.server.git.GitUtils;
@@ -20,7 +21,7 @@ import io.onedev.server.web.editable.annotation.NameOfEmptyValue;
 import io.onedev.server.web.editable.annotation.Patterns;
 import io.onedev.server.web.util.SuggestionUtils;
 
-@Editable(order=300, name="When open/update pull requests")
+@Editable(order=300, name="Pull request open or update")
 public class PullRequestTrigger extends JobTrigger {
 
 	private static final long serialVersionUID = 1L;
@@ -29,10 +30,10 @@ public class PullRequestTrigger extends JobTrigger {
 	
 	private String paths;
 	
-	@Editable(name="Target Branches", order=100, 
-			description="Optionally specify space-separated target branches of the pull requests to check. "
-					+ "Use * or ? for wildcard match. Leave empty to match all branches")
-	@Patterns(suggester = "suggestBranches")
+	@Editable(name="Target Branches", order=100, description="Optionally specify space-separated "
+			+ "target branches of the pull requests to check. Use '**', '*' or '?' for <a href='$docRoot/pages/path-wildcard.md' target='_blank'>path wildcard match</a>. "
+			+ "Prefix with '-' to exclude. Leave empty to match all branches")
+	@Patterns(suggester = "suggestBranches", path=true)
 	@NameOfEmptyValue("Any branch")
 	public String getBranches() {
 		return branches;
@@ -48,9 +49,9 @@ public class PullRequestTrigger extends JobTrigger {
 	}
 	
 	@Editable(name="Touched Files", order=200, 
-			description="Optionally specify space-separated files to check. Use * or ? for wildcard match. "
-					+ "Leave empty to match all files")
-	@Patterns(suggester = "getPathSuggestions")
+			description="Optionally specify space-separated files to check. Use '**', '*' or '?' for <a href='$docRoot/pages/path-wildcard.md' target='_blank'>path wildcard match</a>. "
+					+ "Prefix with '-' to exclude. Leave empty to match all files")
+	@Patterns(suggester = "getPathSuggestions", path=true)
 	@NameOfEmptyValue("Any file")
 	public String getPaths() {
 		return paths;
@@ -68,7 +69,7 @@ public class PullRequestTrigger extends JobTrigger {
 	private boolean touchedFile(PullRequest request) {
 		if (getPaths() != null) {
 			Collection<String> changedFiles = GitUtils.getChangedFiles(request.getTargetProject().getRepository(), 
-					request.getTarget().getObjectId(), ObjectId.fromString(request.getLastMergePreview().getMerged()));
+					request.getTarget().getObjectId(), ObjectId.fromString(request.getLastMergePreview().getMergeCommitHash()));
 			PatternSet patternSet = PatternSet.parse(getPaths());
 			Matcher matcher = new PathMatcher();
 			for (String changedFile: changedFiles) {
@@ -82,22 +83,42 @@ public class PullRequestTrigger extends JobTrigger {
 	}
 	
 	@Override
-	public boolean matches(ProjectEvent event, Job job) {
+	public SubmitReason matchesWithoutProject(ProjectEvent event, Job job) {
 		if (event instanceof PullRequestMergePreviewCalculated) {
-			PullRequestMergePreviewCalculated pullRequestMergePreviewCalculated = (PullRequestMergePreviewCalculated) event;
-			String branch = pullRequestMergePreviewCalculated.getRequest().getTargetBranch();
-			if (branch != null) {
-				if ((getBranches() == null || PatternSet.parse(getBranches()).matches(new PathMatcher(), branch)) 
-						&& touchedFile(pullRequestMergePreviewCalculated.getRequest())) {
-					return true;
-				}
+			PullRequestMergePreviewCalculated mergePreviewCalculated = (PullRequestMergePreviewCalculated) event;
+			PullRequest request = mergePreviewCalculated.getRequest();
+			String targetBranch = request.getTargetBranch();
+			Matcher matcher = new PathMatcher();
+			if ((branches == null || PatternSet.parse(branches).matches(matcher, targetBranch)) 
+					&& touchedFile(request)) {
+				return new SubmitReason() {
+
+					@Override
+					public String getUpdatedRef() {
+						return null;
+					}
+
+					@Override
+					public PullRequest getPullRequest() {
+						return request;
+					}
+
+					@Override
+					public String getDescription() {
+						if (request.getUpdates().size() == 1)
+							return "Pull request #" + request.getNumber() + " is opened";
+						else
+							return "Pull request #" + request.getNumber() + " is updated";
+					}
+					
+				};
 			}
 		}
-		return false;
+		return null;
 	}
 
 	@Override
-	public String getDescription() {
+	public String getDescriptionWithoutProject() {
 		String description;
 		if (getBranches() != null && getPaths() != null)
 			description = String.format("When open/update pull requests targeting branches '%s' and touching files '%s'", getBranches(), getPaths());

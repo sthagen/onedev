@@ -26,6 +26,7 @@ import io.onedev.server.model.support.role.AllIssueFields;
 import io.onedev.server.model.support.role.CodePrivilege;
 import io.onedev.server.model.support.role.IssueFieldSet;
 import io.onedev.server.model.support.role.JobPrivilege;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.security.permission.AccessBuild;
 import io.onedev.server.security.permission.AccessBuildLog;
 import io.onedev.server.security.permission.AccessBuildReports;
@@ -43,7 +44,6 @@ import io.onedev.server.security.permission.RunJob;
 import io.onedev.server.security.permission.ScheduleIssues;
 import io.onedev.server.security.permission.WriteCode;
 import io.onedev.server.util.EditContext;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.web.editable.annotation.Editable;
 import io.onedev.server.web.editable.annotation.ShowCondition;
 
@@ -59,6 +59,8 @@ public class Role extends AbstractEntity implements Permission {
 
 	private static final long serialVersionUID = 1L;
 
+	public static final Long OWNER_ID = 1L;
+	
 	@Column(nullable=false, unique=true)
 	private String name;
 	
@@ -100,6 +102,10 @@ public class Role extends AbstractEntity implements Permission {
 
 	public void setName(String name) {
 		this.name = name;
+	}
+	
+	public boolean isOwner() {
+		return getId().equals(OWNER_ID);
 	}
 
 	@Editable(order=200)

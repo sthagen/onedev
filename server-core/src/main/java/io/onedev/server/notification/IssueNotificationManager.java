@@ -21,7 +21,6 @@ import io.onedev.server.event.MarkdownAware;
 import io.onedev.server.event.issue.IssueChangeEvent;
 import io.onedev.server.event.issue.IssueCommented;
 import io.onedev.server.event.issue.IssueEvent;
-import io.onedev.server.event.issue.IssueOpened;
 import io.onedev.server.infomanager.UserInfoManager;
 import io.onedev.server.model.Group;
 import io.onedev.server.model.Issue;
@@ -30,6 +29,7 @@ import io.onedev.server.model.User;
 import io.onedev.server.model.support.NamedQuery;
 import io.onedev.server.model.support.QuerySetting;
 import io.onedev.server.model.support.issue.changedata.IssueChangeData;
+import io.onedev.server.model.support.issue.changedata.IssueDescriptionChangeData;
 import io.onedev.server.model.support.issue.changedata.IssueReferencedFromCodeCommentData;
 import io.onedev.server.model.support.issue.changedata.IssueReferencedFromIssueData;
 import io.onedev.server.model.support.issue.changedata.IssueReferencedFromPullRequestData;
@@ -41,7 +41,7 @@ import io.onedev.server.util.markdown.MarkdownManager;
 import io.onedev.server.util.markdown.MentionParser;
 
 @Singleton
-public class IssueNotificationManager {
+public class IssueNotificationManager extends AbstractNotificationManager {
 	
 	private final MailManager mailManager;
 	
@@ -58,8 +58,8 @@ public class IssueNotificationManager {
 	private final SettingManager settingManager;
 	
 	@Inject
-	public IssueNotificationManager(MarkdownManager markdownManager, MailManager mailManager, 
-			UrlManager urlManager, IssueWatchManager issueWatchManager, UserInfoManager userInfoManager, 
+	public IssueNotificationManager(MarkdownManager markdownManager, MailManager mailManager,
+			UrlManager urlManager, IssueWatchManager issueWatchManager, UserInfoManager userInfoManager,
 			UserManager userManager, SettingManager settingManager) {
 		this.mailManager = mailManager;
 		this.urlManager = urlManager;
@@ -76,6 +76,14 @@ public class IssueNotificationManager {
 		Issue issue = event.getIssue();
 		User user = event.getUser();
 
+		String url;
+		if (event instanceof IssueCommented)
+			url = urlManager.urlFor(((IssueCommented)event).getComment());
+		else if (event instanceof IssueChangeEvent)
+			url = urlManager.urlFor(((IssueChangeEvent)event).getChange());
+		else
+			url = urlManager.urlFor(issue);
+		
 		for (Map.Entry<User, Boolean> entry: new QueryWatchBuilder<Issue>() {
 
 			@Override
@@ -138,37 +146,31 @@ public class IssueNotificationManager {
 		Map<String, Group> newGroups = event.getNewGroups();
 		Map<String, Collection<User>> newUsers = event.getNewUsers();
 		
-		String url = urlManager.urlFor(issue);
 		for (Map.Entry<String, Group> entry: newGroups.entrySet()) {
-			String subject = String.format("You are now \"%s\" of issue %s", entry.getKey(), issue.describe());
-			String body = String.format("Visit <a href='%s'>%s</a> for details", url, url);
+			String subject = String.format("You are now \"%s\" of issue %s", entry.getKey(), issue.getNumberAndTitle());
 			Set<String> emails = entry.getValue().getMembers()
 					.stream()
 					.filter(it->!it.equals(user))
 					.map(it->it.getEmail())
 					.collect(Collectors.toSet());
-			mailManager.sendMailAsync(emails, subject, body.toString());
+			mailManager.sendMailAsync(emails, subject, getHtmlBody(event, url), getTextBody(event, url));
 			
-			for (User member: entry.getValue().getMembers()) {
-				userInfoManager.setIssueNotified(member, issue, true);
+			for (User member: entry.getValue().getMembers())
 				issueWatchManager.watch(issue, member, true);
-			}
+			
 			notifiedUsers.addAll(entry.getValue().getMembers());
 		}
 		for (Map.Entry<String, Collection<User>> entry: newUsers.entrySet()) {
-			String subject = String.format("You are now \"%s\" of issue %s", entry.getKey(), issue.describe());
-			String body = String.format("Visit <a href='%s'>%s</a> for details", url, url);
+			String subject = String.format("You are now \"%s\" of issue %s", entry.getKey(), issue.getNumberAndTitle());
 			Set<String> emails = entry.getValue()
 					.stream()
 					.filter(it->!it.equals(user))
 					.map(it->it.getEmail())
 					.collect(Collectors.toSet());
-			mailManager.sendMailAsync(emails, subject, body.toString());
+			mailManager.sendMailAsync(emails, subject, getHtmlBody(event, url), getTextBody(event, url));
 			
-			for (User each: entry.getValue()) {
+			for (User each: entry.getValue())
 				issueWatchManager.watch(issue, each, true);
-				userInfoManager.setIssueNotified(each, issue, true);
-			}
 			notifiedUsers.addAll(entry.getValue());
 		}
 		
@@ -181,34 +183,24 @@ public class IssueNotificationManager {
 				for (String userName: new MentionParser().parseMentions(rendered)) {
 					User mentionedUser = userManager.findByName(userName);
 					if (mentionedUser != null) {
-						if (event instanceof IssueOpened)
-							url = urlManager.urlFor(((IssueOpened)event).getIssue());
-						else if (event instanceof IssueCommented) 
-							url = urlManager.urlFor(((IssueCommented)event).getComment());
-						else if (event instanceof IssueChangeEvent)
-							url = urlManager.urlFor(((IssueChangeEvent)event).getChange());
-						else 
-							url = urlManager.urlFor(event.getIssue());
-						
-						String subject = String.format("You are mentioned in issue %s", issue.describe());
-						String body = String.format("Visit <a href='%s'>%s</a> for details", url, url);
-						
-						mailManager.sendMailAsync(Sets.newHashSet(mentionedUser.getEmail()), subject, body);
+						String subject = String.format("You are mentioned in issue %s", issue.getNumberAndTitle());
+						mailManager.sendMailAsync(Sets.newHashSet(mentionedUser.getEmail()),
+								subject, getHtmlBody(event, url), getTextBody(event, url));
 						
 						issueWatchManager.watch(issue, mentionedUser, true);
-						userInfoManager.setIssueNotified(mentionedUser, issue, true);
 						notifiedUsers.add(mentionedUser);
 					}
 				}
 			}
-		} 		
+		}
 		
 		boolean notifyWatchers = false;
 		if (event instanceof IssueChangeEvent) {
 			IssueChangeData changeData = ((IssueChangeEvent) event).getChange().getData();
 			if (!(changeData instanceof IssueReferencedFromCodeCommentData
-					|| changeData instanceof IssueReferencedFromIssueData 
-					|| changeData instanceof IssueReferencedFromPullRequestData)) {
+					|| changeData instanceof IssueReferencedFromIssueData
+					|| changeData instanceof IssueReferencedFromPullRequestData
+					|| changeData instanceof IssueDescriptionChangeData)) {
 				notifyWatchers = true;
 			}
 		} else {
@@ -220,25 +212,23 @@ public class IssueNotificationManager {
 			
 			for (IssueWatch watch: issue.getWatches()) {
 				Date visitDate = userInfoManager.getIssueVisitDate(watch.getUser(), issue);
-				if (watch.isWatching() 
-						&& !userInfoManager.isNotified(watch.getUser(), watch.getIssue()) 
-						&& (visitDate == null || visitDate.before(event.getDate())) 
+				if (watch.isWatching()
+						&& (visitDate == null || visitDate.before(event.getDate()))
 						&& !notifiedUsers.contains(watch.getUser())) {
 					usersToNotify.add(watch.getUser());
-					userInfoManager.setIssueNotified(watch.getUser(), watch.getIssue(), true);
 				}
 			}
 
 			if (!usersToNotify.isEmpty()) {
 				String subject;
-				if (user != null) 
+				if (user != null)
 					subject = String.format("%s %s", user.getDisplayName(), event.getActivity(true));
-				else 
+				else
 					subject = event.getActivity(true);
-				String body = String.format("Visit <a href='%s'>%s</a> for details", url, url);
-				mailManager.sendMailAsync(usersToNotify.stream().map(User::getEmail).collect(Collectors.toList()), subject, body);
-			}			
+
+				mailManager.sendMailAsync(usersToNotify.stream().map(User::getEmail).collect(Collectors.toList()),
+						subject, getHtmlBody(event, url), getTextBody(event, url));
+			}
 		}
 	}
-	
 }

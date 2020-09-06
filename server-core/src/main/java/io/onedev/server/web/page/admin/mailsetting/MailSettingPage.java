@@ -13,8 +13,8 @@ import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.SettingManager;
 import io.onedev.server.model.User;
 import io.onedev.server.notification.MailManager;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.JobLogger;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.web.component.taskbutton.TaskButton;
 import io.onedev.server.web.editable.BeanContext;
 import io.onedev.server.web.editable.BeanEditor;
@@ -67,9 +67,10 @@ public class MailSettingPage extends AdministrationPage {
 			@Override
 			protected String runTask(JobLogger logger) {
 				User user = SecurityUtils.getUser();
+				
+				String body = "Great, your mail setting is working!";
 				OneDev.getInstance(MailManager.class).sendMail(mailSettingHolder.getMailSetting(), 
-						Sets.newHashSet(user.getEmail()), 
-						"Test email from OneDev", "Great, your mail setting is working!");
+						Sets.newHashSet(user.getEmail()), "Test email from OneDev", body, body);
 				return "Test mail has been sent to " + user.getEmail() + ", please check your mail box";
 			}
 

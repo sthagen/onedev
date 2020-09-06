@@ -33,8 +33,8 @@ public class DescriptionCriteria extends EntityCriteria<Project> {
 	}
 
 	@Override
-	public String asString() {
-		return Criteria.quote(Project.FIELD_DESCRIPTION) + " " 
+	public String toStringWithoutParens() {
+		return Criteria.quote(Project.NAME_DESCRIPTION) + " " 
 				+ ProjectQuery.getRuleName(ProjectQueryLexer.Contains) + " " 
 				+ Criteria.quote(value);
 	}

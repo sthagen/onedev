@@ -9,7 +9,6 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -35,7 +34,6 @@ import javax.persistence.OneToMany;
 import javax.persistence.Table;
 
 import org.apache.commons.lang3.SerializationUtils;
-import org.dom4j.Element;
 import org.eclipse.jgit.api.CreateBranchCommand;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.TagCommand;
@@ -95,7 +93,6 @@ import io.onedev.server.git.command.ListChangedFilesCommand;
 import io.onedev.server.git.exception.NotFileException;
 import io.onedev.server.git.exception.ObjectNotFoundException;
 import io.onedev.server.infomanager.CommitInfoManager;
-import io.onedev.server.migration.VersionedDocument;
 import io.onedev.server.model.Build.Status;
 import io.onedev.server.model.support.BranchProtection;
 import io.onedev.server.model.support.FileProtection;
@@ -108,10 +105,10 @@ import io.onedev.server.model.support.issue.ProjectIssueSetting;
 import io.onedev.server.model.support.pullrequest.ProjectPullRequestSetting;
 import io.onedev.server.persistence.SessionManager;
 import io.onedev.server.persistence.TransactionManager;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.storage.StorageManager;
 import io.onedev.server.util.CollectionUtils;
 import io.onedev.server.util.ComponentContext;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.util.jackson.DefaultView;
 import io.onedev.server.util.match.Matcher;
 import io.onedev.server.util.match.PathMatcher;
@@ -135,33 +132,32 @@ public class Project extends AbstractEntity {
 
 	private static final long serialVersionUID = 1L;
 	
-	public static final String FIELD_NAME = "Name";
+	public static final String NAME_NAME = "Name";
 	
 	public static final String PROP_NAME = "name";
 	
-	public static final String FIELD_UPDATE_DATE = "Update Date";
+	public static final String NAME_UPDATE_DATE = "Update Date";
 	
 	public static final String PROP_UPDATE_DATE = "updateDate";
 	
-	public static final String FIELD_DESCRIPTION = "Description";
+	public static final String NAME_DESCRIPTION = "Description";
 	
 	public static final String PROP_DESCRIPTION = "description";
-	
-	public static final String FIELD_OWNER = "Owner";
-	
-	public static final String PROP_OWNER = "owner";
 	
 	public static final String PROP_ID = "id";
 	
 	public static final String PROP_FORKED_FROM = "forkedFrom";
 	
+	public static final String PROP_USER_AUTHORIZATIONS = "userAuthorizations";
+	
+	public static final String PROP_GROUP_AUTHORIZATIONS = "groupAuthorizations";
+	
 	public static final List<String> QUERY_FIELDS = 
-			Lists.newArrayList(FIELD_NAME, FIELD_DESCRIPTION, FIELD_UPDATE_DATE);
+			Lists.newArrayList(NAME_NAME, NAME_DESCRIPTION, NAME_UPDATE_DATE);
 
 	public static final Map<String, String> ORDER_FIELDS = CollectionUtils.newLinkedHashMap(
-			FIELD_NAME, PROP_NAME, 
-			FIELD_OWNER, PROP_OWNER, 
-			FIELD_UPDATE_DATE, PROP_UPDATE_DATE);
+			NAME_NAME, PROP_NAME, 
+			NAME_UPDATE_DATE, PROP_UPDATE_DATE);
 	
 	private static final int LAST_COMMITS_CACHE_THRESHOLD = 1000;
 	
@@ -259,6 +255,8 @@ public class Project extends AbstractEntity {
 	@OneToMany(mappedBy="project", cascade=CascadeType.REMOVE)
 	private Collection<Milestone> milestones = new ArrayList<>();
 	
+	private boolean issueManagementEnabled = true;
+	
 	@Lob
 	@Column(length=65535, nullable=false)
 	@JsonView(DefaultView.class)
@@ -318,8 +316,6 @@ public class Project extends AbstractEntity {
     private transient Optional<RevCommit> lastCommitHolder;
     
 	private transient List<Milestone> sortedMilestones;
-	
-	private transient List<String> jobNames;
 	
 	@Editable(order=100)
 	@ProjectName
@@ -413,14 +409,6 @@ public class Project extends AbstractEntity {
 
 	public void setForkedFrom(Project forkedFrom) {
 		this.forkedFrom = forkedFrom;
-	}
-
-	public User getOwner() {
-		return owner;
-	}
-
-	public void setOwner(User owner) {
-		this.owner = owner;
 	}
 
 	public Collection<Project> getForks() {
@@ -708,32 +696,26 @@ public class Project extends AbstractEntity {
 		Optional<BuildSpec> buildSpec = buildSpecCache.get(commitId);
 		if (buildSpec == null) {
 			Blob blob = getBlob(new BlobIdent(commitId.name(), BuildSpec.BLOB_PATH, FileMode.TYPE_FILE), false);
-			if (blob != null) 
+			if (blob != null) {  
 				buildSpec = Optional.fromNullable(BuildSpec.parse(blob.getBytes()));
-			else
-				buildSpec = Optional.absent();
+			} else { 
+				Blob oldBlob = getBlob(new BlobIdent(commitId.name(), ".onedev-buildspec", FileMode.TYPE_FILE), false);
+				if (oldBlob != null)
+					buildSpec = Optional.fromNullable(BuildSpec.parse(oldBlob.getBytes()));
+				else
+					buildSpec = Optional.absent();
+			}
 			buildSpecCache.put(commitId, buildSpec);
 		}
 		return buildSpec.orNull();
 	}
 	
 	public List<String> getJobNames() {
-		if (jobNames == null) {
-			Set<String> jobNameSet = new HashSet<>();
-			for (RefInfo refInfo: getBranchRefInfos()) {
-				Blob blob = getBlob(new BlobIdent(refInfo.getPeeledObj().name(), 
-						BuildSpec.BLOB_PATH, FileMode.TYPE_FILE), false);
-				if (blob != null && blob.getText() != null) {
-					try {
-						VersionedDocument dom = VersionedDocument.fromXML(blob.getText().getContent());
-						for (Element jobElement: dom.getRootElement().element("jobs").elements())
-							jobNameSet.add(jobElement.elementTextTrim("name"));
-					} catch (Exception e) {
-					}
-				}
-			}
-			jobNames = new ArrayList<>(jobNameSet);
-			Collections.sort(jobNames);
+		List<String> jobNames = new ArrayList<>();
+		if (getDefaultBranch() != null) {
+			BuildSpec buildSpec = getBuildSpec(getObjectId(getDefaultBranch(), true));
+			if (buildSpec != null)
+				jobNames.addAll(buildSpec.getJobMap().keySet());
 		}
 		return jobNames;
 	}
@@ -1012,7 +994,16 @@ public class Project extends AbstractEntity {
 	public void setCodeComments(Collection<CodeComment> codeComments) {
 		this.codeComments = codeComments;
 	}
-
+	
+	@Editable(order=300, name="Issue management", description="Whether or not to provide issue management for the project")
+	public boolean isIssueManagementEnabled() {
+		return issueManagementEnabled;
+	}
+	
+	public void setIssueManagementEnabled(boolean issueManagementEnabled) {
+		this.issueManagementEnabled = issueManagementEnabled;
+	}
+	
 	public ProjectIssueSetting getIssueSetting() {
 		return issueSetting;
 	}
@@ -1179,12 +1170,12 @@ public class Project extends AbstractEntity {
 			sortedMilestones = new ArrayList<>();
 			List<Milestone> open = getMilestones().stream()
 					.filter(it->!it.isClosed())
-					.sorted(Comparator.comparing(Milestone::getDueDate))
+					.sorted(new Milestone.DueDateComparator())
 					.collect(Collectors.toList());
 			sortedMilestones.addAll(open);
 			List<Milestone> closed = getMilestones().stream()
 					.filter(it->it.isClosed())
-					.sorted(Comparator.comparing(Milestone::getDueDate))
+					.sorted(new Milestone.DueDateComparator())
 					.collect(Collectors.toList());
 			Collections.reverse(closed);
 			sortedMilestones.addAll(closed);
@@ -1201,12 +1192,6 @@ public class Project extends AbstractEntity {
 		this.webHooks = webHooks;
 	}
 
-	public List<WebHook> getHierarchyWebHooks() {
-		List<WebHook> hierarchyWebHooks = new ArrayList<>(getWebHooks());
-		hierarchyWebHooks.addAll(getOwner().getWebHooks());
-		return hierarchyWebHooks;
-	}
-	
 	public TagProtection getTagProtection(String tagName, User user) {
 		boolean noCreation = false;
 		boolean noDeletion = false;
@@ -1402,7 +1387,7 @@ public class Project extends AbstractEntity {
 			return PatternSet.parse(branches).matches(matcher, "master");
 		}
 	}
-
+	
 	public Collection<String> getChangedFiles(ObjectId oldObjectId, ObjectId newObjectId, 
 			Map<String, String> gitEnvs) {
 		if (gitEnvs != null && !gitEnvs.isEmpty()) {

@@ -14,7 +14,7 @@ import io.onedev.commons.codeassist.grammar.LexerRuleRefElementSpec;
 import io.onedev.commons.codeassist.parser.Element;
 import io.onedev.commons.codeassist.parser.ParseExpect;
 import io.onedev.commons.codeassist.parser.TerminalExpect;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.search.entity.project.ProjectQuery;
 import io.onedev.server.search.entity.project.ProjectQueryLexer;
 import io.onedev.server.search.entity.project.ProjectQueryParser;
@@ -50,28 +50,30 @@ public class ProjectQueryBehavior extends ANTLRAssistBehavior {
 							String operatorName = StringUtils.normalizeSpace(operatorElements.get(0).getMatchedText());
 							int operator = ProjectQuery.getOperator(operatorName);							
 							if (fieldElements.isEmpty()) {
-								if (operator == ProjectQueryLexer.ForksOf)
-									return SuggestionUtils.suggestProjects(matchWith);
-								else
+								if (operator == ProjectQueryLexer.ForksOf) {
+									if (!matchWith.contains("*"))
+										return SuggestionUtils.suggestProjects(matchWith);
+									else
+										return null;
+								} else {
 									return SuggestionUtils.suggestUsers(matchWith);
+								}
 							} else {
 								String fieldName = ProjectQuery.getValue(fieldElements.get(0).getMatchedText());
 								try {
 									ProjectQuery.checkField(fieldName, operator);
-									if (fieldName.equals(Project.FIELD_UPDATE_DATE)) {
+									if (fieldName.equals(Project.NAME_UPDATE_DATE)) {
 										List<InputSuggestion> suggestions = SuggestionUtils.suggest(DateUtils.RELAX_DATE_EXAMPLES, matchWith);
 										return !suggestions.isEmpty()? suggestions: null;
-									} else if (fieldName.equals(Project.FIELD_NAME)) {
+									} else if (fieldName.equals(Project.NAME_NAME)) {
 										if (!matchWith.contains("*"))
 											return SuggestionUtils.suggestProjects(matchWith);
 										else
 											return null;
-									} else if (fieldName.equals(Project.FIELD_OWNER)) { 
-										return SuggestionUtils.suggestUsers(matchWith);
 									} else {
 										return null;
 									}
-								} catch (OneException ex) {
+								} catch (GeneralException ex) {
 								}
 							}
 						}
@@ -98,7 +100,7 @@ public class ProjectQueryBehavior extends ANTLRAssistBehavior {
 				String fieldName = ProjectQuery.getValue(fieldElements.iterator().next().getMatchedText());
 				try {
 					ProjectQuery.checkField(fieldName, ProjectQuery.getOperator(suggestedLiteral));
-				} catch (OneException e) {
+				} catch (GeneralException e) {
 					return null;
 				}
 			}
@@ -115,13 +117,15 @@ public class ProjectQueryBehavior extends ANTLRAssistBehavior {
 				List<Element> fieldElements = terminalExpect.getState().findMatchedElementsByLabel("criteriaField", true);
 				if (!fieldElements.isEmpty()) {
 					String fieldName = ProjectQuery.getValue(fieldElements.get(0).getMatchedText());
-					if (fieldName.equals(Project.FIELD_NAME) 
-							|| fieldName.equals(Project.FIELD_DESCRIPTION)) {
-						hints.add("Use * for wildcard match");
+					if (fieldName.equals(Project.NAME_NAME) 
+							|| fieldName.equals(Project.NAME_DESCRIPTION)) {
+						hints.add("Use '*' for wildcard match");
 						hints.add("Use '\\' to escape quotes");
 					}
 				} else {
-					hints.add("Use * for wildcard match");
+					Element operatorElement = terminalExpect.getState().findMatchedElementsByLabel("operator", true).iterator().next();
+					if (operatorElement.getMatchedTokens().iterator().next().getType() == ProjectQueryLexer.ForksOf)
+						hints.add("Use '*' for wildcard match");
 					hints.add("Use '\\' to escape quotes");
 				}
 			}

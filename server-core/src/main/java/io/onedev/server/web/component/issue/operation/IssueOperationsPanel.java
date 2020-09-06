@@ -32,12 +32,14 @@ import com.google.common.collect.Lists;
 
 import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.IssueChangeManager;
+import io.onedev.server.entitymanager.SettingManager;
 import io.onedev.server.entitymanager.UserManager;
-import io.onedev.server.issue.TransitionSpec;
-import io.onedev.server.issue.transitiontrigger.PressButtonTrigger;
 import io.onedev.server.model.Issue;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.User;
+import io.onedev.server.model.support.issue.TransitionSpec;
+import io.onedev.server.model.support.issue.transitiontrigger.PressButtonTrigger;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.IssueUtils;
 import io.onedev.server.web.behavior.WebSocketObserver;
 import io.onedev.server.web.component.issue.IssueStateLabel;
@@ -84,7 +86,7 @@ public abstract class IssueOperationsPanel extends Panel {
 		
 		RepeatingView transitionsView = new RepeatingView("transitions");
 
-		List<TransitionSpec> transitions = getIssue().getProject().getIssueSetting().getTransitionSpecs(true);
+		List<TransitionSpec> transitions = OneDev.getInstance(SettingManager.class).getIssueSetting().getTransitionSpecs();
 		
 		AtomicReference<Component> activeTransitionLinkRef = new AtomicReference<>(null);  
 		for (TransitionSpec transition: transitions) {
@@ -134,7 +136,14 @@ public abstract class IssueOperationsPanel extends Panel {
 
 							@Override
 							protected AttachmentSupport getAttachmentSupport() {
-								return new ProjectAttachmentSupport(getProject(), getIssue().getUUID());
+								return new ProjectAttachmentSupport(getProject(), getIssue().getUUID()) {
+									
+									@Override
+									public boolean canDeleteAttachment() {
+										return SecurityUtils.canManageIssues(getProject());
+									}
+									
+								};
 							}
 
 							@Override
@@ -160,11 +169,11 @@ public abstract class IssueOperationsPanel extends Panel {
 							protected void onSubmit(AjaxRequestTarget target, Form<?> form) {
 								super.onSubmit(target, form);
 
-								getIssue().removeFields(transition.getRemoveFields());
 								Map<String, Object> fieldValues = IssueUtils.getFieldValues(
 										editor.newComponentContext(), fieldBean, trigger.getPromptFields());
 								IssueChangeManager manager = OneDev.getInstance(IssueChangeManager.class);
-								manager.changeState(getIssue(), transition.getToState(), fieldValues, comment);
+								manager.changeState(getIssue(), transition.getToState(), fieldValues, 
+										transition.getRemoveFields(), comment);
 								target.add(IssueOperationsPanel.this);
 							}
 							

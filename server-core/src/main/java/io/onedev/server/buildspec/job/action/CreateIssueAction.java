@@ -17,13 +17,12 @@ import io.onedev.server.buildspec.BuildSpec;
 import io.onedev.server.buildspec.job.Job;
 import io.onedev.server.entitymanager.IssueManager;
 import io.onedev.server.entitymanager.SettingManager;
-import io.onedev.server.issue.fieldsupply.FieldSupply;
 import io.onedev.server.model.Build;
 import io.onedev.server.model.Issue;
-import io.onedev.server.model.Project;
 import io.onedev.server.model.support.administration.GlobalIssueSetting;
+import io.onedev.server.model.support.issue.fieldsupply.FieldSupply;
 import io.onedev.server.persistence.TransactionManager;
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.web.editable.annotation.Editable;
 import io.onedev.server.web.editable.annotation.FieldNamesProvider;
 import io.onedev.server.web.editable.annotation.Interpolative;
@@ -42,7 +41,7 @@ public class CreateIssueAction extends PostBuildAction {
 	private List<FieldSupply> issueFields = new ArrayList<>();
 	
 	@Editable(order=1000, name="Title", group="Issue Detail", description="Specify title of the issue. "
-			+ "<b>Note:</b> Type <tt>@</tt> to <a href='https://code.onedev.io/projects/onedev-manual/blob/master/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
+			+ "<b>Note:</b> Type <tt>@</tt> to <a href='$docRoot/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
 	@Interpolative(variableSuggester="suggestVariables")
 	@NotEmpty
 	public String getIssueTitle() {
@@ -54,7 +53,7 @@ public class CreateIssueAction extends PostBuildAction {
 	}
 	
 	@Editable(order=1050, name="Description", group="Issue Detail", description="Optionally specify description of the issue. "
-			+ "<b>Note:</b> Type <tt>@</tt> to <a href='https://code.onedev.io/projects/onedev-manual/blob/master/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
+			+ "<b>Note:</b> Type <tt>@</tt> to <a href='$docRoot/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
 	@Multiline
 	@Interpolative(variableSuggester="suggestVariables")
 	public String getIssueDescription() {
@@ -83,7 +82,7 @@ public class CreateIssueAction extends PostBuildAction {
 	}
 	
 	private static Collection<String> getFieldNames() {
-		return Project.get().getIssueSetting().getPromptFieldsUponIssueOpen(true);
+		return OneDev.getInstance(SettingManager.class).getIssueSetting().getPromptFieldsUponIssueOpen();
 	}
 	
 	@Override

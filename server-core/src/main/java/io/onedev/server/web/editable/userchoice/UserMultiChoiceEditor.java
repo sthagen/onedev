@@ -74,7 +74,7 @@ public class UserMultiChoiceEditor extends PropertyEditor<List<String>> {
 				super.onInitialize();
 				getSettings().configurePlaceholder(descriptor);
 			}
-			
+
 		};
         
         input.setRequired(descriptor.isPropertyRequired());

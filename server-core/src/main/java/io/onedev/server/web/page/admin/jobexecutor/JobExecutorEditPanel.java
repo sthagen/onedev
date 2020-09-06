@@ -12,21 +12,23 @@ import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.ajax.markup.html.AjaxLink;
 import org.apache.wicket.ajax.markup.html.form.AjaxButton;
 import org.apache.wicket.event.IEvent;
+import org.apache.wicket.feedback.FencedFeedbackPanel;
 import org.apache.wicket.markup.html.form.Form;
 import org.apache.wicket.markup.html.panel.Panel;
 import org.apache.wicket.util.visit.IVisit;
 import org.apache.wicket.util.visit.IVisitor;
 
-import de.agilecoders.wicket.core.markup.html.bootstrap.common.NotificationPanel;
+import com.google.common.collect.Sets;
+
 import io.onedev.server.model.support.administration.jobexecutor.JobExecutor;
 import io.onedev.server.util.JobLogger;
+import io.onedev.server.util.Path;
+import io.onedev.server.util.PathNode;
 import io.onedev.server.web.component.beaneditmodal.BeanEditModalPanel;
 import io.onedev.server.web.component.taskbutton.TaskButton;
 import io.onedev.server.web.editable.BeanContext;
 import io.onedev.server.web.editable.BeanEditor;
 import io.onedev.server.web.editable.BeanUpdating;
-import io.onedev.server.web.editable.Path;
-import io.onedev.server.web.editable.PathNode;
 import io.onedev.server.web.util.Testable;
 
 @SuppressWarnings("serial")
@@ -156,7 +158,7 @@ abstract class JobExecutorEditPanel extends Panel {
 			protected void onSubmit(AjaxRequestTarget target, Form<?> form) {
 				if (editor.isValid()) {
 					if (testData != null) {
-						new BeanEditModalPanel(target, testData) {
+						new BeanEditModalPanel(target, testData, Sets.newHashSet(), true, "Testing Job Executor") {
 
 							@Override
 							protected void onSave(AjaxRequestTarget target, Serializable bean) {
@@ -201,7 +203,7 @@ abstract class JobExecutorEditPanel extends Panel {
 			
 		};
 
-		form.add(new NotificationPanel("feedback", form));
+		form.add(new FencedFeedbackPanel("feedback", form));
 		form.add(editor);
 		form.add(saveButton);
 		form.add(testButton);

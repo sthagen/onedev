@@ -9,13 +9,13 @@ import org.hibernate.validator.constraints.NotEmpty;
 
 import io.onedev.commons.codeassist.InputSuggestion;
 import io.onedev.server.util.EditContext;
-import io.onedev.server.util.Usage;
 import io.onedev.server.util.match.Matcher;
 import io.onedev.server.util.match.PathMatcher;
 import io.onedev.server.util.patternset.PatternSet;
 import io.onedev.server.util.script.identity.JobIdentity;
 import io.onedev.server.util.script.identity.ScriptIdentity;
 import io.onedev.server.util.script.identity.SiteAdministrator;
+import io.onedev.server.util.usage.Usage;
 import io.onedev.server.util.validation.annotation.RegEx;
 import io.onedev.server.web.editable.annotation.Code;
 import io.onedev.server.web.editable.annotation.Editable;
@@ -78,7 +78,8 @@ public class GroovyScript implements Serializable {
 	}
 
 	@Editable(order=400, description="Optionally specify space-separated projects allowed to "
-			+ "execute this script. Use * or ? for wildcard match. Leave empty to allow all")
+			+ "execute this script. Use '*' or '?' for wildcard match. Prefix with '-' to exclude. "
+			+ "Leave empty to allow all")
 	@Patterns(suggester = "suggestProjects")
 	@ShowCondition("isCanBeUsedByBuildJobsEnabled")
 	@NameOfEmptyValue("All")
@@ -91,8 +92,9 @@ public class GroovyScript implements Serializable {
 	}
 	
 	@Editable(order=500, description="Optionally specify space-separated branches allowed to "
-		+ "execute this script. Use * or ? for wildcard match. Leave empty to allow all")
-	@Patterns
+		+ "execute this script. Use '**', '*' or '?' for <a href='$docRoot/pages/path-wildcard.md' target='_blank'>path wildcard match</a>. "
+		+ "Prefix with '-' to exclude. Leave empty to allow all")
+	@Patterns(path=true)
 	@ShowCondition("isCanBeUsedByBuildJobsEnabled")
 	@NameOfEmptyValue("All")
 	public String getAllowedBranches() {

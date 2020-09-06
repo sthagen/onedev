@@ -4,6 +4,7 @@
 .code-comments>.head>.operations>* {
 	margin-right: 16px;
 	color: #444;
+	white-space: nowrap;
 }
 .code-comments>.head>.operations>*:last-child {
 	margin-right: 0;
@@ -14,6 +15,9 @@
 }
 .code-comments tr.comment.new td.new-indicator {
 	background: #4667EE;
+}
+.code-comments td.last-update {
+	color: #888;
 }
 
 .code-comment>.outdated-context {
@@ -94,21 +98,9 @@
 .code-comment>.add-reply {
 	margin-top: 16px;
 }
-.code-comment>.add-reply>a {
-	color: #999;
-}
-.code-comment>.add-reply>a:hover {
-	color: inherit;
-}
 .code-comment .markdown-rendered {
 	font-size: inherit;
 	line-height: inherit;
-}
-
-.invalid-code-comment>.head {
-	font-size: 18px;
-	font-weight: bold;
-	margin-bottom: 20px;
 }
 
 @media(max-width: 991px) {

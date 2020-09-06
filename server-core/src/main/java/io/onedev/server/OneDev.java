@@ -7,6 +7,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.UnknownHostException;
+import java.nio.charset.Charset;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -17,8 +18,13 @@ import javax.inject.Inject;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.SystemUtils;
+import org.apache.wicket.request.Url;
+import org.apache.wicket.request.Url.StringMode;
+import org.eclipse.jgit.util.FS.FileStoreAttributes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.google.inject.Provider;
 
 import io.onedev.commons.launcher.bootstrap.Bootstrap;
 import io.onedev.commons.launcher.loader.AbstractPlugin;
@@ -33,14 +39,16 @@ import io.onedev.server.event.system.SystemStarting;
 import io.onedev.server.event.system.SystemStopped;
 import io.onedev.server.event.system.SystemStopping;
 import io.onedev.server.maintenance.DataManager;
+import io.onedev.server.model.support.administration.SystemSetting;
 import io.onedev.server.persistence.PersistManager;
 import io.onedev.server.persistence.SessionManager;
 import io.onedev.server.persistence.annotation.Sessional;
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.ServerConfig;
+import io.onedev.server.util.Version;
 import io.onedev.server.util.init.InitStage;
 import io.onedev.server.util.init.ManualConfig;
-import io.onedev.server.util.jetty.JettyRunner;
+import io.onedev.server.util.jetty.JettyLauncher;
 import io.onedev.server.util.schedule.TaskScheduler;
 
 public class OneDev extends AbstractPlugin implements Serializable {
@@ -49,17 +57,17 @@ public class OneDev extends AbstractPlugin implements Serializable {
 
 	private static final Logger logger = LoggerFactory.getLogger(OneDev.class);
 	
-	private final JettyRunner jettyRunner;
+	private final Provider<JettyLauncher> jettyLauncherProvider;
 		
 	private final PersistManager persistManager;
 	
 	private final SessionManager sessionManager;
 	
-	private final SettingManager configManager;
+	private final SettingManager settingManager;
 	
 	private final DataManager dataManager;
 			
-	private final ServerConfig serverConfig;
+	private final Provider<ServerConfig> serverConfigProvider;
 	
 	private final ListenerRegistry listenerRegistry;
 	
@@ -68,19 +76,21 @@ public class OneDev extends AbstractPlugin implements Serializable {
 	private final ExecutorService executorService;
 	
 	private volatile InitStage initStage;
-	
+
+	// Some are injected via provider as instantiation might encounter problem during upgrade 
 	@Inject
-	public OneDev(JettyRunner jettyRunner, PersistManager persistManager, TaskScheduler taskScheduler,
-			SessionManager sessionManager, ServerConfig serverConfig, DataManager dataManager, 
-			SettingManager configManager, ExecutorService executorService, 
+	public OneDev(Provider<JettyLauncher> jettyLauncherProvider, PersistManager persistManager, 
+			TaskScheduler taskScheduler, SessionManager sessionManager, 
+			Provider<ServerConfig> serverConfigProvider, DataManager dataManager, 
+			SettingManager settingManager, ExecutorService executorService, 
 			ListenerRegistry listenerRegistry) {
-		this.jettyRunner = jettyRunner;
+		this.jettyLauncherProvider = jettyLauncherProvider;
 		this.persistManager = persistManager;
 		this.taskScheduler = taskScheduler;
 		this.sessionManager = sessionManager;
-		this.configManager = configManager;
+		this.settingManager = settingManager;
 		this.dataManager = dataManager;
-		this.serverConfig = serverConfig;
+		this.serverConfigProvider = serverConfigProvider;
 		this.executorService = executorService;
 		this.listenerRegistry = listenerRegistry;
 		
@@ -92,9 +102,9 @@ public class OneDev extends AbstractPlugin implements Serializable {
 		SecurityUtils.bindAsSystem();
 
 		System.setProperty("hsqldb.reconfig_logging", "false");
-		jettyRunner.start();
 		
 		if (Bootstrap.command == null) {
+			jettyLauncherProvider.get().start();
 			taskScheduler.start();
 		}
 		
@@ -102,18 +112,22 @@ public class OneDev extends AbstractPlugin implements Serializable {
 		
 		List<ManualConfig> manualConfigs = dataManager.init();
 		if (!manualConfigs.isEmpty()) {
-			logger.warn("Please set up the server at " + guessServerUrl());
+			String serverUrl = StringUtils.stripEnd(guessServerUrl(false).toString(StringMode.FULL), "/");
+			logger.warn("Please set up the server at " + serverUrl);
 			initStage = new InitStage("Server Setup", manualConfigs);
 			
 			initStage.waitForFinish();
 		}
-
+		
 		sessionManager.openSession();
 		try {
 			listenerRegistry.post(new SystemStarting());
 		} finally {
 			sessionManager.closeSession();
 		}
+		
+		// workaround for issue https://bugs.eclipse.org/bugs/show_bug.cgi?id=566170
+		FileStoreAttributes.setBackground(true);
 	}
 	
 	@Sessional
@@ -122,12 +136,13 @@ public class OneDev extends AbstractPlugin implements Serializable {
 		SecurityUtils.bindAsSystem();
 		
 		listenerRegistry.post(new SystemStarted());
-		logger.info("Server is ready at " + configManager.getSystemSetting().getServerUrl() + ".");
+		SystemSetting systemSetting = settingManager.getSystemSetting();
+        logger.info("Server is ready at " + systemSetting.getServerUrl() + ".");
 		initStage = null;
 	}
 
-	public String guessServerUrl() {
-		String serverUrl = null;
+	public Url guessServerUrl(boolean ssh) {
+	    Url serverUrl = null;
 		
 		String serviceHost = System.getenv("ONEDEV_SERVICE_HOST");
 		if (serviceHost != null) { // we are running inside Kubernetes  
@@ -151,21 +166,27 @@ public class OneDev extends AbstractPlugin implements Serializable {
 				
 			}).checkReturnCode();
 			
-			if (externalIpRef.get() != null) {
+			String externalIp = externalIpRef.get();
+			
+			if (externalIp != null) {
 				kubectl.clearArgs();
 				kubectl.addArgs("get", "service", "onedev", "-o", 
 						"jsonpath={range .spec.ports[*]}{.name} {.port}{'\\n'}{end}");
-				AtomicReference<String> httpPortRef = new AtomicReference<>(null);
-				AtomicReference<String> httpsPortRef = new AtomicReference<>(null);
+				AtomicReference<Integer> httpPortRef = new AtomicReference<>(null);
+				AtomicReference<Integer> httpsPortRef = new AtomicReference<>(null);
+				AtomicReference<Integer> sshPortRef = new AtomicReference<>(null);
 				kubectl.execute(new LineConsumer() {
 
 					@Override
 					public void consume(String line) {
 						String protocol = StringUtils.substringBefore(line, " ");
+						int port = Integer.parseInt(StringUtils.substringAfter(line, " "));
 						if (protocol.equals("http"))
-							httpPortRef.set(StringUtils.substringAfter(line, " "));
+							httpPortRef.set(port);
 						else if (protocol.equals("https"))
-							httpsPortRef.set(StringUtils.substringAfter(line, " "));
+							httpsPortRef.set(port);
+						else if (protocol.equals("ssh"))
+							sshPortRef.set(port);
 					}
 					
 				}, new LineConsumer() {
@@ -177,13 +198,37 @@ public class OneDev extends AbstractPlugin implements Serializable {
 					
 				}).checkReturnCode();
 				
-				serverUrl = buildServerUrl(externalIpRef.get(), httpPortRef.get(), httpsPortRef.get());
+				Integer sshPort = sshPortRef.get();
+				Integer httpPort = httpPortRef.get();
+				Integer httpsPort = httpsPortRef.get();
+
+				if (ssh) {
+					if (sshPort != null) 
+						serverUrl = buildServerUrl(externalIp, "ssh", sshPort);
+				} else if (httpsPort != null) {
+					serverUrl = buildServerUrl(externalIp, "https", httpsPort);
+				} else {
+					serverUrl = buildServerUrl(externalIp, "http", httpPort);
+				}
 			} 
 			
 			if (serverUrl == null) {
-				String httpPort = System.getenv("ONEDEV_SERVICE_PORT_HTTP");
-				String httpsPort = System.getenv("ONEDEV_SERVICE_PORT_HTTPS");
-				serverUrl = buildServerUrl(serviceHost, httpPort, httpsPort);
+				String httpPortEnv = System.getenv("ONEDEV_SERVICE_PORT_HTTP");
+				String httpsPortEnv = System.getenv("ONEDEV_SERVICE_PORT_HTTPS");
+				String sshPortEnv = System.getenv("ONEDEV_SERVICE_PORT_SSH");
+				
+				Integer httpPort = httpPortEnv!=null?Integer.valueOf(httpPortEnv):null;
+				Integer httpsPort = httpsPortEnv!=null?Integer.valueOf(httpsPortEnv):null;
+				Integer sshPort = sshPortEnv!=null?Integer.valueOf(sshPortEnv):null;
+				
+				if (ssh) {
+					if (sshPort != null) 
+						serverUrl = buildServerUrl(externalIp, "ssh", sshPort);
+				} else if (httpsPort != null) {
+					serverUrl = buildServerUrl(externalIp, "https", httpsPort);
+				} else {
+					serverUrl = buildServerUrl(externalIp, "http", httpPort);
+				}
 			}
 		} 
 		
@@ -207,33 +252,30 @@ public class OneDev extends AbstractPlugin implements Serializable {
 				try {
 					host = InetAddress.getLocalHost().getHostName();
 				} catch (UnknownHostException e2) {
-					throw new RuntimeException(e2);
+					host = "localhost";
 				}
 			}
 			
-			if (serverConfig.getHttpsPort() != 0)
-				serverUrl = "https://" + host + ":" + serverConfig.getHttpsPort();
+			ServerConfig serverConfig = serverConfigProvider.get();
+			if (ssh) 
+				serverUrl = buildServerUrl(host, "ssh", serverConfig.getSshPort());
+			else if (serverConfig.getHttpsPort() != 0) 
+                serverUrl = buildServerUrl(host, "https", serverConfig.getHttpsPort());
 			else 
-				serverUrl = "http://" + host + ":" + serverConfig.getHttpPort();
+                serverUrl = buildServerUrl(host, "http", serverConfig.getHttpPort());
 		}
 		
 		return serverUrl;
 	}
 	
-	private String buildServerUrl(String host, @Nullable String httpPort, @Nullable String httpsPort) {
-		String serverUrl = null;
-		if (httpsPort != null) {
-			serverUrl = "https://" + host;
-			if (!httpsPort.equals("443"))
-				serverUrl += ":" + httpsPort;
-		} else if (httpPort != null) {
-			serverUrl = "http://" + host;
-			if (!httpPort.equals("80"))
-				serverUrl += ":" + httpPort;
-		} else {
-			logger.warn("This OneDev deployment looks odd to me: "
-					+ "both http and https port are not specified");
-		}
+	private Url buildServerUrl(String host, String protocol, int port) {
+        Url serverUrl = new Url(Charset.forName("UTF8"));
+
+        serverUrl.setHost(host);
+        serverUrl.setProtocol(protocol);
+        if (!protocol.equals("ssh") || port != 22)
+        	serverUrl.setPort(port);
+       
 		return serverUrl;
 	}
 	
@@ -283,8 +325,10 @@ public class OneDev extends AbstractPlugin implements Serializable {
 		}
 		persistManager.stop();
 		
-		taskScheduler.stop();
-		jettyRunner.stop();
+		if (Bootstrap.command == null) {
+			taskScheduler.stop();
+			jettyLauncherProvider.get().stop();
+		}
 		executorService.shutdown();
 	}
 		
@@ -293,7 +337,8 @@ public class OneDev extends AbstractPlugin implements Serializable {
 	}	
 	
 	public String getDocRoot() {
-		return "https://code.onedev.io/projects/onedev-manual/blob/master";
+		Version version = new Version(AppLoader.getProduct().getVersion());
+		return "https://code.onedev.io/projects/onedev-manual/blob/" + version.getMajor() + "." + version.getMinor();
 	}
 	
 }

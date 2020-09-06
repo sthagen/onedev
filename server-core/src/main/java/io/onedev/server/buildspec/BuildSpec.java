@@ -4,6 +4,7 @@ import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,8 +16,21 @@ import javax.validation.ConstraintValidatorContext;
 import javax.validation.Valid;
 import javax.validation.ValidationException;
 
+import org.apache.commons.lang3.SerializationUtils;
+import org.yaml.snakeyaml.DumperOptions.FlowStyle;
+import org.yaml.snakeyaml.nodes.MappingNode;
+import org.yaml.snakeyaml.nodes.Node;
+import org.yaml.snakeyaml.nodes.NodeTuple;
+import org.yaml.snakeyaml.nodes.ScalarNode;
+import org.yaml.snakeyaml.nodes.SequenceNode;
+import org.yaml.snakeyaml.nodes.Tag;
+
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.google.common.collect.Lists;
 
+import io.onedev.commons.utils.ExceptionUtils;
 import io.onedev.commons.utils.StringUtils;
 import io.onedev.server.buildspec.job.Job;
 import io.onedev.server.buildspec.job.JobDependency;
@@ -24,7 +38,8 @@ import io.onedev.server.buildspec.job.action.PostBuildAction;
 import io.onedev.server.buildspec.job.paramsupply.ParamSupply;
 import io.onedev.server.buildspec.job.retrycondition.RetryCondition;
 import io.onedev.server.buildspec.job.trigger.JobTrigger;
-import io.onedev.server.migration.VersionedDocument;
+import io.onedev.server.migration.VersionedYamlDoc;
+import io.onedev.server.migration.XmlBuildSpecMigrator;
 import io.onedev.server.util.validation.Validatable;
 import io.onedev.server.util.validation.annotation.ClassValidating;
 import io.onedev.server.web.editable.annotation.Editable;
@@ -35,7 +50,23 @@ public class BuildSpec implements Serializable, Validatable {
 
 	private static final long serialVersionUID = 1L;
 	
-	public static final String BLOB_PATH = ".onedev-buildspec";
+	private static final LoadingCache<String, byte[]> parseCache =  CacheBuilder.newBuilder().softValues().build(new CacheLoader<String, byte[]>() {
+	        
+		@Override
+        public byte[] load(String key) {
+			String buildSpecString = key;
+			if (buildSpecString.trim().startsWith("<?xml")) 
+				buildSpecString = XmlBuildSpecMigrator.migrate(buildSpecString);
+			try {
+				return SerializationUtils.serialize(VersionedYamlDoc.fromYaml(buildSpecString).toBean(BuildSpec.class));
+			} catch (Exception e) {
+				throw new InvalidBuildSpecException("Invalid build spec", e);
+			}
+        }
+	        
+	});
+	
+	public static final String BLOB_PATH = ".onedev-buildspec.yml";
 	
 	public static final String PROP_JOBS = "jobs";
 	
@@ -208,18 +239,51 @@ public class BuildSpec implements Serializable, Validatable {
 		String buildSpecString = new String(bytes, StandardCharsets.UTF_8); 
 		if (StringUtils.isNotBlank(buildSpecString)) {
 			try {
-				return (BuildSpec) VersionedDocument.fromXML(buildSpecString).toBean();
+				return SerializationUtils.deserialize(parseCache.getUnchecked(buildSpecString));
 			} catch (Exception e) {
-				throw new InvalidBuildSpecException("Invalid build spec", e);
+				InvalidBuildSpecException invalidBuildSpecException = ExceptionUtils.find(e, InvalidBuildSpecException.class);
+				if (invalidBuildSpecException != null)
+					throw invalidBuildSpecException;
+				else 
+					throw e;
 			}
 		} else {
 			return null;
 		}
 	}
-
+	
 	@SuppressWarnings("unused")
-	private void migrate1(VersionedDocument dom, Stack<Integer> versions) {
-		dom.getRootElement().addElement("properties");
+	private void migrate1(VersionedYamlDoc doc, Stack<Integer> versions) {
+		for (NodeTuple specTuple: doc.getValue()) {
+			if (((ScalarNode)specTuple.getKeyNode()).getValue().equals("jobs")) {
+				SequenceNode jobsNode = (SequenceNode) specTuple.getValueNode();
+				for (Node jobsNodeItem: jobsNode.getValue()) {
+					MappingNode jobNode = (MappingNode) jobsNodeItem;
+					for (Iterator<NodeTuple> itJobTuple = jobNode.getValue().iterator(); itJobTuple.hasNext();) {
+						NodeTuple jobTuple = itJobTuple.next();
+						String jobTupleKey = ((ScalarNode)jobTuple.getKeyNode()).getValue();
+						if (jobTupleKey.equals("submoduleCredentials")) {
+							itJobTuple.remove();
+						} else if (jobTupleKey.equals("projectDependencies")) {
+							SequenceNode projectDependenciesNode = (SequenceNode) jobTuple.getValueNode();
+							for (Node projectDependenciesItem: projectDependenciesNode.getValue()) {
+								MappingNode projectDependencyNode = (MappingNode) projectDependenciesItem;
+								for (Iterator<NodeTuple> itProjectDependencyTuple = projectDependencyNode.getValue().iterator(); 
+										itProjectDependencyTuple.hasNext();) {
+									NodeTuple projectDependencyTuple = itProjectDependencyTuple.next();
+									if (((ScalarNode)projectDependencyTuple.getKeyNode()).getValue().equals("authentication"))
+										itProjectDependencyTuple.remove();
+								}								
+							}
+						}
+					}
+					NodeTuple cloneCredentialTuple = new NodeTuple(
+							new ScalarNode(Tag.STR, "cloneCredential"), 
+							new MappingNode(new Tag("!DefaultCredential"), Lists.newArrayList(), FlowStyle.BLOCK));
+					jobNode.getValue().add(cloneCredentialTuple);
+				}
+			}
+		}
 	}
 	
 }

@@ -28,7 +28,8 @@ onedev.server.floating = {
 		$(document).on("mouseup touchstart", $floating.data("mouseUpOrTouchStart"));
 		
 		$floating.data("keydown", function(e) {
-			if (e.keyCode == 27 && $(".select2-drop:visible").length == 0) {
+			if (e.keyCode == 27 && $(".select2-drop:visible").length == 0 
+					&& $(".flatpickr-calendar.open").length == 0) {
 				onedev.server.floating.close($floating, true);
 			}
 		});
@@ -44,11 +45,17 @@ onedev.server.floating = {
 		
 		var openTriggered = false;
 		$floating.data("afterElementReplace", function() {
-			if ($floating.data("alignment"))
-				$floating.align($floating.data("alignment"));
-			if (!openTriggered) {
-				$floating.trigger("open");
-				openTriggered = true;
+			var alignment = $floating.data("alignment");
+			if (alignment && alignment.target && alignment.target.element 
+					&& !document.body.contains(alignment.target.element)) {
+				onedev.server.floating.close($floating, true);
+			} else {
+				if (alignment)
+					$floating.align(alignment);
+				if (!openTriggered) {
+					$floating.trigger("open");
+					openTriggered = true;
+				}
 			}
 		});
 		$(document).on("afterElementReplace", $floating.data("afterElementReplace"));
@@ -76,7 +83,10 @@ onedev.server.floating = {
 					$floating.remove();
 				});
 			} else {
-				$floating.remove();
+				// remove floating later, otherwise, closeCallback attached to floating will not execute
+				setTimeout(function() {
+					$floating.remove();
+				}, 0);
 			}
 		}
 	}

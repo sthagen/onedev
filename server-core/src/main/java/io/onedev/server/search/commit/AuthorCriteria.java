@@ -1,5 +1,6 @@
 package io.onedev.server.search.commit;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.commons.lang3.StringUtils;
@@ -7,12 +8,12 @@ import org.eclipse.jgit.revwalk.RevCommit;
 
 import com.google.common.base.Preconditions;
 
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.event.RefUpdated;
 import io.onedev.server.git.command.RevListCommand;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.User;
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.security.SecurityUtils;
 
 public class AuthorCriteria extends CommitCriteria {
 
@@ -32,7 +33,7 @@ public class AuthorCriteria extends CommitCriteria {
 				if (SecurityUtils.getUser() != null)
 					command.authors().add("<" + SecurityUtils.getUser().getEmail() + ">");
 				else
-					throw new OneException("Please login to perform this query");
+					throw new GeneralException("Please login to perform this query");
 			} else {
 				command.authors().add(StringUtils.replace(value, "*", ".*"));
 			}
@@ -46,7 +47,7 @@ public class AuthorCriteria extends CommitCriteria {
 		for (String value: values) {
 			if (value == null) { // authored by me
 				if (User.get() == null)
-					throw new OneException("Please login to perform this query");
+					throw new GeneralException("Please login to perform this query");
 				else if (User.get().getEmail().equals(authorEmail)) 
 					return true;
 			} else {
@@ -57,4 +58,16 @@ public class AuthorCriteria extends CommitCriteria {
 		return false;
 	}
 
+	@Override
+	public String toString() {
+		List<String> parts = new ArrayList<>();
+		for (String value: values) {
+			if (value != null)
+				parts.add(getRuleName(CommitQueryLexer.AUTHOR) + parens(value));
+			else
+				parts.add(getRuleName(CommitQueryLexer.AuthoredByMe));
+		}
+		return StringUtils.join(parts, " ");
+	}
+	
 }

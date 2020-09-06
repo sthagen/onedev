@@ -7,7 +7,7 @@ import javax.persistence.criteria.Path;
 import javax.persistence.criteria.Predicate;
 import javax.persistence.criteria.Root;
 
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.model.PullRequest;
 import io.onedev.server.model.PullRequestReview;
 import io.onedev.server.model.User;
@@ -24,15 +24,13 @@ public class ApprovedByMeCriteria extends EntityCriteria<PullRequest> {
 		if (User.get() != null) {
 			Join<?, ?> join = root.join(PullRequest.PROP_REVIEWS, JoinType.LEFT);
 			Path<?> userPath = EntityQuery.getPath(join, PullRequestReview.PROP_USER);
-			Path<?> excludeDatePath = EntityQuery.getPath(join, PullRequestReview.PROP_EXCLUDE_DATE);
 			Path<?> approvedPath = EntityQuery.getPath(join, PullRequestReview.PROP_RESULT + "." + ReviewResult.PROP_APPROVED);
 			join.on(builder.and(
 					builder.equal(userPath, User.get()), 
-					builder.isNull(excludeDatePath), 
 					builder.equal(approvedPath, true)));
 			return join.isNotNull();
 		} else {
-			throw new OneException("Please login to perform this query");
+			throw new GeneralException("Please login to perform this query");
 		}
 	}
 
@@ -40,17 +38,14 @@ public class ApprovedByMeCriteria extends EntityCriteria<PullRequest> {
 	public boolean matches(PullRequest request) {
 		if (User.get() != null) {
 			PullRequestReview review = request.getReview(User.get());
-			return review != null 
-					&& review.getExcludeDate() == null 
-					&& review.getResult() != null 
-					&& review.getResult().isApproved();
+			return review != null && review.getResult() != null && review.getResult().isApproved();
 		} else {
-			throw new OneException("Please login to perform this query");
+			throw new GeneralException("Please login to perform this query");
 		}
 	}
 
 	@Override
-	public String asString() {
+	public String toStringWithoutParens() {
 		return PullRequestQuery.getRuleName(PullRequestQueryLexer.ApprovedByMe);
 	}
 

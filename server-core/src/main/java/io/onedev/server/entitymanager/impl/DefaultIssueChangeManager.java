@@ -22,6 +22,9 @@ import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
+import org.joda.time.DateTime;
+import org.quartz.CronScheduleBuilder;
+import org.quartz.ScheduleBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,37 +33,42 @@ import com.google.common.base.Optional;
 import io.onedev.commons.launcher.loader.Listen;
 import io.onedev.commons.launcher.loader.ListenerRegistry;
 import io.onedev.commons.utils.LockUtils;
+import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.entitymanager.IssueChangeManager;
 import io.onedev.server.entitymanager.IssueFieldManager;
 import io.onedev.server.entitymanager.IssueManager;
 import io.onedev.server.entitymanager.ProjectManager;
 import io.onedev.server.entitymanager.PullRequestManager;
+import io.onedev.server.entitymanager.SettingManager;
 import io.onedev.server.event.RefUpdated;
 import io.onedev.server.event.build.BuildFinished;
 import io.onedev.server.event.issue.IssueChangeEvent;
 import io.onedev.server.event.pullrequest.PullRequestChangeEvent;
 import io.onedev.server.event.pullrequest.PullRequestOpened;
+import io.onedev.server.event.system.SystemStarted;
+import io.onedev.server.event.system.SystemStopping;
 import io.onedev.server.git.GitUtils;
-import io.onedev.server.issue.TransitionSpec;
-import io.onedev.server.issue.transitiontrigger.BranchUpdateTrigger;
-import io.onedev.server.issue.transitiontrigger.BuildSuccessfulTrigger;
-import io.onedev.server.issue.transitiontrigger.DiscardPullRequest;
-import io.onedev.server.issue.transitiontrigger.MergePullRequest;
-import io.onedev.server.issue.transitiontrigger.OpenPullRequest;
-import io.onedev.server.issue.transitiontrigger.PullRequestTrigger;
 import io.onedev.server.model.Build;
 import io.onedev.server.model.Issue;
 import io.onedev.server.model.IssueChange;
 import io.onedev.server.model.Milestone;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.PullRequest;
+import io.onedev.server.model.support.issue.TransitionSpec;
 import io.onedev.server.model.support.issue.changedata.IssueBatchUpdateData;
 import io.onedev.server.model.support.issue.changedata.IssueDescriptionChangeData;
 import io.onedev.server.model.support.issue.changedata.IssueFieldChangeData;
 import io.onedev.server.model.support.issue.changedata.IssueMilestoneChangeData;
 import io.onedev.server.model.support.issue.changedata.IssueStateChangeData;
 import io.onedev.server.model.support.issue.changedata.IssueTitleChangeData;
+import io.onedev.server.model.support.issue.transitiontrigger.BranchUpdateTrigger;
+import io.onedev.server.model.support.issue.transitiontrigger.BuildSuccessfulTrigger;
+import io.onedev.server.model.support.issue.transitiontrigger.DiscardPullRequestTrigger;
+import io.onedev.server.model.support.issue.transitiontrigger.MergePullRequestTrigger;
+import io.onedev.server.model.support.issue.transitiontrigger.NoActivityTrigger;
+import io.onedev.server.model.support.issue.transitiontrigger.OpenPullRequestTrigger;
+import io.onedev.server.model.support.issue.transitiontrigger.PullRequestTrigger;
 import io.onedev.server.model.support.pullrequest.changedata.PullRequestDiscardData;
 import io.onedev.server.model.support.pullrequest.changedata.PullRequestMergeData;
 import io.onedev.server.model.support.pullrequest.changedata.PullRequestReopenData;
@@ -70,19 +78,23 @@ import io.onedev.server.persistence.dao.AbstractEntityManager;
 import io.onedev.server.persistence.dao.Dao;
 import io.onedev.server.search.entity.issue.IssueCriteria;
 import io.onedev.server.search.entity.issue.IssueQuery;
+import io.onedev.server.search.entity.issue.IssueQueryLexer;
 import io.onedev.server.search.entity.issue.StateCriteria;
+import io.onedev.server.search.entity.issue.UpdateDateCriteria;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.Input;
 import io.onedev.server.util.IssueUtils;
-import io.onedev.server.util.ProjectAwareCommit;
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.util.ProjectScopedCommit;
 import io.onedev.server.util.match.Matcher;
 import io.onedev.server.util.match.PathMatcher;
 import io.onedev.server.util.match.StringMatcher;
 import io.onedev.server.util.patternset.PatternSet;
+import io.onedev.server.util.schedule.SchedulableTask;
+import io.onedev.server.util.schedule.TaskScheduler;
 
 @Singleton
 public class DefaultIssueChangeManager extends AbstractEntityManager<IssueChange>
-		implements IssueChangeManager {
+		implements IssueChangeManager, SchedulableTask {
 
 	private static final Logger logger = LoggerFactory.getLogger(DefaultIssueChangeManager.class);
 	
@@ -104,12 +116,16 @@ public class DefaultIssueChangeManager extends AbstractEntityManager<IssueChange
 	
 	private final ListenerRegistry listenerRegistry;
 	
+	private final TaskScheduler taskScheduler;
+	
+	private String taskId;
+	
 	@Inject
 	public DefaultIssueChangeManager(Dao dao, TransactionManager transactionManager, 
 			IssueManager issueManager,  IssueFieldManager issueFieldManager,
 			ProjectManager projectManager, BuildManager buildManager, 
 			ExecutorService executorService, PullRequestManager pullRequestManager, 
-			ListenerRegistry listenerRegistry) {
+			ListenerRegistry listenerRegistry, TaskScheduler taskScheduler) {
 		super(dao);
 		this.issueManager = issueManager;
 		this.issueFieldManager = issueFieldManager;
@@ -119,6 +135,7 @@ public class DefaultIssueChangeManager extends AbstractEntityManager<IssueChange
 		this.buildManager = buildManager;
 		this.executorService = executorService;
 		this.listenerRegistry = listenerRegistry;
+		this.taskScheduler = taskScheduler;
 	}
 
 	@Transactional
@@ -195,11 +212,13 @@ public class DefaultIssueChangeManager extends AbstractEntityManager<IssueChange
 	
 	@Transactional
 	@Override
-	public void changeState(Issue issue, String state, Map<String, Object> fieldValues, @Nullable String comment) {
+	public void changeState(Issue issue, String state, Map<String, Object> fieldValues, 
+			Collection<String> removeFields, @Nullable String comment) {
 		String prevState = issue.getState();
 		Map<String, Input> prevFields = issue.getFieldInputs();
+		
 		issue.setState(state);
-
+		issue.removeFields(removeFields);
 		issue.setFieldValues(fieldValues);
 		
 		issueFieldManager.saveFields(issue);
@@ -242,6 +261,10 @@ public class DefaultIssueChangeManager extends AbstractEntityManager<IssueChange
 		}
 	}
 	
+	private List<TransitionSpec> getTransitionSpecs() {
+		return OneDev.getInstance(SettingManager.class).getIssueSetting().getTransitionSpecs();
+	}
+	
 	@Transactional
 	@Listen
 	public void on(BuildFinished event) {
@@ -266,7 +289,7 @@ public class DefaultIssueChangeManager extends AbstractEntityManager<IssueChange
 										try {
 											SecurityUtils.bindAsSystem();
 											Build build = buildManager.load(buildId);
-											for (TransitionSpec transition: build.getProject().getIssueSetting().getTransitionSpecs(true)) {
+											for (TransitionSpec transition: getTransitionSpecs()) {
 												if (transition.getTrigger() instanceof BuildSuccessfulTrigger) {
 													Project project = build.getProject();
 													BuildSuccessfulTrigger trigger = (BuildSuccessfulTrigger) transition.getTrigger();
@@ -283,13 +306,14 @@ public class DefaultIssueChangeManager extends AbstractEntityManager<IssueChange
 															fromStateCriterias.add(new StateCriteria(fromState));
 														
 														criterias.add(IssueCriteria.or(fromStateCriterias));
-														criterias.add(query.getCriteria());
+														if (query.getCriteria() != null)
+															criterias.add(query.getCriteria());
 														query = new IssueQuery(IssueCriteria.and(criterias), new ArrayList<>());
 														Build.push(build);
 														try {
-															for (Issue issue: issueManager.query(project, query, 0, Integer.MAX_VALUE)) {
-																issue.removeFields(transition.getRemoveFields());
-																changeState(issue, transition.getToState(), new HashMap<>(), null);
+															for (Issue issue: issueManager.query(project, query, 0, Integer.MAX_VALUE, true)) {
+																changeState(issue, transition.getToState(), new HashMap<>(), 
+																		transition.getRemoveFields(), null);
 															}
 														} finally {
 															Build.pop();
@@ -335,7 +359,7 @@ public class DefaultIssueChangeManager extends AbstractEntityManager<IssueChange
 											Matcher matcher = new PathMatcher();
 											PullRequest request = pullRequestManager.load(requestId);
 											Project project = request.getTargetProject();
-											for (TransitionSpec transition: project.getIssueSetting().getTransitionSpecs(true)) {
+											for (TransitionSpec transition: getTransitionSpecs()) {
 												if (transition.getTrigger().getClass() == triggerClass) {
 													PullRequestTrigger trigger = (PullRequestTrigger) transition.getTrigger();
 													if (trigger.getBranches() == null || PatternSet.parse(trigger.getBranches()).matches(matcher, request.getTargetBranch())) {
@@ -347,13 +371,14 @@ public class DefaultIssueChangeManager extends AbstractEntityManager<IssueChange
 															fromStateCriterias.add(new StateCriteria(fromState));
 														
 														criterias.add(IssueCriteria.or(fromStateCriterias));
-														criterias.add(query.getCriteria());
+														if (query.getCriteria() != null)
+															criterias.add(query.getCriteria());
 														query = new IssueQuery(IssueCriteria.and(criterias), new ArrayList<>());
 														PullRequest.push(request);
 														try {
-															for (Issue issue: issueManager.query(project, query, 0, Integer.MAX_VALUE)) {
-																issue.removeFields(transition.getRemoveFields());
-																changeState(issue, transition.getToState(), new HashMap<>(), null);
+															for (Issue issue: issueManager.query(project, query, 0, Integer.MAX_VALUE, true)) {
+																changeState(issue, transition.getToState(), new HashMap<>(), 
+																		transition.getRemoveFields(), null);
 															}
 														} finally {
 															PullRequest.pop();
@@ -381,17 +406,17 @@ public class DefaultIssueChangeManager extends AbstractEntityManager<IssueChange
 	@Listen
 	public void on(PullRequestChangeEvent event) { 
 		if (event.getChange().getData() instanceof PullRequestMergeData) 
-			on(event.getRequest(), MergePullRequest.class);
+			on(event.getRequest(), MergePullRequestTrigger.class);
 		else if (event.getChange().getData() instanceof PullRequestDiscardData) 
-			on(event.getRequest(), DiscardPullRequest.class);
+			on(event.getRequest(), DiscardPullRequestTrigger.class);
 		else if (event.getChange().getData() instanceof PullRequestReopenData) 
-			on(event.getRequest(), OpenPullRequest.class);
+			on(event.getRequest(), OpenPullRequestTrigger.class);
 	}
 	
 	@Transactional
 	@Listen
 	public void on(PullRequestOpened event) {
-		on(event.getRequest(), OpenPullRequest.class);
+		on(event.getRequest(), OpenPullRequestTrigger.class);
 	}
 	
 	private String getLockKey(Long projectId) {
@@ -457,7 +482,7 @@ public class DefaultIssueChangeManager extends AbstractEntityManager<IssueChange
 															break;
 													}
 												} 
-												for (TransitionSpec transition: project.getIssueSetting().getTransitionSpecs(true)) {
+												for (TransitionSpec transition: getTransitionSpecs()) {
 													if (transition.getTrigger() instanceof BranchUpdateTrigger) {
 														BranchUpdateTrigger trigger = (BranchUpdateTrigger) transition.getTrigger();
 														String branches = trigger.getBranches();
@@ -472,9 +497,10 @@ public class DefaultIssueChangeManager extends AbstractEntityManager<IssueChange
 																fromStateCriterias.add(new StateCriteria(fromState));
 															
 															criterias.add(IssueCriteria.or(fromStateCriterias));
-															criterias.add(query.getCriteria());
+															if (query.getCriteria() != null)
+																criterias.add(query.getCriteria());
 															query = new IssueQuery(IssueCriteria.and(criterias), new ArrayList<>());
-															ProjectAwareCommit.push(new ProjectAwareCommit(project, newCommitId) {
+															ProjectScopedCommit.push(new ProjectScopedCommit(project, newCommitId) {
 
 																private static final long serialVersionUID = 1L;
 
@@ -485,12 +511,12 @@ public class DefaultIssueChangeManager extends AbstractEntityManager<IssueChange
 																
 															});
 															try {
-																for (Issue issue: issueManager.query(project, query, 0, Integer.MAX_VALUE)) {
-																	issue.removeFields(transition.getRemoveFields());
-																	changeState(issue, transition.getToState(), new HashMap<>(), null);
+																for (Issue issue: issueManager.query(project, query, 0, Integer.MAX_VALUE, true)) {
+																	changeState(issue, transition.getToState(), new HashMap<>(), 
+																			transition.getRemoveFields(), null);
 																}
 															} finally {
-																ProjectAwareCommit.pop();
+																ProjectScopedCommit.pop();
 															}
 														}
 													}
@@ -512,4 +538,51 @@ public class DefaultIssueChangeManager extends AbstractEntityManager<IssueChange
 		}
 	}
 
+	@Transactional
+	@Override
+	public void execute() {
+		for (TransitionSpec transition: getTransitionSpecs()) {
+			if (transition.getTrigger() instanceof NoActivityTrigger) {
+				NoActivityTrigger trigger = (NoActivityTrigger) transition.getTrigger();
+				IssueQuery query = IssueQuery.parse(null, trigger.getIssueQuery(), 
+						false, false, false, false, false);
+				List<IssueCriteria> criterias = new ArrayList<>();
+				
+				List<IssueCriteria> fromStateCriterias = new ArrayList<>();
+				for (String fromState: transition.getFromStates()) 
+					fromStateCriterias.add(new StateCriteria(fromState));
+				
+				criterias.add(IssueCriteria.or(fromStateCriterias));
+				if (query.getCriteria() != null)
+					criterias.add(query.getCriteria());
+				
+				criterias.add(new UpdateDateCriteria(
+						new DateTime().minusDays(trigger.getDays()).toDate(), 
+						IssueQueryLexer.IsBefore));
+				
+				query = new IssueQuery(IssueCriteria.and(criterias), new ArrayList<>());
+				
+				for (Issue issue: issueManager.query(null, query, 0, Integer.MAX_VALUE, true)) {
+					changeState(issue, transition.getToState(), new HashMap<>(), 
+							transition.getRemoveFields(), null);
+				}
+			}
+		}
+	}
+
+	@Override
+	public ScheduleBuilder<?> getScheduleBuilder() {
+		return CronScheduleBuilder.dailyAtHourAndMinute(1, 0);
+	}
+
+	@Listen
+	public void on(SystemStarted event) {
+		taskId = taskScheduler.schedule(this);
+	}
+
+	@Listen
+	public void on(SystemStopping event) {
+		taskScheduler.unschedule(taskId);
+	}
+	
 }

@@ -42,7 +42,7 @@ import io.onedev.server.util.match.MatchScoreProvider;
 import io.onedev.server.util.match.MatchScoreUtils;
 import io.onedev.server.web.WebConstants;
 import io.onedev.server.web.behavior.OnTypingDoneBehavior;
-import io.onedev.server.web.component.datatable.DefaultDataTable;
+import io.onedev.server.web.component.datatable.HistoryAwareDataTable;
 import io.onedev.server.web.component.datatable.selectioncolumn.SelectionColumn;
 import io.onedev.server.web.component.groupchoice.AbstractGroupChoiceProvider;
 import io.onedev.server.web.component.groupchoice.GroupChoiceResourceReference;
@@ -84,6 +84,9 @@ public class UserMembershipsPage extends UserPage {
 	@Override
 	protected void onInitialize() {
 		super.onInitialize();
+		
+		add(new Label("externalManagedNote", "Group membership of this user is managed from " + getUser().getAuthSource())
+				.setVisible(getUser().isMembershipExternalManaged()));
 		
 		TextField<String> searchField;
 		
@@ -150,7 +153,7 @@ public class UserMembershipsPage extends UserPage {
 				response.render(JavaScriptHeaderItem.forReference(new GroupChoiceResourceReference()));
 			}
 			
-		});			
+		}.setVisible(!getUser().isMembershipExternalManaged()));			
 		
 		AjaxLink<Void> deleteSelected = new AjaxLink<Void>("deleteSelected") {
 
@@ -169,7 +172,7 @@ public class UserMembershipsPage extends UserPage {
 			@Override
 			protected void onConfigure() {
 				super.onConfigure();
-				setVisible(!selectionColumn.getSelections().isEmpty());
+				setVisible(selectionColumn != null && !selectionColumn.getSelections().isEmpty());
 			}
 			
 		};
@@ -178,15 +181,17 @@ public class UserMembershipsPage extends UserPage {
 
 		List<IColumn<Membership, Void>> columns = new ArrayList<>();
 		
-		selectionColumn = new SelectionColumn<Membership, Void>() {
-			
-			@Override
-			protected void onSelectionChange(AjaxRequestTarget target) {
-				target.add(deleteSelected);
-			}
-			
-		};
-		columns.add(selectionColumn);
+		if (!getUser().isMembershipExternalManaged()) {
+			selectionColumn = new SelectionColumn<Membership, Void>() {
+				
+				@Override
+				protected void onSelectionChange(AjaxRequestTarget target) {
+					target.add(deleteSelected);
+				}
+				
+			};
+			columns.add(selectionColumn);
+		}
 		
 		columns.add(new AbstractColumn<Membership, Void>(Model.of("Name")) {
 
@@ -264,7 +269,7 @@ public class UserMembershipsPage extends UserPage {
 			
 		};
 		
-		add(membershipsTable = new DefaultDataTable<Membership, Void>("memberships", columns, dataProvider, 
+		add(membershipsTable = new HistoryAwareDataTable<Membership, Void>("memberships", columns, dataProvider, 
 				WebConstants.PAGE_SIZE, pagingHistorySupport));
 	}
 	

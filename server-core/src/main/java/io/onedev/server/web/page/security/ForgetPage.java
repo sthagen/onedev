@@ -5,14 +5,14 @@ import java.util.Arrays;
 
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.shiro.authc.credential.PasswordService;
+import org.apache.wicket.feedback.FencedFeedbackPanel;
 import org.apache.wicket.markup.html.form.Form;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 import org.hibernate.validator.constraints.NotEmpty;
 
-import de.agilecoders.wicket.core.markup.html.bootstrap.common.NotificationPanel;
 import io.onedev.commons.launcher.loader.AppLoader;
 import io.onedev.server.OneDev;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.entitymanager.SettingManager;
 import io.onedev.server.entitymanager.UserManager;
 import io.onedev.server.model.User;
@@ -36,7 +36,7 @@ public class ForgetPage extends BasePage {
 		
 		HelperBean bean = new HelperBean();
 		Form<?> form = new Form<Void>("form");
-		form.add(new NotificationPanel("feedback", form));		
+		form.add(new FencedFeedbackPanel("feedback", form));		
 		form.add(BeanContext.edit("editor", bean));
 		
 		form.add(new TaskButton("resettingPassword") {
@@ -49,29 +49,36 @@ public class ForgetPage extends BasePage {
 					user = userManager.findByEmail(bean.getUserNameOrEmailAddress());
 				}
 				if (user == null) {
-					throw new OneException("No user found with name or email: " + bean.getUserNameOrEmailAddress());
+					throw new GeneralException("No user found with name or email: " + bean.getUserNameOrEmailAddress());
 				} else {
-					SettingManager configManager = OneDev.getInstance(SettingManager.class);
-					if (configManager.getMailSetting() != null) {
+					SettingManager settingManager = OneDev.getInstance(SettingManager.class);
+					if (settingManager.getMailSetting() != null) {
 						String password = RandomStringUtils.random(10, true, true);								
 						user.setPassword(AppLoader.getInstance(PasswordService.class).encryptPassword(password));
 						userManager.save(user);
 						
 						MailManager mailManager = OneDev.getInstance(MailManager.class);
-						String mailBody = String.format("Dear %s, "
+						
+						String serverUrl = settingManager.getSystemSetting().getServerUrl();
+						
+						String htmlBody = String.format("Dear %s, "
 							+ "<p style='margin: 16px 0;'>"
-							+ "Per your request, password of your user \"%s\" has been reset to:<br>"
+							+ "Per your request, password of your login \"%s\" at <a href=\"%s\">%s</a> has been reset to:<br>"
 							+ "%s<br><br>"
-							+ "Please login and change the password in your earliest convenience."
-							+ "<p style='margin: 16px 0;'>"
-							+ "-- Sent by OneDev", 
-							user.getDisplayName(), user.getName(), password);
+							+ "Please login and change the password in your earliest convenience.",
+							user.getDisplayName(), user.getName(), serverUrl, serverUrl, password);
 
-						mailManager.sendMail(configManager.getMailSetting(), Arrays.asList(user.getEmail()), 
-								"Your OneDev password has been reset", mailBody);
+						String textBody = String.format("Dear %s,\n\n"
+								+ "Per your request, password of your login \"%s\" at %s has been reset to:\n"
+								+ "%s\n\n"
+								+ "Please login and change the password in your earliest convenience.",
+								user.getDisplayName(), user.getName(), serverUrl, password);
+						
+						mailManager.sendMail(settingManager.getMailSetting(), Arrays.asList(user.getEmail()), 
+								"Your OneDev password has been reset", htmlBody, textBody);
 						return "Please check your email " + user.getEmail() + " for the reset password";
 					} else {
-						throw new OneException("Unable to send password reset email as smtp setting is not defined");
+						throw new GeneralException("Unable to send password reset email as smtp setting is not defined");
 					}
 				}
 			}

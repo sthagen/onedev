@@ -5,57 +5,50 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
-import org.apache.commons.lang.StringUtils;
-import org.apache.shiro.authc.credential.PasswordService;
-import org.apache.wicket.Component;
 import org.apache.wicket.Session;
 import org.apache.wicket.ajax.AjaxRequestTarget;
-import org.apache.wicket.ajax.form.OnChangeAjaxBehavior;
+import org.apache.wicket.ajax.attributes.AjaxRequestAttributes;
+import org.apache.wicket.ajax.markup.html.AjaxLink;
 import org.apache.wicket.extensions.markup.html.repeater.data.grid.ICellPopulator;
 import org.apache.wicket.extensions.markup.html.repeater.data.table.AbstractColumn;
 import org.apache.wicket.extensions.markup.html.repeater.data.table.DataTable;
 import org.apache.wicket.extensions.markup.html.repeater.data.table.IColumn;
 import org.apache.wicket.extensions.markup.html.repeater.util.SortableDataProvider;
-import org.apache.wicket.feedback.FencedFeedbackPanel;
 import org.apache.wicket.markup.ComponentTag;
 import org.apache.wicket.markup.head.CssHeaderItem;
 import org.apache.wicket.markup.head.IHeaderResponse;
+import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.markup.html.basic.Label;
-import org.apache.wicket.markup.html.form.CheckBox;
 import org.apache.wicket.markup.html.form.TextField;
-import org.apache.wicket.markup.html.link.BookmarkablePageLink;
 import org.apache.wicket.markup.html.link.Link;
 import org.apache.wicket.markup.html.panel.Fragment;
 import org.apache.wicket.markup.repeater.Item;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.model.Model;
+import org.apache.wicket.request.cycle.RequestCycle;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 import org.hibernate.criterion.MatchMode;
 import org.hibernate.criterion.Order;
 import org.hibernate.criterion.Restrictions;
-import org.hibernate.validator.constraints.NotEmpty;
 
 import io.onedev.server.OneDev;
-import io.onedev.server.entitymanager.SettingManager;
 import io.onedev.server.entitymanager.UserManager;
 import io.onedev.server.model.User;
 import io.onedev.server.persistence.dao.EntityCriteria;
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.web.WebConstants;
+import io.onedev.server.web.WebSession;
+import io.onedev.server.web.ajaxlistener.ConfirmClickListener;
 import io.onedev.server.web.behavior.OnTypingDoneBehavior;
-import io.onedev.server.web.component.beaneditmodal.BeanEditModalPanel;
-import io.onedev.server.web.component.datatable.DefaultDataTable;
-import io.onedev.server.web.component.datatable.LoadableDetachableDataProvider;
-import io.onedev.server.web.component.modal.confirm.ConfirmModal;
-import io.onedev.server.web.component.user.UserDeleteLink;
+import io.onedev.server.web.component.datatable.HistoryAwareDataTable;
+import io.onedev.server.web.component.link.ActionablePageLink;
 import io.onedev.server.web.component.user.avatar.UserAvatar;
-import io.onedev.server.web.editable.annotation.Editable;
-import io.onedev.server.web.editable.annotation.Password;
 import io.onedev.server.web.page.admin.AdministrationPage;
 import io.onedev.server.web.page.admin.user.create.NewUserPage;
 import io.onedev.server.web.page.admin.user.profile.UserProfilePage;
 import io.onedev.server.web.page.project.ProjectListPage;
+import io.onedev.server.web.util.LoadableDetachableDataProvider;
 import io.onedev.server.web.util.PagingHistorySupport;
 
 @SuppressWarnings("serial")
@@ -65,9 +58,13 @@ public class UserListPage extends AdministrationPage {
 	
 	private static final String PARAM_QUERY = "query";
 	
+	private TextField<String> searchField;
+	
 	private DataTable<User, Void> usersTable;
 	
 	private String query;
+	
+	private boolean typing;
 	
 	public UserListPage(PageParameters params) {
 		super(params);
@@ -89,19 +86,62 @@ public class UserListPage extends AdministrationPage {
 	}
 	
 	@Override
+	protected void onPopState(AjaxRequestTarget target, Serializable data) {
+		super.onPopState(target, data);
+		query = (String) data;
+		getPageParameters().set(PARAM_QUERY, query);
+		target.add(searchField);
+		target.add(usersTable);
+	}
+
+	@Override
+	protected void onBeforeRender() {
+		typing = false;
+		super.onBeforeRender();
+	}
+
+	@Override
 	protected void onInitialize() {
 		super.onInitialize();
 		
-		TextField<String> searchField;
-		add(searchField = new TextField<String>("filterUsers", Model.of(query)));
+		add(searchField = new TextField<String>("filterUsers", new IModel<String>() {
+
+			@Override
+			public void detach() {
+			}
+
+			@Override
+			public String getObject() {
+				return query;
+			}
+
+			@Override
+			public void setObject(String object) {
+				query = object;
+				PageParameters params = getPageParameters();
+				params.set(PARAM_QUERY, query);
+				params.remove(PARAM_PAGE);
+				
+				String url = RequestCycle.get().urlFor(UserListPage.class, params).toString();
+
+				AjaxRequestTarget target = RequestCycle.get().find(AjaxRequestTarget.class);
+				if (typing)
+					replaceState(target, url, query);
+				else
+					pushState(target, url, query);
+				
+				usersTable.setCurrentPage(0);
+				target.add(usersTable);
+				
+				typing = true;
+			}
+			
+		}));
+		
 		searchField.add(new OnTypingDoneBehavior(100) {
 
 			@Override
 			protected void onTypingDone(AjaxRequestTarget target) {
-				query = searchField.getInput();
-				if (StringUtils.isBlank(query))
-					query = null;
-				target.add(usersTable);
 			}
 
 		});
@@ -121,8 +161,6 @@ public class UserListPage extends AdministrationPage {
 			
 		});
 		
-		add(new FencedFeedbackPanel("feedback", this).setEscapeModelStrings(false));
-		
 		List<IColumn<User, Void>> columns = new ArrayList<>();
 		
 		columns.add(new AbstractColumn<User, Void>(Model.of("Login Name")) {
@@ -132,7 +170,16 @@ public class UserListPage extends AdministrationPage {
 					IModel<User> rowModel) {
 				User user = rowModel.getObject();
 				Fragment fragment = new Fragment(componentId, "nameFrag", UserListPage.this);
-				Link<Void> link = new BookmarkablePageLink<Void>("link", UserProfilePage.class, UserProfilePage.paramsOf(user));
+				WebMarkupContainer link = new ActionablePageLink<Void>("link", UserProfilePage.class, UserProfilePage.paramsOf(user)) {
+
+					@Override
+					protected void doBeforeNav(AjaxRequestTarget target) {
+						String redirectUrlAfterDelete = RequestCycle.get().urlFor(
+								UserListPage.class, getPageParameters()).toString();
+						WebSession.get().setRedirectUrlAfterDelete(User.class, redirectUrlAfterDelete);
+					}
+					
+				};
 				link.add(new UserAvatar("avatar", user));
 				link.add(new Label("name", user.getName()));
 				fragment.add(link);
@@ -170,108 +217,19 @@ public class UserListPage extends AdministrationPage {
 			
 		});
 		
-		if (OneDev.getInstance(SettingManager.class).getAuthenticator() != null) {
-			columns.add(new AbstractColumn<User, Void>(Model.of("Authenticator")) {
+		columns.add(new AbstractColumn<User, Void>(Model.of("Auth Source")) {
 
-				private Component newCheckBox(String componentId, IModel<User> userModel) {
-					boolean useExternal = userModel.getObject().getPassword().equals(User.EXTERNAL_MANAGED);
-					CheckBox checkbox = new CheckBox(componentId, Model.of(useExternal)) {
-
-						@Override
-						protected void onConfigure() {
-							super.onConfigure();
-							setEnabled(!userModel.getObject().isRoot());
-						}
-
-						@Override
-						protected void onComponentTag(ComponentTag tag) {
-							super.onComponentTag(tag);
-							if (userModel.getObject().isRoot()) {
-								tag.put("disabled", "disabled");
-								tag.put("title", "Administrator always authenticate via internal database");
-							}
-						}
-
-					};
-					
-					checkbox.add(new OnChangeAjaxBehavior() {
-						
-						private void refresh(AjaxRequestTarget target) {
-							Component newCheckbox = newCheckBox(componentId, userModel);
-							checkbox.replaceWith(newCheckbox);
-							target.add(newCheckbox);
-						}
-						
-						@Override
-						public void onUpdate(AjaxRequestTarget target) {
-							User user = userModel.getObject();
-							if (user.getPassword().equals(User.EXTERNAL_MANAGED)) {
-								PasswordBean bean = new PasswordBean();
-								new BeanEditModalPanel(target, bean) {
-									
-									@Override
-									protected void onSave(AjaxRequestTarget target, Serializable bean) {
-										User user = userModel.getObject();
-										user.setPassword(OneDev.getInstance(PasswordService.class).encryptPassword(((PasswordBean) bean).getPassword()));
-										OneDev.getInstance(UserManager.class).save(user);
-										refresh(target);
-										close();
-										Session.get().success("Switched to authenticate via internal database");
-									}
-
-									@Override
-									protected void onCancel(AjaxRequestTarget target) {
-										super.onCancel(target);
-										refresh(target);
-									}
-									
-								};
-							} else {
-								new ConfirmModal(target) {
-									
-									@Override
-									protected void onConfirm(AjaxRequestTarget target) {
-										user.setPassword(User.EXTERNAL_MANAGED);
-										OneDev.getInstance(UserManager.class).save(user);
-										refresh(target);
-										Session.get().success("Switched to use external authenticator");
-									}
-									
-									@Override
-									protected void onCancel(AjaxRequestTarget target) {
-										super.onCancel(target);
-										refresh(target);
-									}
-
-									@Override
-									protected String getConfirmMessage() {
-										return "This will clear password of user '" + userModel.getObject().getDisplayName() 
-												+ "' from internal database, and use external authenticator instead. Do you really want to continue?";
-									}
-									
-									@Override
-									protected String getConfirmInput() {
-										return null;
-									}
-									
-								};
-							}
-						}
-						
-					}).setOutputMarkupId(true);		
-					
-					return checkbox;
-				}
-				
-				@Override
-				public void populateItem(Item<ICellPopulator<User>> cellItem, String componentId, IModel<User> rowModel) {
-					Fragment fragment = new Fragment(componentId, "authenticatorFrag", UserListPage.this);
-					fragment.add(newCheckBox("external", rowModel));
-					cellItem.add(fragment);
-				}
-				
-			});
-		}
+			@Override
+			public String getCssClass() {
+				return "expanded";
+			}
+			
+			@Override
+			public void populateItem(Item<ICellPopulator<User>> cellItem, String componentId, IModel<User> rowModel) {
+				cellItem.add(new Label(componentId, rowModel.getObject().getAuthSource()));
+			}
+			
+		});
 		
 		columns.add(new AbstractColumn<User, Void>(Model.of("")) {
 
@@ -279,18 +237,45 @@ public class UserListPage extends AdministrationPage {
 			public void populateItem(Item<ICellPopulator<User>> cellItem, String componentId, IModel<User> rowModel) {
 				Fragment fragment = new Fragment(componentId, "actionFrag", UserListPage.this);
 				
-				fragment.add(new UserDeleteLink("delete") {
+				fragment.add(new AjaxLink<Void>("delete") {
 
 					@Override
-					protected User getUser() {
-						return rowModel.getObject();
+					public void onClick(AjaxRequestTarget target) {
+						User user = rowModel.getObject();
+						OneDev.getInstance(UserManager.class).delete(user);
+						Session.get().success("User '" + user.getDisplayName() + "' deleted");
+						
+						target.add(usersTable);
 					}
 
 					@Override
-					protected void onDeleted(AjaxRequestTarget target) {
-						setResponsePage(UserListPage.class, getPageParameters());
+					protected void updateAjaxAttributes(AjaxRequestAttributes attributes) {
+						super.updateAjaxAttributes(attributes);
+						
+						User user = rowModel.getObject();
+						String message = "Do you really want to delete user '" + user.getDisplayName() + "'?";
+						attributes.getAjaxCallListeners().add(new ConfirmClickListener(message));
 					}
-										
+
+					@Override
+					protected void onComponentTag(ComponentTag tag) {
+						super.onComponentTag(tag);
+						if (!isEnabled())
+							tag.put("disabled", "disabled");
+						User user = rowModel.getObject();
+						if (user.isRoot())
+							tag.put("title", "Root user can not be deleted");
+						else if (user.equals(SecurityUtils.getUser()))
+							tag.put("title", "You can not delete yourself");
+					}
+
+					@Override
+					protected void onConfigure() {
+						super.onConfigure();
+						User user = rowModel.getObject();
+						setEnabled(!user.isRoot() && !user.equals(SecurityUtils.getUser()));
+					}
+
 				});
 				
 				fragment.add(new Link<Void>("impersonate") {
@@ -359,7 +344,7 @@ public class UserListPage extends AdministrationPage {
 			
 		};
 		
-		add(usersTable = new DefaultDataTable<User, Void>("users", columns, dataProvider, 
+		add(usersTable = new HistoryAwareDataTable<User, Void>("users", columns, dataProvider, 
 				WebConstants.PAGE_SIZE, pagingHistorySupport));
 	}
 
@@ -369,23 +354,4 @@ public class UserListPage extends AdministrationPage {
 		response.render(CssHeaderItem.forReference(new UserCssResourceReference()));
 	}
 
-	@Editable(name="Authenticate via Internal Database")
-	public static class PasswordBean implements Serializable {
-		
-		private String password;
-
-		@Editable(order=200, name="Specify User Password", 
-				description="To authenticate via internal database, you need to specify password of the user")
-		@Password(confirmative=true)
-		@NotEmpty
-		public String getPassword() {
-			return password;
-		}
-
-		public void setPassword(String password) {
-			this.password = password;
-		}
-		
-	}
-	
 }

@@ -17,6 +17,7 @@ import org.apache.wicket.ajax.form.AjaxFormComponentUpdatingBehavior;
 import org.apache.wicket.ajax.markup.html.AjaxLink;
 import org.apache.wicket.ajax.markup.html.form.AjaxButton;
 import org.apache.wicket.behavior.Behavior;
+import org.apache.wicket.feedback.FencedFeedbackPanel;
 import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.markup.html.form.CheckBox;
 import org.apache.wicket.markup.html.form.Form;
@@ -29,20 +30,19 @@ import org.apache.wicket.model.PropertyModel;
 import com.google.common.base.Optional;
 import com.google.common.collect.Lists;
 
-import de.agilecoders.wicket.core.markup.html.bootstrap.common.NotificationPanel;
 import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.IssueChangeManager;
 import io.onedev.server.entitymanager.SettingManager;
-import io.onedev.server.issue.fieldspec.FieldSpec;
 import io.onedev.server.model.Issue;
 import io.onedev.server.model.Milestone;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.support.administration.GlobalIssueSetting;
+import io.onedev.server.model.support.inputspec.InputContext;
+import io.onedev.server.model.support.inputspec.InputSpec;
+import io.onedev.server.model.support.issue.fieldspec.FieldSpec;
 import io.onedev.server.search.entity.issue.IssueQuery;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.IssueUtils;
-import io.onedev.server.util.SecurityUtils;
-import io.onedev.server.util.inputspec.InputContext;
-import io.onedev.server.util.inputspec.InputSpec;
 import io.onedev.server.web.ajaxlistener.DisableGlobalLoadingIndicatorListener;
 import io.onedev.server.web.behavior.RunTaskBehavior;
 import io.onedev.server.web.component.project.comment.CommentInput;
@@ -98,7 +98,7 @@ abstract class BatchEditPanel extends Panel implements InputContext {
 		
 		form.add(new Label("title", "Batch Editing " + getIssueCount() + " Issues"));
 		
-		form.add(new NotificationPanel("feedback", form));
+		form.add(new FencedFeedbackPanel("feedback", form));
 		
 		form.add(new CheckBox("stateCheck", new IModel<Boolean>() {
 
@@ -108,15 +108,15 @@ abstract class BatchEditPanel extends Panel implements InputContext {
 
 			@Override
 			public Boolean getObject() {
-				return selectedFields.contains(Issue.FIELD_STATE);
+				return selectedFields.contains(Issue.NAME_STATE);
 			}
 
 			@Override
 			public void setObject(Boolean object) {
 				if (object)
-					selectedFields.add(Issue.FIELD_STATE);
+					selectedFields.add(Issue.NAME_STATE);
 				else
-					selectedFields.remove(Issue.FIELD_STATE);
+					selectedFields.remove(Issue.NAME_STATE);
 			}
 			
 		}).add(newOnChangeBehavior(form)));
@@ -129,15 +129,15 @@ abstract class BatchEditPanel extends Panel implements InputContext {
 
 			@Override
 			public Boolean getObject() {
-				return selectedFields.contains(Issue.FIELD_MILESTONE);
+				return selectedFields.contains(Issue.NAME_MILESTONE);
 			}
 
 			@Override
 			public void setObject(Boolean object) {
 				if (object)
-					selectedFields.add(Issue.FIELD_MILESTONE);
+					selectedFields.add(Issue.NAME_MILESTONE);
 				else
-					selectedFields.remove(Issue.FIELD_MILESTONE);
+					selectedFields.remove(Issue.NAME_MILESTONE);
 			}
 			
 		}).add(newOnChangeBehavior(form)));
@@ -195,9 +195,9 @@ abstract class BatchEditPanel extends Panel implements InputContext {
 		}
 		
 		Set<String> excludedProperties = new HashSet<>();
-		if (!selectedFields.contains(Issue.FIELD_STATE))
+		if (!selectedFields.contains(Issue.NAME_STATE))
 			excludedProperties.add(Issue.PROP_STATE);
-		if (!selectedFields.contains(Issue.FIELD_MILESTONE))
+		if (!selectedFields.contains(Issue.NAME_MILESTONE))
 			excludedProperties.add(Issue.PROP_MILESTONE);
 		
 		builtInFieldsEditor = BeanContext.edit("builtInFieldsEditor", builtInFieldsBean, excludedProperties, true); 
@@ -245,13 +245,13 @@ abstract class BatchEditPanel extends Panel implements InputContext {
 					@Override
 					protected void runTask(AjaxRequestTarget target) {
 						String state;
-						if (selectedFields.contains(Issue.FIELD_STATE))
+						if (selectedFields.contains(Issue.NAME_STATE))
 							state = builtInFieldsBean.getState();
 						else
 							state = null;
 						
 						Optional<Milestone> milestone;
-						if (selectedFields.contains(Issue.FIELD_MILESTONE))
+						if (selectedFields.contains(Issue.NAME_MILESTONE))
 							milestone = Optional.fromNullable(getProject().getMilestone(builtInFieldsBean.getMilestone()));
 						else
 							milestone = null;

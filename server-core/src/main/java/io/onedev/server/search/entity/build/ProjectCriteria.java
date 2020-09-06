@@ -37,8 +37,8 @@ public class ProjectCriteria extends EntityCriteria<Build> {
 	}
 
 	@Override
-	public String asString() {
-		return quote(Build.FIELD_PROJECT) + " " 
+	public String toStringWithoutParens() {
+		return quote(Build.NAME_PROJECT) + " " 
 				+ BuildQuery.getRuleName(BuildQueryLexer.Is) + " " 
 				+ quote(projectName);
 	}

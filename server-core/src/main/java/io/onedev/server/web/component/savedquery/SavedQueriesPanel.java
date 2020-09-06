@@ -16,6 +16,7 @@ import org.apache.wicket.ajax.markup.html.form.AjaxButton;
 import org.apache.wicket.core.request.handler.IPartialPageRequestHandler;
 import org.apache.wicket.event.Broadcast;
 import org.apache.wicket.event.IEvent;
+import org.apache.wicket.feedback.FencedFeedbackPanel;
 import org.apache.wicket.markup.head.CssHeaderItem;
 import org.apache.wicket.markup.head.IHeaderResponse;
 import org.apache.wicket.markup.html.WebMarkupContainer;
@@ -32,14 +33,13 @@ import org.apache.wicket.request.cycle.RequestCycle;
 import org.apache.wicket.request.http.WebRequest;
 import org.apache.wicket.request.http.WebResponse;
 
-import de.agilecoders.wicket.core.markup.html.bootstrap.common.NotificationPanel;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.support.NamedQuery;
 import io.onedev.server.model.support.QuerySetting;
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.watch.WatchStatus;
+import io.onedev.server.web.ajaxlistener.ConfirmClickListener;
 import io.onedev.server.web.ajaxlistener.ConfirmLeaveListener;
-import io.onedev.server.web.ajaxlistener.ConfirmListener;
 import io.onedev.server.web.component.modal.ModalLink;
 import io.onedev.server.web.component.modal.ModalPanel;
 import io.onedev.server.web.component.subscriptionstatus.SubscriptionStatusLink;
@@ -479,7 +479,7 @@ public abstract class SavedQueriesPanel<T extends NamedQuery> extends Panel {
 			Form<?> form = new Form<Void>("form");
 			form.setOutputMarkupId(true);
 			
-			form.add(new NotificationPanel("feedback", form));
+			form.add(new FencedFeedbackPanel("feedback", form));
 			form.add(BeanContext.edit("editor", bean));
 			form.add(new AjaxButton("save") {
 
@@ -512,7 +512,7 @@ public abstract class SavedQueriesPanel<T extends NamedQuery> extends Panel {
 				protected void updateAjaxAttributes(AjaxRequestAttributes attributes) {
 					super.updateAjaxAttributes(attributes);
 					String message = "This will discard all project specific queries, do you want to continue?";
-					attributes.getAjaxCallListeners().add(new ConfirmListener(message));
+					attributes.getAjaxCallListeners().add(new ConfirmClickListener(message));
 				}
 
 				@Override

@@ -1,11 +1,11 @@
 package io.onedev.server.search.entity.codecomment;
 
-import static io.onedev.server.model.CodeComment.FIELD_CONTENT;
-import static io.onedev.server.model.CodeComment.FIELD_CREATE_DATE;
-import static io.onedev.server.model.CodeComment.FIELD_PATH;
-import static io.onedev.server.model.CodeComment.FIELD_REPLY;
-import static io.onedev.server.model.CodeComment.FIELD_REPLY_COUNT;
-import static io.onedev.server.model.CodeComment.FIELD_UPDATE_DATE;
+import static io.onedev.server.model.CodeComment.NAME_CONTENT;
+import static io.onedev.server.model.CodeComment.NAME_CREATE_DATE;
+import static io.onedev.server.model.CodeComment.NAME_PATH;
+import static io.onedev.server.model.CodeComment.NAME_REPLY;
+import static io.onedev.server.model.CodeComment.NAME_REPLY_COUNT;
+import static io.onedev.server.model.CodeComment.NAME_UPDATE_DATE;
 import static io.onedev.server.model.CodeComment.ORDER_FIELDS;
 import static io.onedev.server.model.CodeComment.QUERY_FIELDS;
 
@@ -24,7 +24,7 @@ import org.antlr.v4.runtime.RecognitionException;
 import org.antlr.v4.runtime.Recognizer;
 
 import io.onedev.commons.codeassist.AntlrUtils;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.model.CodeComment;
 import io.onedev.server.model.Project;
 import io.onedev.server.search.entity.AndEntityCriteria;
@@ -44,7 +44,7 @@ import io.onedev.server.search.entity.codecomment.CodeCommentQueryParser.OrCrite
 import io.onedev.server.search.entity.codecomment.CodeCommentQueryParser.OrderContext;
 import io.onedev.server.search.entity.codecomment.CodeCommentQueryParser.ParensCriteriaContext;
 import io.onedev.server.search.entity.codecomment.CodeCommentQueryParser.QueryContext;
-import io.onedev.server.util.ProjectAwareCommit;
+import io.onedev.server.util.ProjectScopedCommit;
 
 public class CodeCommentQuery extends EntityQuery<CodeComment> {
 
@@ -101,9 +101,9 @@ public class CodeCommentQuery extends EntityQuery<CodeComment> {
 						int operator = ctx.operator.getType();
 						String value = getValue(ctx.Quoted().getText());
 						if (operator == CodeCommentQueryLexer.CreatedBy) {
-							return new CreatedByCriteria(value);
+							return new CreatedByCriteria(getUser(value));
 						} else {
-							ProjectAwareCommit commitId = getCommitId(project, value); 
+							ProjectScopedCommit commitId = getCommitId(project, value); 
 							return new OnCommitCriteria(commitId.getProject(), commitId.getCommitId());
 						}
 					}
@@ -125,9 +125,9 @@ public class CodeCommentQuery extends EntityQuery<CodeComment> {
 						case CodeCommentQueryLexer.IsAfter:
 							Date dateValue = getDateValue(value);
 							switch (fieldName) {
-							case FIELD_CREATE_DATE:
+							case NAME_CREATE_DATE:
 								return new CreateDateCriteria(dateValue, value, operator);
-							case FIELD_UPDATE_DATE:
+							case NAME_UPDATE_DATE:
 								return new UpdateDateCriteria(dateValue, value, operator);
 							default:
 								throw new IllegalStateException();
@@ -137,18 +137,18 @@ public class CodeCommentQuery extends EntityQuery<CodeComment> {
 							return new ReplyCountCriteria(getIntValue(value), operator);
 						case CodeCommentQueryLexer.Contains:
 							switch (fieldName) {
-							case FIELD_CONTENT:
+							case NAME_CONTENT:
 								return new ContentCriteria(value);
-							case FIELD_REPLY:
+							case NAME_REPLY:
 								return new ReplyCriteria(value);
 							default:
 								throw new IllegalStateException();
 							}
 						case CodeCommentQueryLexer.Is:
 							switch (fieldName) {
-							case FIELD_PATH:
+							case NAME_PATH:
 								return new PathCriteria(value);
-							case FIELD_REPLY_COUNT:
+							case NAME_REPLY_COUNT:
 								return new ReplyCountCriteria(getIntValue(value), operator);
 							default: 
 								throw new IllegalStateException();
@@ -188,7 +188,7 @@ public class CodeCommentQuery extends EntityQuery<CodeComment> {
 			for (OrderContext order: queryContext.order()) {
 				String fieldName = getValue(order.Quoted().getText());
 				if (!ORDER_FIELDS.containsKey(fieldName)) 
-					throw new OneException("Can not order by field: " + fieldName);
+					throw new GeneralException("Can not order by field: " + fieldName);
 				
 				EntitySort commentSort = new EntitySort();
 				commentSort.setField(fieldName);
@@ -207,31 +207,31 @@ public class CodeCommentQuery extends EntityQuery<CodeComment> {
 	
 	public static void checkField(Project project, String fieldName, int operator) {
 		if (!QUERY_FIELDS.contains(fieldName))
-			throw new OneException("Field not found: " + fieldName);
+			throw new GeneralException("Field not found: " + fieldName);
 		switch (operator) {
 		case CodeCommentQueryLexer.IsBefore:
 		case CodeCommentQueryLexer.IsAfter:
-			if (!fieldName.equals(FIELD_CREATE_DATE) && !fieldName.equals(FIELD_UPDATE_DATE)) 
+			if (!fieldName.equals(NAME_CREATE_DATE) && !fieldName.equals(NAME_UPDATE_DATE)) 
 				throw newOperatorException(fieldName, operator);
 			break;
 		case CodeCommentQueryLexer.IsGreaterThan:
 		case CodeCommentQueryLexer.IsLessThan:
-			if (!fieldName.equals(FIELD_REPLY_COUNT))
+			if (!fieldName.equals(NAME_REPLY_COUNT))
 				throw newOperatorException(fieldName, operator);
 			break;
 		case CodeCommentQueryLexer.Contains:
-			if (!fieldName.equals(FIELD_CONTENT) && !fieldName.equals(FIELD_REPLY))
+			if (!fieldName.equals(NAME_CONTENT) && !fieldName.equals(NAME_REPLY))
 				throw newOperatorException(fieldName, operator);
 			break;
 		case CodeCommentQueryLexer.Is:
-			if (!fieldName.equals(FIELD_REPLY_COUNT) && !fieldName.equals(FIELD_PATH)) 
+			if (!fieldName.equals(NAME_REPLY_COUNT) && !fieldName.equals(NAME_PATH)) 
 				throw newOperatorException(fieldName, operator);
 			break;
 		}
 	}
 	
-	private static OneException newOperatorException(String fieldName, int operator) {
-		return new OneException("Field '" + fieldName + "' is not applicable for operator '" + getRuleName(operator) + "'");
+	private static GeneralException newOperatorException(String fieldName, int operator) {
+		return new GeneralException("Field '" + fieldName + "' is not applicable for operator '" + getRuleName(operator) + "'");
 	}
 	
 	public static String getRuleName(int rule) {

@@ -1,7 +1,7 @@
 onedev.server.textDiff = {
 	symbolClasses: ".cm-property, .cm-variable, .cm-variable-2, .cm-variable-3, .cm-def, .cm-meta, .cm-string, .cm-tag, .cm-attribute, cm-builtin, cm-qualifier",
 	onDomReady: function(containerId, symbolTooltipId, oldRev, newRev, callback, blameMessageCallback,
-			commentSupport, unableCommentMessage, mark, openComment, oldComments, newComments, dirtyContainerId, doclink) {
+			mark, openComment, oldComments, newComments, dirtyContainerId, doclink) {
 		var $container = $("#" + containerId);
 		$container.data("dirtyContainerId", dirtyContainerId);
 		$container.data("callback", callback);
@@ -326,18 +326,9 @@ onedev.server.textDiff = {
 			position.left += $(window).scrollLeft();
 			position.top += $(window).scrollTop();
 
-			if (!commentSupport) {
-				var $content = $("<div></div>");
-				$content.append("<span class='invalid'><i class='fa fa-warning'></i> " + unableCommentMessage + "</span>");
-				return {
-					position: position, 
-					content: $content
-				}
-			}
-			
 			function showInvalidSelection() {
 				var $content = $("<div></div>");
-				$content.append("<a class='invalid'><i class='fa fa-warning'></i> Invalid selection, click for details</a>");
+				$content.append("<a class='invalid'><svg class='icon'><use xlink:href='" + onedev.server.icons + "#warning'/></svg> Invalid selection, click for details</a>");
 				$content.children("a").attr("href", doclink + "/pages/diff-selection.md").attr("target", "_blank");
 				return {
 					position: position, 
@@ -478,30 +469,34 @@ onedev.server.textDiff = {
 	openSelectionPopover: function(containerId, position, mark, markUrl, markedText, loggedIn) {
 		var $container = $("#" + containerId);
 		
-		var $content = $("<div><a class='permanent'><i class='fa fa-link'></i> Permanent link of this selection</a>");
-		$content.children("a.permanent").attr("href", markUrl);
-		$content.append("<a class='copy-marked'><i class='fa fa-clipboard'></i> Copy selected text to clipboard</a>");
-		var clipboard = new Clipboard(".copy-marked", {
-		    text: function(trigger) {
-		        return markedText;
-		    }
-		});		
-		clipboard.on("success", function(e) {
-			clipboard.destroy();
-		});
-		if (loggedIn) {
-			$content.append("<a class='comment'><i class='fa fa-comment'></i> Add comment on this selection</a>");
-			$content.children("a.comment").click(function() {
-				if ($("#"+$container.data("dirtyContainerId")).find("form.dirty").length != 0 
-						&& !confirm("There are unsaved changes, discard and continue?")) {
-					return;
-				}
-				$container.data("callback")("addComment", mark.leftSide, 
-						mark.fromRow, mark.fromColumn, mark.toRow, mark.toColumn);
-			});
+		if (!markUrl) {
+			$content = $("<div><span class='invalid'><svg class='icon'><use xlink:href='" + onedev.server.icons + "#warning'/></svg> Unable to comment here</a>");
 		} else {
-			$content.append("<span class='comment'><i class='fa fa-warning'></i> Login to comment on selection</span>");
-		}			
+			var $content = $("<div><a class='permanent'><svg class='icon'><use xlink:href='" + onedev.server.icons + "#link'/></svg> Permanent link of this selection</a>");
+			$content.children("a.permanent").attr("href", markUrl);
+			$content.append("<a class='copy-marked'><svg class='icon'><use xlink:href='" + onedev.server.icons + "#copy'/></svg> Copy selected text to clipboard</a>");
+			var clipboard = new Clipboard(".copy-marked", {
+			    text: function(trigger) {
+			        return markedText;
+			    }
+			});		
+			clipboard.on("success", function(e) {
+				clipboard.destroy();
+			});
+			if (loggedIn) {
+				$content.append("<a class='comment'><svg class='icon'><use xlink:href='" + onedev.server.icons + "#comment'/></svg> Add comment on this selection</a>");
+				$content.children("a.comment").click(function() {
+					if ($("#"+$container.data("dirtyContainerId")).find("form.dirty").length != 0 
+							&& !confirm("There are unsaved changes, discard and continue?")) {
+						return;
+					}
+					$container.data("callback")("addComment", mark.leftSide, 
+							mark.fromRow, mark.fromColumn, mark.toRow, mark.toColumn);
+				});
+			} else {
+				$content.append("<span class='comment'><svg class='icon'><use xlink:href='" + onedev.server.icons + "#warning'/></svg> Login to comment on selection</span>");
+			}			
+		}		
 		
 		$container.selectionPopover("open", {
 			position: position,
@@ -609,16 +604,16 @@ onedev.server.textDiff = {
 		var $startTd = markInfo.startTd;
 		var $endTd = markInfo.endTd;
 		if ($startTd && $endTd) {
-			var top = $startTd.offset().top;
-			var bottom = $endTd.offset().top + $endTd.outerHeight();
-			var markHeight = bottom - top;
-			var windowHeight = $(window).height();
-			if (windowHeight <= markHeight) {
-				$(window).scrollTop(top-50);
-			} else {
-				$(window).scrollTop((top+bottom-windowHeight)/2);
-			}
+			var $scrollParent = $startTd.scrollParent();
+			$scrollParent.scrollTop($startTd.offset().top - $scrollParent.offset().top + $scrollParent.scrollTop()-50);
 		}
+	},
+	scrollIntoView: function($container, mark) {
+		var markInfo = onedev.server.textDiff.getMarkInfo($container, mark);
+		var $startTd = markInfo.startTd;
+		var $endTd = markInfo.endTd;
+		if ($startTd && $endTd)
+			$startTd.scrollIntoView();
 	},
 	mark: function($container, mark) {
 		onedev.server.textDiff.clearMark($container);
@@ -771,7 +766,7 @@ onedev.server.textDiff = {
 			 * trigger link to display the actual comment content  
 			 */
 			var oldOrNew = leftSide?"old":"new";
-			$indicator.append("<i class='fa fa-comments'></i>");
+			$indicator.append("<svg class='icon'><use xlink:href='" + onedev.server.icons + "#comments'/></svg>");
 			var content = "";
 			for (var i in comments) {
 				var comment = comments[i];
@@ -780,9 +775,10 @@ onedev.server.textDiff = {
 			}
 			$indicator.popover({
 				html: true, 
-				container: $lineNumTd,
-				placement: "right auto",
-				template: "<div class='" + oldOrNew + " popover comment-popover' data-line='" + line + "'><div class='arrow'></div><div class='popover-content'></div></div>",
+				sanitize: false, 
+				container: $lineNumTd[0],
+				placement: "auto",
+				template: "<div class='" + oldOrNew + " popover comment-popover' data-line='" + line + "'><div class='arrow'></div><div class='popover-body'></div></div>",
 				content: content
 			});
 			$indicator.on('shown.bs.popover', function () {
@@ -795,12 +791,14 @@ onedev.server.textDiff = {
 						onedev.server.textDiff.restoreMark($container);
 					});
 					$(this).click(function() {
-    					if ($("#"+$container.data("dirtyContainerId")).find("form.dirty").length != 0 
-    							&& !confirm("There are unsaved changes, discard and continue?")) {
-    						return;
-    					}
-						var comment = comments[$(this).index()];			        						
-						callback("toggleComment", comment.id);
+						if (!$(this).hasClass("active")) {
+	    					if ($("#"+$container.data("dirtyContainerId")).find("form.dirty").length != 0 
+	    							&& !confirm("There are unsaved changes, discard and continue?")) {
+	    						return;
+	    					}
+							var comment = comments[$(this).index()];			        						
+							callback("openComment", comment.id);
+						}
 					});
 				});
 				onedev.server.textDiff.highlightCommentTrigger($container);				
@@ -808,7 +806,7 @@ onedev.server.textDiff = {
 		} else {
 			var comment = comments[0];
 			$indicator.addClass("comment-trigger").attr("title", "Click to show comment of marked text");
-			$indicator.append("<i class='fa fa-commenting'></i>");
+			$indicator.append("<svg class='icon'><use xlink:href='" + onedev.server.icons + "#comment'/></svg>");
 			$indicator.mouseover(function() {
 				onedev.server.textDiff.mark($container, comment.mark);
 			});
@@ -816,11 +814,13 @@ onedev.server.textDiff = {
 				onedev.server.textDiff.restoreMark($container);
 			});
 			$indicator.click(function() {
-				if ($("#"+$container.data("dirtyContainerId")).find("form.dirty").length != 0 
-						&& !confirm("There are unsaved changes, discard and continue?")) {
-					return;
+				if (!$indicator.hasClass("active")) {
+					if ($("#"+$container.data("dirtyContainerId")).find("form.dirty").length != 0 
+							&& !confirm("There are unsaved changes, discard and continue?")) {
+						return;
+					}
+					callback("openComment", comment.id);
 				}
-				callback("toggleComment", comment.id);
 			});
 		}
 		$lineNumTd.children(".comment-indicator").remove();
@@ -905,7 +905,7 @@ onedev.server.textDiff = {
 		$container.data("mark", comment.mark);
 		onedev.server.textDiff.highlightCommentTrigger($container);
 		onedev.server.textDiff.mark($container, comment.mark);
-		onedev.server.textDiff.scrollTo($container, comment.mark);
+		onedev.server.textDiff.scrollIntoView($container, comment.mark);
 	},
 	onCloseComment: function($container) {
 		$container.removeData("openComment");
@@ -923,7 +923,7 @@ onedev.server.textDiff = {
 		setTimeout(function() {
 			onedev.server.textDiff.highlightCommentTrigger($container);
 			onedev.server.textDiff.mark($container, mark);
-			onedev.server.textDiff.scrollTo($container, mark);
+			onedev.server.textDiff.scrollIntoView($container, mark);
 		}, 100);
 	}
 };

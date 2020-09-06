@@ -50,8 +50,8 @@ public class CloseDateCriteria extends EntityCriteria<PullRequest> {
 	}
 
 	@Override
-	public String asString() {
-		return quote(PullRequest.FIELD_CLOSE_DATE) + " " 
+	public String toStringWithoutParens() {
+		return quote(PullRequest.NAME_CLOSE_DATE) + " " 
 				+ PullRequestQuery.getRuleName(operator) + " " 
 				+ quote(value);
 	}

@@ -9,6 +9,7 @@ import org.apache.wicket.Component;
 import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.markup.html.link.BookmarkablePageLink;
 import org.apache.wicket.markup.html.link.Link;
+import org.apache.wicket.model.IModel;
 import org.apache.wicket.request.cycle.RequestCycle;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 
@@ -20,7 +21,7 @@ import io.onedev.server.model.support.NamedProjectQuery;
 import io.onedev.server.model.support.NamedQuery;
 import io.onedev.server.model.support.QuerySetting;
 import io.onedev.server.model.support.administration.GlobalProjectSetting;
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.web.component.modal.ModalPanel;
 import io.onedev.server.web.component.project.list.ProjectListPanel;
 import io.onedev.server.web.component.savedquery.NamedQueriesBean;
@@ -46,10 +47,13 @@ public class ProjectListPage extends LayoutPage {
 
 	private SavedQueriesPanel<NamedProjectQuery> savedQueries;
 	
+	private Component projectList;
+	
 	public ProjectListPage(PageParameters params) {
 		super(params);
-		query = getPageParameters().get(PARAM_QUERY).toOptionalString();
+		query = params.get(PARAM_QUERY).toOptionalString();
 		expectedCount = params.get(PARAM_EXPECTED_COUNT).toInt(0);
+		params.remove(PARAM_EXPECTED_COUNT);
 	}
 
 	private static GlobalProjectSetting getProjectSetting() {
@@ -99,19 +103,28 @@ public class ProjectListPage extends LayoutPage {
 
 		});
 		
-		add(newProjectList());
-	}
-	
-	@Override
-	protected void onPopState(AjaxRequestTarget target, Serializable data) {
-		query = (String) data;
-		ProjectListPanel listPanel = newProjectList();
-		replace(listPanel);
-		target.add(listPanel);
-	}
+		add(projectList = new ProjectListPanel("main", new IModel<String>() {
 
-	private ProjectListPanel newProjectList() {
-		return new ProjectListPanel("main", query, expectedCount) {
+			@Override
+			public void detach() {
+			}
+
+			@Override
+			public String getObject() {
+				return query;
+			}
+
+			@Override
+			public void setObject(String object) {
+				query = object;
+				PageParameters params = getPageParameters();
+				params.set(PARAM_QUERY, query);
+				params.remove(PARAM_PAGE);
+				CharSequence url = RequestCycle.get().urlFor(ProjectListPage.class, params);
+				pushState(RequestCycle.get().find(AjaxRequestTarget.class), url.toString(), query);
+			}
+			
+		}, expectedCount) {
 
 			@Override
 			protected PagingHistorySupport getPagingHistorySupport() {
@@ -130,13 +143,6 @@ public class ProjectListPage extends LayoutPage {
 					}
 					
 				};
-			}
-
-			@Override
-			protected void onQueryUpdated(AjaxRequestTarget target, String query) {
-				CharSequence url = RequestCycle.get().urlFor(ProjectListPage.class, paramsOf(query, 0, 0));
-				ProjectListPage.this.query = query;
-				pushState(target, url.toString(), query);
 			}
 
 			@Override
@@ -201,9 +207,16 @@ public class ProjectListPage extends LayoutPage {
 				};
 			}
 
-		};		
+		});
 	}
 	
+	@Override
+	protected void onPopState(AjaxRequestTarget target, Serializable data) {
+		query = (String) data;
+		getPageParameters().set(PARAM_QUERY, query);
+		target.add(projectList);
+	}
+
 	public static PageParameters paramsOf(@Nullable String query, int page, int expectedCount) {
 		PageParameters params = new PageParameters();
 		if (query != null)

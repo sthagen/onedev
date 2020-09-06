@@ -1,6 +1,16 @@
 package io.onedev.server.model;
 
-import static io.onedev.server.model.Build.*;
+import static io.onedev.server.model.Build.PROP_CANCELLER_NAME;
+import static io.onedev.server.model.Build.PROP_COMMIT;
+import static io.onedev.server.model.Build.PROP_FINISH_DATE;
+import static io.onedev.server.model.Build.PROP_JOB;
+import static io.onedev.server.model.Build.PROP_NUMBER;
+import static io.onedev.server.model.Build.PROP_PENDING_DATE;
+import static io.onedev.server.model.Build.PROP_RUNNING_DATE;
+import static io.onedev.server.model.Build.PROP_STATUS;
+import static io.onedev.server.model.Build.PROP_SUBMITTER_NAME;
+import static io.onedev.server.model.Build.PROP_SUBMIT_DATE;
+import static io.onedev.server.model.Build.PROP_VERSION;
 
 import java.io.File;
 import java.io.IOException;
@@ -22,6 +32,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.Stack;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.annotation.Nullable;
 import javax.persistence.CascadeType;
@@ -42,6 +53,7 @@ import org.eclipse.jgit.revwalk.RevWalk;
 import org.hibernate.annotations.Cache;
 import org.hibernate.annotations.CacheConcurrencyStrategy;
 
+import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -50,16 +62,19 @@ import io.onedev.commons.utils.FileUtils;
 import io.onedev.commons.utils.LockUtils;
 import io.onedev.commons.utils.StringUtils;
 import io.onedev.server.OneDev;
+import io.onedev.server.GeneralException;
 import io.onedev.server.buildspec.BuildSpec;
 import io.onedev.server.buildspec.job.Job;
 import io.onedev.server.buildspec.job.VariableInterpolator;
 import io.onedev.server.buildspec.job.paramspec.ParamSpec;
+import io.onedev.server.buildspec.job.paramspec.SecretParam;
 import io.onedev.server.buildspec.job.paramsupply.ParamSupply;
 import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.git.GitUtils;
 import io.onedev.server.git.RefInfo;
 import io.onedev.server.infomanager.CommitInfoManager;
 import io.onedev.server.model.support.build.JobSecret;
+import io.onedev.server.model.support.inputspec.SecretInput;
 import io.onedev.server.search.entity.EntityCriteria;
 import io.onedev.server.storage.StorageManager;
 import io.onedev.server.util.BeanUtils;
@@ -67,11 +82,12 @@ import io.onedev.server.util.CollectionUtils;
 import io.onedev.server.util.ComponentContext;
 import io.onedev.server.util.Input;
 import io.onedev.server.util.IssueUtils;
+import io.onedev.server.util.MatrixRunner;
 import io.onedev.server.util.ProjectScopedNumber;
 import io.onedev.server.util.Referenceable;
 import io.onedev.server.util.facade.BuildFacade;
-import io.onedev.server.util.inputspec.SecretInput;
 import io.onedev.server.util.interpolative.Interpolative;
+import io.onedev.server.util.match.PathMatcher;
 import io.onedev.server.util.patternset.PatternSet;
 import io.onedev.server.util.script.identity.JobIdentity;
 import io.onedev.server.util.script.identity.ScriptIdentity;
@@ -100,98 +116,96 @@ public class Build extends AbstractEntity implements Referenceable {
 
 	public static final String PROP_NUMBER_SCOPE = "numberScope";
 	
-	public static final String FIELD_NUMBER = "Number";
+	public static final String NAME_NUMBER = "Number";
 	
 	public static final String PROP_NUMBER = "number";
 	
-	public static final String FIELD_VERSION = "Version";
+	public static final String NAME_VERSION = "Version";
 	
 	public static final String PROP_VERSION = "version";
 	
-	public static final String FIELD_PROJECT = "Project";
+	public static final String NAME_PROJECT = "Project";
 	
 	public static final String PROP_PROJECT = "project";
 	
-	public static final String FIELD_PROJECT_OWNER = "Project Owner";
-	
-	public static final String FIELD_JOB = "Job";
+	public static final String NAME_JOB = "Job";
 	
 	public static final String PROP_JOB = "jobName";
 	
-	public static final String FIELD_IMAGE = "Image";
+	public static final String NAME_IMAGE = "Image";
 	
-	public static final String FIELD_STATUS = "Status";
+	public static final String NAME_STATUS = "Status";
 	
 	public static final String PROP_STATUS = "status";
 	
-	public static final String FIELD_SUBMITTER = "Submitter";
+	public static final String NAME_SUBMITTER = "Submitter";
 	
 	public static final String PROP_SUBMITTER = "submitter";
 	
 	public static final String PROP_SUBMITTER_NAME = "submitterName";
 	
-	public static final String FIELD_CANCELLER = "Canceller";
+	public static final String NAME_CANCELLER = "Canceller";
 	
 	public static final String PROP_CANCELLER = "canceller";
 	
 	public static final String PROP_CANCELLER_NAME = "cancellerName";
 	
-	public static final String FIELD_SUBMIT_DATE = "Submit Date";
+	public static final String NAME_SUBMIT_DATE = "Submit Date";
 	
 	public static final String PROP_SUBMIT_DATE = "submitDate";
 	
-	public static final String FIELD_PENDING_DATE = "Pending Date";
+	public static final String NAME_PENDING_DATE = "Pending Date";
 	
 	public static final String PROP_PENDING_DATE = "pendingDate";
 	
-	public static final String FIELD_RUNNING_DATE = "Running Date";
+	public static final String NAME_RUNNING_DATE = "Running Date";
 	
 	public static final String PROP_RUNNING_DATE = "runningDate";
 	
-	public static final String FIELD_FINISH_DATE = "Finish Date";
+	public static final String NAME_FINISH_DATE = "Finish Date";
 	
 	public static final String PROP_FINISH_DATE = "finishDate";
 	
-	public static final String FIELD_COMMIT = "Commit";
+	public static final String NAME_COMMIT = "Commit";
 	
 	public static final String PROP_COMMIT = "commitHash";
 	
 	public static final String PROP_PARAMS = "params";
 	
-	public static final String FIELD_DEPENDENCIES = "Dependencies";
+	public static final String NAME_DEPENDENCIES = "Dependencies";
 	
 	public static final String PROP_DEPENDENCIES = "dependencies";
 	
-	public static final String FIELD_DEPENDENTS = "Dependents";
+	public static final String NAME_DEPENDENTS = "Dependents";
 	
 	public static final String PROP_DEPENDENTS = "dependents";
 	
-	public static final String PROP_PULL_REQUEST_BUILDS = "pullRequestBuilds";
+	public static final String PROP_VERIFICATIONS = "verifications";
 	
-	public static final String FIELD_ERROR_MESSAGE = "Error Message";
+	public static final String NAME_ERROR_MESSAGE = "Error Message";
 	
-	public static final String FIELD_LOG = "Log";
+	public static final String NAME_LOG = "Log";
 	
 	public static final Set<String> ALL_FIELDS = Sets.newHashSet(
-			FIELD_PROJECT, FIELD_NUMBER, FIELD_JOB, FIELD_STATUS, FIELD_SUBMITTER, FIELD_CANCELLER, 
-			FIELD_SUBMIT_DATE, FIELD_PENDING_DATE, FIELD_RUNNING_DATE, FIELD_FINISH_DATE, 
-			FIELD_COMMIT, FIELD_VERSION, FIELD_DEPENDENCIES, FIELD_DEPENDENTS, FIELD_ERROR_MESSAGE, 
-			FIELD_LOG, FIELD_PROJECT_OWNER, FIELD_IMAGE);
+			NAME_PROJECT, NAME_NUMBER, NAME_JOB, NAME_STATUS, NAME_SUBMITTER, NAME_CANCELLER, 
+			NAME_SUBMIT_DATE, NAME_PENDING_DATE, NAME_RUNNING_DATE, NAME_FINISH_DATE, 
+			NAME_COMMIT, NAME_VERSION, NAME_DEPENDENCIES, NAME_DEPENDENTS, NAME_ERROR_MESSAGE, 
+			NAME_LOG, NAME_IMAGE);
 	
 	public static final List<String> QUERY_FIELDS = Lists.newArrayList(
-			FIELD_PROJECT, FIELD_JOB, FIELD_NUMBER, FIELD_VERSION, FIELD_COMMIT, FIELD_SUBMIT_DATE, 
-			FIELD_PENDING_DATE, FIELD_RUNNING_DATE, FIELD_FINISH_DATE);
+			NAME_PROJECT, NAME_JOB, NAME_NUMBER, NAME_VERSION, NAME_COMMIT, NAME_SUBMIT_DATE, 
+			NAME_PENDING_DATE, NAME_RUNNING_DATE, NAME_FINISH_DATE);
 
 	public static final Map<String, String> ORDER_FIELDS = CollectionUtils.newLinkedHashMap(
-			FIELD_JOB, PROP_JOB,
-			FIELD_STATUS, PROP_STATUS,
-			FIELD_NUMBER, PROP_NUMBER,
-			FIELD_SUBMIT_DATE, PROP_SUBMIT_DATE,
-			FIELD_PENDING_DATE, PROP_PENDING_DATE,
-			FIELD_RUNNING_DATE, PROP_RUNNING_DATE,
-			FIELD_FINISH_DATE, PROP_FINISH_DATE,
-			FIELD_PROJECT, PROP_PROJECT,
-			FIELD_COMMIT, PROP_COMMIT);	
+			NAME_JOB, PROP_JOB,
+			NAME_STATUS, PROP_STATUS,
+			NAME_NUMBER, PROP_NUMBER,
+			NAME_SUBMIT_DATE, PROP_SUBMIT_DATE,
+			NAME_PENDING_DATE, PROP_PENDING_DATE,
+			NAME_RUNNING_DATE, PROP_RUNNING_DATE,
+			NAME_FINISH_DATE, PROP_FINISH_DATE,
+			NAME_PROJECT, PROP_PROJECT,
+			NAME_COMMIT, PROP_COMMIT);	
 	
 	private static ThreadLocal<Stack<Build>> stack =  new ThreadLocal<Stack<Build>>() {
 
@@ -269,6 +283,11 @@ public class Build extends AbstractEntity implements Referenceable {
 	
 	private Date retryDate;
 	
+	private String updatedRef;
+	
+	@Column(nullable=false, length=1000)
+	private String submitReason;
+	
 	@Column(length=MAX_ERROR_MESSAGE_LEN)
 	private String errorMessage;
 
@@ -285,7 +304,7 @@ public class Build extends AbstractEntity implements Referenceable {
 	private Collection<BuildDependence> dependents= new ArrayList<>();
 	
 	@OneToMany(mappedBy="build", cascade=CascadeType.REMOVE)
-	private Collection<PullRequestBuild> pullRequestBuilds = new ArrayList<>();
+	private Collection<PullRequestVerification> verifications = new ArrayList<>();
 	
 	private transient Map<String, List<String>> paramMap;
 	
@@ -430,12 +449,24 @@ public class Build extends AbstractEntity implements Referenceable {
 				|| status == Status.TIMED_OUT;
 	}
 	
+	public boolean isSuccessful() {
+		return status == Status.SUCCESSFUL;
+	}
+	
 	public Date getSubmitDate() {
 		return submitDate;
 	}
 
 	public void setSubmitDate(Date submitDate) {
 		this.submitDate = submitDate;
+	}
+
+	public String getSubmitReason() {
+		return submitReason;
+	}
+
+	public void setSubmitReason(String submitReason) {
+		this.submitReason = submitReason;
 	}
 
 	public Date getPendingDate() {
@@ -507,12 +538,21 @@ public class Build extends AbstractEntity implements Referenceable {
 		this.errorMessage = errorMessage;
 	}
 
-	public Collection<PullRequestBuild> getPullRequestBuilds() {
-		return pullRequestBuilds;
+	@Nullable
+	public String getUpdatedRef() {
+		return updatedRef;
 	}
 
-	public void setPullRequestBuilds(Collection<PullRequestBuild> pullRequestBuilds) {
-		this.pullRequestBuilds = pullRequestBuilds;
+	public void setUpdatedRef(String updatedRef) {
+		this.updatedRef = updatedRef;
+	}
+
+	public Collection<PullRequestVerification> getVerifications() {
+		return verifications;
+	}
+
+	public void setVerifications(Collection<PullRequestVerification> verifications) {
+		this.verifications = verifications;
 	}
 	
 	public Map<String, List<String>> getParamMap() {
@@ -629,8 +669,8 @@ public class Build extends AbstractEntity implements Referenceable {
 	
 	public Collection<String> getSecretValuesToMask() {
 		Collection<String> secretValuesToMask = new HashSet<>();
-		for (JobSecret secret: getProject().getBuildSetting().getHierarchySecrets(getProject())) {
-			if (secret.isAuthorized(getProject(), getCommitId()))
+		for (JobSecret secret: getProject().getBuildSetting().getJobSecrets()) {
+			if (isOnBranches(secret.getAuthorizedBranches()))
 				secretValuesToMask.add(secret.getValue());
 		}
 		
@@ -670,10 +710,19 @@ public class Build extends AbstractEntity implements Referenceable {
 	}
 	
 	public String getSecretValue(String secretName) {
-		if (secretName.startsWith(SecretInput.LITERAL_VALUE_PREFIX))
+		if (secretName.startsWith(SecretInput.LITERAL_VALUE_PREFIX)) {
 			return secretName.substring(SecretInput.LITERAL_VALUE_PREFIX.length());
-		else
-			return project.getBuildSetting().getSecretValue(project, secretName, ObjectId.fromString(getCommitHash()));
+		} else {
+			for (JobSecret secret: getProject().getBuildSetting().getJobSecrets()) {
+				if (secret.getName().equals(secretName)) {
+					if (isOnBranches(secret.getAuthorizedBranches()))				
+						return secret.getValue();
+					else
+						throw new GeneralException("Job secret not authorized: " + secretName);
+				}
+			}
+			throw new GeneralException("No job secret found: " + secretName);
+		}
 	}
 	
 	public BuildSpec getSpec() {
@@ -904,7 +953,11 @@ public class Build extends AbstractEntity implements Referenceable {
 	}
 	
 	public boolean isValid() {
-		return getProject().getRepository().hasObject(ObjectId.fromString(getCommitHash()));
+		try {
+			return getProject().getRepository().getObjectDatabase().has(ObjectId.fromString(getCommitHash()));
+		} catch (IOException e) {
+			throw new RuntimeException(e);
+		}
 	}
 	
 	@Nullable
@@ -921,5 +974,62 @@ public class Build extends AbstractEntity implements Referenceable {
 			return null;
 		}
 	}
+
+	public boolean isOnBranches(@Nullable String branches) {
+		if (branches == null)
+			branches = "**";
+		if (project.isCommitOnBranches(getCommitId(), branches)) {
+			return true;
+		} else {
+			PatternSet patternSet = PatternSet.parse(branches);
+			PathMatcher matcher = new PathMatcher();
+			for (PullRequestVerification verification: getVerifications()) {
+				PullRequest request = verification.getRequest();
+				if (project.equals(request.getSourceProject()) 
+						&& patternSet.matches(matcher, request.getTargetBranch())
+						&& request.getSourceBranch() != null 
+						&& patternSet.matches(matcher, request.getSourceBranch())) {
+					return true;
+				}
+			}
+			return false;
+		}
+	}
 	
+	public boolean matchParams(List<ParamSupply> paramSupplies) {
+		AtomicBoolean matches = new AtomicBoolean(false);
+		new MatrixRunner<List<String>>(ParamSupply.getParamMatrix(paramSupplies, null)) {
+			
+			@Override
+			public void run(Map<String, List<String>> params) {
+				if (!matches.get()) {
+					boolean matching = true;
+					for (Map.Entry<String, List<String>> entry: params.entrySet()) {
+						if (!(getJob().getParamSpecMap().get(entry.getKey()) instanceof SecretParam)) {
+							List<String> paramValues = getParamMap().get(entry.getKey());
+							if (paramValues != null) {
+								if (!entry.getValue().isEmpty()) {
+									if (!Objects.equal(new HashSet<>(entry.getValue()), new HashSet<>(paramValues))) {
+										matching = false;
+										break;
+									}
+								} else if (paramValues.size() != 1 || paramValues.iterator().next() != null) {
+									matching = false;
+									break;
+								}
+							} else {
+								matching = false;
+								break;
+							}
+						}
+					}
+					if (matching)
+						matches.set(true);
+				}
+			}
+			
+		}.run();
+		
+		return matches.get();
+	}
 }

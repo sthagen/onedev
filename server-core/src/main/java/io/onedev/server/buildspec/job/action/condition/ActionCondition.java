@@ -14,7 +14,7 @@ import org.antlr.v4.runtime.Recognizer;
 import io.onedev.commons.codeassist.AntlrUtils;
 import io.onedev.commons.codeassist.FenceAware;
 import io.onedev.commons.utils.StringUtils;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.buildspec.job.Job;
 import io.onedev.server.buildspec.job.action.condition.ActionConditionParser.AndCriteriaContext;
 import io.onedev.server.buildspec.job.action.condition.ActionConditionParser.ConditionContext;
@@ -106,7 +106,7 @@ public class ActionCondition extends Criteria<Build> {
 					case ActionConditionLexer.RequiredByPullRequests:
 						return new RequiredByPullRequestsCriteria();
 					default:
-						throw new OneException("Unexpected operator: " + ctx.operator.getText());
+						throw new GeneralException("Unexpected operator: " + ctx.operator.getText());
 					}
 				}
 				
@@ -126,9 +126,9 @@ public class ActionCondition extends Criteria<Build> {
 					checkField(job, fieldName, operator);
 					
 					switch (fieldName) {
-					case Build.FIELD_LOG:
+					case Build.NAME_LOG:
 						return new LogCriteria(fieldValue);
-					case Build.FIELD_ERROR_MESSAGE:
+					case Build.NAME_ERROR_MESSAGE:
 						return new ErrorMessageCriteria(fieldValue);
 					default:
 						return new ParamCriteria(fieldName, fieldValue);
@@ -168,19 +168,19 @@ public class ActionCondition extends Criteria<Build> {
 	}
 	
 	public static void checkField(Job job, String fieldName, int operator) {
-		if (fieldName.equals(Build.FIELD_ERROR_MESSAGE) || fieldName.equals(Build.FIELD_LOG)) {
+		if (fieldName.equals(Build.NAME_ERROR_MESSAGE) || fieldName.equals(Build.NAME_LOG)) {
 			if (operator != ActionConditionLexer.Contains)
 				throw newOperatorException(fieldName, operator);
 		} else if (job.getParamSpecMap().containsKey(fieldName)) {
 			if (operator != ActionConditionLexer.IsEmpty && operator != ActionConditionLexer.Is)
 				throw newOperatorException(fieldName, operator);
 		} else {
-			throw new OneException("Param not found: " + fieldName);
+			throw new GeneralException("Param not found: " + fieldName);
 		}
 	}
 	
-	private static OneException newOperatorException(String fieldName, int operator) {
-		return new OneException("Field '" + fieldName + "' is not applicable for operator '" 
+	private static GeneralException newOperatorException(String fieldName, int operator) {
+		return new GeneralException("Field '" + fieldName + "' is not applicable for operator '" 
 				+ AntlrUtils.getLexerRuleName(ActionConditionLexer.ruleNames, operator) + "'");
 	}
 
@@ -189,8 +189,8 @@ public class ActionCondition extends Criteria<Build> {
 	}
 	
 	@Override
-	public String asString() {
-		return criteria.asString();
+	public String toStringWithoutParens() {
+		return criteria.toStringWithoutParens();
 	}
 	
 }

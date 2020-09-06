@@ -20,7 +20,7 @@ import io.onedev.commons.codeassist.parser.Element;
 import io.onedev.commons.codeassist.parser.ParseExpect;
 import io.onedev.commons.codeassist.parser.TerminalExpect;
 import io.onedev.server.OneDev;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.entitymanager.BuildParamManager;
 import io.onedev.server.model.Project;
 import io.onedev.server.search.entity.build.BuildQuery;
@@ -77,7 +77,7 @@ public class BuildQueryBehavior extends ANTLRAssistBehavior {
 						if ("criteriaField".equals(spec.getLabel())) {
 							List<String> fields = new ArrayList<>(Build.QUERY_FIELDS);
 							if (getProject() != null)
-								fields.remove(Build.FIELD_PROJECT);
+								fields.remove(Build.NAME_PROJECT);
 							BuildParamManager buildParamManager = OneDev.getInstance(BuildParamManager.class);
 							List<String> paramNames = new ArrayList<>(buildParamManager.getBuildParamNames(project));
 							Collections.sort(paramNames);
@@ -86,7 +86,7 @@ public class BuildQueryBehavior extends ANTLRAssistBehavior {
 						} else if ("orderField".equals(spec.getLabel())) {
 							List<String> candidates = new ArrayList<>(Build.ORDER_FIELDS.keySet());
 							if (getProject() != null)
-								candidates.remove(Build.FIELD_PROJECT);
+								candidates.remove(Build.NAME_PROJECT);
 							return SuggestionUtils.suggest(candidates, matchWith);
 						} else if ("criteriaValue".equals(spec.getLabel())) {
 							List<Element> fieldElements = terminalExpect.getState().findMatchedElementsByLabel("criteriaField", true);
@@ -107,25 +107,25 @@ public class BuildQueryBehavior extends ANTLRAssistBehavior {
 								String fieldName = BuildQuery.getValue(fieldElements.get(0).getMatchedText());
  								try {
 									BuildQuery.checkField(project, fieldName, operator);
-									if (fieldName.equals(Build.FIELD_SUBMIT_DATE) 
-											|| fieldName.equals(Build.FIELD_PENDING_DATE)
-											|| fieldName.equals(Build.FIELD_RUNNING_DATE)
-											|| fieldName.equals(Build.FIELD_FINISH_DATE)) {
+									if (fieldName.equals(Build.NAME_SUBMIT_DATE) 
+											|| fieldName.equals(Build.NAME_PENDING_DATE)
+											|| fieldName.equals(Build.NAME_RUNNING_DATE)
+											|| fieldName.equals(Build.NAME_FINISH_DATE)) {
 										List<InputSuggestion> suggestions = SuggestionUtils.suggest(DateUtils.RELAX_DATE_EXAMPLES, matchWith);
 										return !suggestions.isEmpty()? suggestions: null;
-									} else if (fieldName.equals(Build.FIELD_PROJECT)) {
+									} else if (fieldName.equals(Build.NAME_PROJECT)) {
 										if (!matchWith.contains("*"))
 											return SuggestionUtils.suggestProjects(matchWith);
 										else
 											return null;
-									} else if (fieldName.equals(Build.FIELD_JOB)) {
+									} else if (fieldName.equals(Build.NAME_JOB)) {
 										if (project != null && !matchWith.contains("*")) 
 											return SuggestionUtils.suggestJobs(project, matchWith);
 										else 
 											return null;
-									} else if (fieldName.equals(Build.FIELD_NUMBER)) {
+									} else if (fieldName.equals(Build.NAME_NUMBER)) {
 										return SuggestionUtils.suggestBuilds(project, matchWith, InputAssistBehavior.MAX_SUGGESTIONS);
-									} else if (fieldName.equals(Build.FIELD_VERSION)) {
+									} else if (fieldName.equals(Build.NAME_VERSION)) {
 										if (project != null && !matchWith.contains("*"))
 											return SuggestionUtils.suggestBuildVersions(project, matchWith);
 										else
@@ -133,7 +133,7 @@ public class BuildQueryBehavior extends ANTLRAssistBehavior {
 									} else {
 										return null;
 									}
-								} catch (OneException ex) {
+								} catch (GeneralException ex) {
 								}
 							}
 						}
@@ -176,7 +176,7 @@ public class BuildQueryBehavior extends ANTLRAssistBehavior {
 				String fieldName = BuildQuery.getValue(fieldElements.iterator().next().getMatchedText());
 				try {
 					BuildQuery.checkField(getProject(), fieldName, BuildQuery.getOperator(suggestedLiteral));
-				} catch (OneException e) {
+				} catch (GeneralException e) {
 					return null;
 				}
 			} 
@@ -193,10 +193,10 @@ public class BuildQueryBehavior extends ANTLRAssistBehavior {
 				List<Element> fieldElements = terminalExpect.getState().findMatchedElementsByLabel("criteriaField", true);
 				if (!fieldElements.isEmpty()) {
 					String fieldName = ProjectQuery.getValue(fieldElements.get(0).getMatchedText());
-					if (fieldName.equals(Build.FIELD_PROJECT)
-							|| fieldName.equals(Build.FIELD_VERSION)
-							|| fieldName.equals(Build.FIELD_JOB)) {
-						hints.add("Use * for wildcard match");
+					if (fieldName.equals(Build.NAME_PROJECT)
+							|| fieldName.equals(Build.NAME_VERSION)
+							|| fieldName.equals(Build.NAME_JOB)) {
+						hints.add("Use '*' for wildcard match");
 						hints.add("Use '\\' to escape quotes");
 					}
 				}

@@ -14,7 +14,6 @@ import io.onedev.server.model.PullRequest;
 import io.onedev.server.model.PullRequestUpdate;
 import io.onedev.server.web.behavior.WebSocketObserver;
 import io.onedev.server.web.component.link.ViewStateAwarePageLink;
-import io.onedev.server.web.page.project.pullrequests.detail.PullRequestDetailPage;
 import io.onedev.server.web.page.project.pullrequests.detail.changes.PullRequestChangesPage;
 
 @SuppressWarnings("serial")
@@ -49,10 +48,9 @@ public class SinceChangesLink extends ViewStateAwarePageLink<Void> {
 	public PageParameters getPageParameters() {
 		PullRequest request = getPullRequest();
 		PullRequestChangesPage.State state = new PullRequestChangesPage.State();
-		state.oldCommit = oldCommitModel.getObject();
-		state.newCommit = request.getHeadCommitHash();
-		PullRequestDetailPage page = (PullRequestDetailPage) getPage();
-		return PullRequestChangesPage.paramsOf(request, page.getPosition(), state);
+		state.oldCommitHash = oldCommitModel.getObject();
+		state.newCommitHash = request.getLatestUpdate().getHeadCommitHash();
+		return PullRequestChangesPage.paramsOf(request, state);
 	}
 
 	@Override
@@ -83,7 +81,7 @@ public class SinceChangesLink extends ViewStateAwarePageLink<Void> {
 	@Override
 	protected void onConfigure() {
 		super.onConfigure();
-		setVisible(!oldCommitModel.getObject().equals(getPullRequest().getHeadCommitHash()));
+		setVisible(!oldCommitModel.getObject().equals(getPullRequest().getLatestUpdate().getHeadCommitHash()));
 	}
 
 	@Override

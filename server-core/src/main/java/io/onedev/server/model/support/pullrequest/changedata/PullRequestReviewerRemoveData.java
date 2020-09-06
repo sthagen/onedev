@@ -4,7 +4,7 @@ import org.apache.wicket.Component;
 
 import io.onedev.server.model.PullRequest;
 import io.onedev.server.model.PullRequestChange;
-import io.onedev.server.util.CommentSupport;
+import io.onedev.server.util.CommentAware;
 
 public class PullRequestReviewerRemoveData implements PullRequestChangeData {
 
@@ -20,12 +20,12 @@ public class PullRequestReviewerRemoveData implements PullRequestChangeData {
 	public String getActivity(PullRequest withRequest) {
 		String activity = "removed reviewer \"" + reviewer + "\"";
 		if (withRequest != null)
-			activity += " in pull request " + withRequest.describe();
+			activity += " in pull request " + withRequest.getNumberAndTitle();
 		return activity;
 	}
 
 	@Override
-	public CommentSupport getCommentSupport() {
+	public CommentAware getCommentAware() {
 		return null;
 	}
 

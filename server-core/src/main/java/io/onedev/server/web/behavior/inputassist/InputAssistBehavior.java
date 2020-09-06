@@ -202,6 +202,7 @@ public abstract class InputAssistBehavior extends AbstractPostAjaxBehavior {
 			} else if (dropdown != null) {
 				dropdown.close();
 			}
+			onInput(target, inputContent);
 		}
 	}
 	
@@ -210,13 +211,16 @@ public abstract class InputAssistBehavior extends AbstractPostAjaxBehavior {
 			dropdown.close();
 	}
 	
+	protected void onInput(AjaxRequestTarget target, String content) {
+	}
+	
 	@Override
 	public void renderHead(Component component, IHeaderResponse response) {
 		super.renderHead(component, response);
 
 		response.render(JavaScriptHeaderItem.forReference(new InputAssistResourceReference()));
 		
-		String script = String.format("onedev.server.inputassist.init('%s', %s);", 
+		String script = String.format("onedev.server.inputassist.onDomReady('%s', %s);", 
 				getComponent().getMarkupId(true), 
 				getCallbackFunction(explicit("type"), explicit("input"), explicit("caret")));
 		

@@ -3,7 +3,7 @@ package io.onedev.server.web.page.project.builds.detail.dashboard;
 import org.apache.wicket.RestartResponseException;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.web.page.project.builds.detail.BuildDetailPage;
 import io.onedev.server.web.page.project.builds.detail.artifacts.BuildArtifactsPage;
 import io.onedev.server.web.page.project.builds.detail.issues.FixedIssuesPage;
@@ -16,11 +16,11 @@ public class BuildDashboardPage extends BuildDetailPage {
 		super(params);
 		
 		if (SecurityUtils.canAccessLog(getBuild()))
-			throw new RestartResponseException(BuildLogPage.class, BuildLogPage.paramsOf(getBuild(), getPosition()));
+			throw new RestartResponseException(BuildLogPage.class, BuildLogPage.paramsOf(getBuild()));
 		else if (getBuild().getArtifactsDir().exists())
-			throw new RestartResponseException(BuildArtifactsPage.class, BuildArtifactsPage.paramsOf(getBuild(), getPosition()));
+			throw new RestartResponseException(BuildArtifactsPage.class, BuildArtifactsPage.paramsOf(getBuild()));
 		else
-			throw new RestartResponseException(FixedIssuesPage.class, FixedIssuesPage.paramsOf(getBuild(), getPosition()));
+			throw new RestartResponseException(FixedIssuesPage.class, FixedIssuesPage.paramsOf(getBuild()));
 		
 	}
 

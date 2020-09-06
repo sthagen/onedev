@@ -20,22 +20,17 @@ public class ToBeReviewedByCriteria extends EntityCriteria<PullRequest> {
 
 	private final User user;
 	
-	private final String value;
-	
-	public ToBeReviewedByCriteria(String value) {
-		user = EntityQuery.getUser(value);
-		this.value = value;
+	public ToBeReviewedByCriteria(User user) {
+		this.user = user;
 	}
 	
 	@Override
 	public Predicate getPredicate(Root<PullRequest> root, CriteriaBuilder builder) {
 		Join<?, ?> join = root.join(PullRequest.PROP_REVIEWS, JoinType.LEFT);
 		Path<?> userPath = EntityQuery.getPath(join, PullRequestReview.PROP_USER);
-		Path<?> excludeDatePath = EntityQuery.getPath(join, PullRequestReview.PROP_EXCLUDE_DATE);
 		Path<?> approvedPath = EntityQuery.getPath(join, PullRequestReview.PROP_RESULT + "." + ReviewResult.PROP_APPROVED);
 		join.on(builder.and(
 				builder.equal(userPath, user), 
-				builder.isNull(excludeDatePath), 
 				builder.isNull(approvedPath)));
 		return join.isNotNull();
 	}
@@ -43,12 +38,12 @@ public class ToBeReviewedByCriteria extends EntityCriteria<PullRequest> {
 	@Override
 	public boolean matches(PullRequest request) {
 		PullRequestReview review = request.getReview(user);
-		return review != null && review.getExcludeDate() == null && review.getResult() == null;
+		return review != null && review.getResult() == null;
 	}
 
 	@Override
-	public String asString() {
-		return PullRequestQuery.getRuleName(PullRequestQueryLexer.ToBeReviewedBy) + " " + quote(value);
+	public String toStringWithoutParens() {
+		return PullRequestQuery.getRuleName(PullRequestQueryLexer.ToBeReviewedBy) + " " + quote(user.getName());
 	}
 
 }

@@ -32,8 +32,8 @@ public class SourceBranchCriteria extends EntityCriteria<PullRequest> {
 	}
 
 	@Override
-	public String asString() {
-		return quote(PullRequest.FIELD_SOURCE_BRANCH) + " " 
+	public String toStringWithoutParens() {
+		return quote(PullRequest.NAME_SOURCE_BRANCH) + " " 
 				+ PullRequestQuery.getRuleName(PullRequestQueryLexer.Is) + " " 
 				+ quote(branch);
 	}

@@ -9,6 +9,7 @@ import org.apache.wicket.markup.head.CssHeaderItem;
 import org.apache.wicket.markup.head.IHeaderResponse;
 import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.markup.html.basic.Label;
+import org.apache.wicket.markup.html.link.BookmarkablePageLink;
 import org.apache.wicket.markup.html.link.ExternalLink;
 import org.apache.wicket.markup.html.link.Link;
 import org.apache.wicket.markup.repeater.RepeatingView;
@@ -19,7 +20,7 @@ import io.onedev.commons.launcher.loader.Plugin;
 import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.SettingManager;
 import io.onedev.server.model.User;
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.web.component.link.ViewStateAwarePageLink;
 import io.onedev.server.web.component.user.avatar.UserAvatar;
 import io.onedev.server.web.page.admin.AdministrationPage;
@@ -29,8 +30,8 @@ import io.onedev.server.web.page.admin.groovyscript.GroovyScriptListPage;
 import io.onedev.server.web.page.admin.group.GroupListPage;
 import io.onedev.server.web.page.admin.group.GroupPage;
 import io.onedev.server.web.page.admin.group.create.NewGroupPage;
-import io.onedev.server.web.page.admin.issuesetting.IssueFieldListPage;
 import io.onedev.server.web.page.admin.issuesetting.IssueSettingPage;
+import io.onedev.server.web.page.admin.issuesetting.fieldspec.IssueFieldListPage;
 import io.onedev.server.web.page.admin.jobexecutor.JobExecutorsPage;
 import io.onedev.server.web.page.admin.mailsetting.MailSettingPage;
 import io.onedev.server.web.page.admin.role.NewRolePage;
@@ -39,18 +40,19 @@ import io.onedev.server.web.page.admin.role.RoleListPage;
 import io.onedev.server.web.page.admin.securitysetting.SecuritySettingPage;
 import io.onedev.server.web.page.admin.serverinformation.ServerInformationPage;
 import io.onedev.server.web.page.admin.serverlog.ServerLogPage;
+import io.onedev.server.web.page.admin.ssh.SshSettingPage;
+import io.onedev.server.web.page.admin.sso.SsoConnectorListPage;
 import io.onedev.server.web.page.admin.systemsetting.SystemSettingPage;
 import io.onedev.server.web.page.admin.user.UserListPage;
 import io.onedev.server.web.page.admin.user.UserPage;
 import io.onedev.server.web.page.admin.user.create.NewUserPage;
 import io.onedev.server.web.page.base.BasePage;
 import io.onedev.server.web.page.my.MyPage;
+import io.onedev.server.web.page.my.accesstoken.MyAccessTokenPage;
 import io.onedev.server.web.page.my.avatar.MyAvatarPage;
-import io.onedev.server.web.page.my.buildsetting.MyBuildSettingPage;
-import io.onedev.server.web.page.my.buildsetting.MyJobSecretsPage;
 import io.onedev.server.web.page.my.password.MyPasswordPage;
 import io.onedev.server.web.page.my.profile.MyProfilePage;
-import io.onedev.server.web.page.my.webhook.MyWebHooksPage;
+import io.onedev.server.web.page.my.sshkeys.MySshKeysPage;
 import io.onedev.server.web.page.project.ProjectListPage;
 import io.onedev.server.web.page.security.LoginPage;
 import io.onedev.server.web.page.security.LogoutPage;
@@ -58,7 +60,7 @@ import io.onedev.server.web.page.security.RegisterPage;
 
 @SuppressWarnings("serial")
 public abstract class LayoutPage extends BasePage {
-	
+    
 	public LayoutPage(PageParameters params) {
 		super(params);
 	}
@@ -69,9 +71,10 @@ public abstract class LayoutPage extends BasePage {
 		
 		User loginUser = getLoginUser();
 		
-		add(newNavContext("navContext"));
-		
 		UICustomization customization = OneDev.getInstance(UICustomization.class);
+		
+		add(new BookmarkablePageLink<Void>("brandLink", customization.getHomePage()));
+		add(newNavContext("navContext"));
 		
 		RepeatingView tabsView = new RepeatingView("navTabs");		
 		for (MainTab tab: customization.getMainTabs()) {
@@ -87,69 +90,64 @@ public abstract class LayoutPage extends BasePage {
 		
 		WebMarkupContainer administrationContainer = new WebMarkupContainer("navAdministration");
 		WebMarkupContainer item;
-
-		administrationContainer.add(item = new WebMarkupContainer("userManagement"));
-		item.add(new ViewStateAwarePageLink<Void>("link", UserListPage.class));
+		
+		administrationContainer.add(item = new ViewStateAwarePageLink<Void>("userManagement", UserListPage.class));
 		if (getPage() instanceof UserListPage || getPage() instanceof NewUserPage || getPage() instanceof UserPage)
 			item.add(AttributeAppender.append("class", "active"));
 		
-		administrationContainer.add(item = new WebMarkupContainer("roleManagement"));
-		item.add(new ViewStateAwarePageLink<Void>("link", RoleListPage.class));
+		administrationContainer.add(item = new ViewStateAwarePageLink<Void>("roleManagement", RoleListPage.class));
 		if (getPage() instanceof RoleListPage || getPage() instanceof NewRolePage || getPage() instanceof RoleDetailPage)
 			item.add(AttributeAppender.append("class", "active"));
 		
-		administrationContainer.add(item = new WebMarkupContainer("groupManagement"));
-		item.add(new ViewStateAwarePageLink<Void>("link", GroupListPage.class));
+		administrationContainer.add(item = new ViewStateAwarePageLink<Void>("groupManagement", GroupListPage.class));
 		if (getPage() instanceof GroupListPage || getPage() instanceof NewGroupPage || getPage() instanceof GroupPage)
 			item.add(AttributeAppender.append("class", "active"));
 		
-		administrationContainer.add(item = new WebMarkupContainer("securitySetting"));
-		item.add(new ViewStateAwarePageLink<Void>("link", SecuritySettingPage.class));
+		administrationContainer.add(item = new ViewStateAwarePageLink<Void>("securitySetting", SecuritySettingPage.class));
 		if (getPage() instanceof SecuritySettingPage)
 			item.add(AttributeAppender.append("class", "active"));
 		
-		administrationContainer.add(item = new WebMarkupContainer("externelAuthentication"));
-		item.add(new ViewStateAwarePageLink<Void>("link", AuthenticatorPage.class));
+		administrationContainer.add(item = new ViewStateAwarePageLink<Void>("externalAuthentication", AuthenticatorPage.class));
 		if (getPage() instanceof AuthenticatorPage)
 			item.add(AttributeAppender.append("class", "active"));
+
+		administrationContainer.add(item = new ViewStateAwarePageLink<Void>("sso", SsoConnectorListPage.class));
+		if (getPage() instanceof SsoConnectorListPage)
+			item.add(AttributeAppender.append("class", "active"));
 		
-		administrationContainer.add(item = new WebMarkupContainer("jobExecutors"));
-		item.add(new ViewStateAwarePageLink<Void>("link", JobExecutorsPage.class));
+	    administrationContainer.add(item = new ViewStateAwarePageLink<Void>("sshSetting", SshSettingPage.class));
+	    if (getPage() instanceof SshSettingPage)
+	        item.add(AttributeAppender.append("class", "active"));
+	    
+		administrationContainer.add(item = new ViewStateAwarePageLink<Void>("jobExecutors", JobExecutorsPage.class));
 		if (getPage() instanceof JobExecutorsPage)
 			item.add(AttributeAppender.append("class", "active"));
 		
-		administrationContainer.add(item = new WebMarkupContainer("groovyScripts"));
-		item.add(new ViewStateAwarePageLink<Void>("link", GroovyScriptListPage.class));
+		administrationContainer.add(item = new ViewStateAwarePageLink<Void>("groovyScripts", GroovyScriptListPage.class));
 		if (getPage() instanceof GroovyScriptListPage)
 			item.add(AttributeAppender.append("class", "active"));
 		
-		administrationContainer.add(item = new WebMarkupContainer("systemSetting"));
-		item.add(new ViewStateAwarePageLink<Void>("link", SystemSettingPage.class));
+		administrationContainer.add(item = new ViewStateAwarePageLink<Void>("systemSetting", SystemSettingPage.class));
 		if (getPage() instanceof SystemSettingPage)
 			item.add(AttributeAppender.append("class", "active"));
 		
-		administrationContainer.add(item = new WebMarkupContainer("issueSetting"));
-		item.add(new ViewStateAwarePageLink<Void>("link", IssueFieldListPage.class));
+		administrationContainer.add(item = new ViewStateAwarePageLink<Void>("issueSetting", IssueFieldListPage.class));
 		if (getPage() instanceof IssueSettingPage)
 			item.add(AttributeAppender.append("class", "active"));
 		
-		administrationContainer.add(item = new WebMarkupContainer("mailSetting"));
-		item.add(new ViewStateAwarePageLink<Void>("link", MailSettingPage.class));
+		administrationContainer.add(item = new ViewStateAwarePageLink<Void>("mailSetting", MailSettingPage.class));
 		if (getPage() instanceof MailSettingPage)
 			item.add(AttributeAppender.append("class", "active"));
 		
-		administrationContainer.add(item = new WebMarkupContainer("databaseBackup"));
-		item.add(new ViewStateAwarePageLink<Void>("link", DatabaseBackupPage.class));
+		administrationContainer.add(item = new ViewStateAwarePageLink<Void>("databaseBackup", DatabaseBackupPage.class));
 		if (getPage() instanceof DatabaseBackupPage)
 			item.add(AttributeAppender.append("class", "active"));
 		
-		administrationContainer.add(item = new WebMarkupContainer("serverLog"));
-		item.add(new ViewStateAwarePageLink<Void>("link", ServerLogPage.class));
+		administrationContainer.add(item = new ViewStateAwarePageLink<Void>("serverLog", ServerLogPage.class));
 		if (getPage() instanceof ServerLogPage)
 			item.add(AttributeAppender.append("class", "active"));
 		
-		administrationContainer.add(item = new WebMarkupContainer("serverInformation"));
-		item.add(new ViewStateAwarePageLink<Void>("link", ServerInformationPage.class));
+		administrationContainer.add(item = new ViewStateAwarePageLink<Void>("serverInformation", ServerInformationPage.class));
 		if (getPage() instanceof ServerInformationPage)
 			item.add(AttributeAppender.append("class", "active"));
 		
@@ -172,7 +170,7 @@ public abstract class LayoutPage extends BasePage {
 			
 		});
 		
-		boolean enableSelfRegister = OneDev.getInstance(SettingManager.class).getSecuritySetting().isEnableSelfRegister();
+		boolean enableSelfRegister =  OneDev.getInstance(SettingManager.class).getSecuritySetting().isEnableSelfRegister();
 		notSignedInContainer.add(new ViewStateAwarePageLink<Void>("signUp", RegisterPage.class).setVisible(enableSelfRegister));
 		notSignedInContainer.setVisible(loginUser == null);
 		add(notSignedInContainer);
@@ -188,31 +186,26 @@ public abstract class LayoutPage extends BasePage {
 			signedInContainer.add(new WebMarkupContainer("header"));
 		}
 		
-		signedInContainer.add(item = new WebMarkupContainer("myProfile"));
-		item.add(new ViewStateAwarePageLink<Void>("link", MyProfilePage.class));
+		signedInContainer.add(item = new ViewStateAwarePageLink<Void>("myProfile", MyProfilePage.class));
 		if (getPage() instanceof MyProfilePage)
 			item.add(AttributeAppender.append("class", "active"));
 		
-		signedInContainer.add(item = new WebMarkupContainer("myAvatar"));
-		item.add(new ViewStateAwarePageLink<Void>("link", MyAvatarPage.class));
+		signedInContainer.add(item = new ViewStateAwarePageLink<Void>("myAvatar", MyAvatarPage.class));
 		if (getPage() instanceof MyAvatarPage)
 			item.add(AttributeAppender.append("class", "active"));
-		
-		signedInContainer.add(item = new WebMarkupContainer("myPassword"));
-		item.add(new ViewStateAwarePageLink<Void>("link", MyPasswordPage.class));
+				
+		signedInContainer.add(item = new ViewStateAwarePageLink<Void>("myPassword", MyPasswordPage.class));
 		if (getPage() instanceof MyPasswordPage)
 			item.add(AttributeAppender.append("class", "active"));
 
-		signedInContainer.add(item = new WebMarkupContainer("myBuildSetting"));
-		item.add(new ViewStateAwarePageLink<Void>("link", MyJobSecretsPage.class));
-		if (getPage() instanceof MyBuildSettingPage)
-			item.add(AttributeAppender.append("class", "active"));
-
-		signedInContainer.add(item = new WebMarkupContainer("myWebHooks"));
-		item.add(new ViewStateAwarePageLink<Void>("link", MyWebHooksPage.class));
-		if (getPage() instanceof MyWebHooksPage)
-			item.add(AttributeAppender.append("class", "active"));
-
+		signedInContainer.add(item = new ViewStateAwarePageLink<Void>("mySshKeys", MySshKeysPage.class));
+		if (getPage() instanceof MySshKeysPage)
+		    item.add(AttributeAppender.append("class", "active"));
+		
+		signedInContainer.add(item = new ViewStateAwarePageLink<Void>("myAccessToken", MyAccessTokenPage.class));
+		if (getPage() instanceof MyAccessTokenPage)
+		    item.add(AttributeAppender.append("class", "active"));
+		
 		PrincipalCollection prevPrincipals = SecurityUtils.getSubject().getPreviousPrincipals();
 		if (prevPrincipals != null && !prevPrincipals.getPrimaryPrincipal().equals(0L)) {
 			Link<Void> signOutLink = new Link<Void>("signOut") {

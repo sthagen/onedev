@@ -34,27 +34,43 @@
 #request-detail>.main>.activities .PullRequestUpdatedActivity>td.content .alert {
 	margin: 16px 0;
 }
+#request-detail>.main>.activities .PullRequestUpdatedActivity>td.content>.body>.commit.rebased,
+#request-detail>.main>.activities .PullRequestUpdatedActivity>td.content>.body>.commit.rebased a,
+#request-detail>.main>.activities .PullRequestUpdatedActivity>td.content>.body>.commit.rebased span,
+#request-detail>.main>.activities .PullRequestUpdatedActivity>td.content>.body>.commit.rebased:before {
+	color: #aaa;
+}
+#request-detail>.main>.activities .PullRequestUpdatedActivity>td.content>.body>.commit.rebased img {
+	opacity: 36%;
+}
 #request-detail>.main>.activities .PullRequestUpdatedActivity>td.content>.body>.commit {
 	position: relative;
-	padding: 6px 0;
+	margin: 8px 0;
+	padding: 4px;
+}
+#request-detail>.main>.activities .PullRequestUpdatedActivity>td.content>.body>.commit:hover {
+	background: #F7ECB9;
 }
 #request-detail>.main>.activities .PullRequestUpdatedActivity>td.content>.body>.commit>.author {
 	position: absolute;
-	left: 24px;
-	top: 6px;
+	left:32px;
+	top: 2px;
 }
 #request-detail>.main>.activities .PullRequestUpdatedActivity>td.content>.body>.commit>.message {
-	padding: 0 130px 0 50px;
+	padding: 0 130px 0 60px;
 }
 #request-detail>.main>.activities .PullRequestUpdatedActivity>td.content>.body>.commit.with-status>.message {
 	padding-right: 175px;
 }
-#request-detail>.main>.activities .PullRequestUpdatedActivity>td.content>.body>.commit:before {
-	font-family: "FontExt";
-	content: "\f220";
+#request-detail>.main>.activities .PullRequestUpdatedActivity>td.content>.body>.commit>.actions {
+	position: absolute;
+	top: 4px;
+	right: 4px;
+}
+#request-detail>.main>.activities .PullRequestUpdatedActivity>td.content>.body>.commit>.icon {
 	position: absolute;
 	left: 4px;
-	color: #666;
+	top: 10px;
 }
 #request-detail>.main>.activities .PullRequestUpdatedActivity>td.content {
 	padding: 0 0 0 10px;
@@ -64,11 +80,6 @@
 }
 #request-detail>.main>.activities .PullRequestUpdatedActivity>td.content>.body {
 	margin: 0;
-}
-#request-detail>.main>.activities .PullRequestUpdatedActivity>td.content>.body>.commit>.actions {
-	position: absolute;
-	top: 6px;
-	right: 0;
 }
 
 #request-detail>.main>.activities .activity>td>.content {

@@ -17,15 +17,12 @@
     border-radius: 4px;
     font-family: Consolas, "Liberation Mono", Menlo, Courier, monospace;
 }
-.editable>.group>a:AFTER {
-	font-family: "FontAwesome";    
-    margin-left: 12px; 
+.editable>.group>a .icon {
+    transform: rotate(90deg);
+	margin-left: 8px;
 }
-.editable>.group>a:AFTER {
-    content: "\f103";
-}
-.editable>.group.expanded>a:AFTER {
-    content: "\f102";
+.editable>.group.expanded>a .icon {
+    transform: rotate(-90deg);
 }
 .editable>.group>div, .editable>.group>table {
     display: none;
@@ -70,40 +67,6 @@
 
 .property-editor>.bean-list>table>*>tr>.actions {
     font-size: 18px;
-}
-.property-editor>.list>table>tfoot>tr>td.norecords-td>div,
-.property-editor>.bean-list>table>tfoot>tr>td.no-elements>div {
-    border-top: 2px solid #DDD;
-    margin-top: -7px;
-    padding: 8px 0 0 8px;
-}
-.property-editor>.polymorphic-list>table>tbody>tr>td {
-    border-top: 2px solid #BBB;
-    padding-top: 20px;
-}
-.property-editor>.polymorphic-list>table>tbody>tr>td>.head {
-	margin-bottom: 20px;
-}
-.property-editor>.polymorphic-list>table>tbody>tr>td>.head>.actions {
-    font-size: 18px;
-    margin-left: 20px;
-}
-.property-editor>.polymorphic-list>table>tbody>tr>td>.head>.actions a {
-    color: #666;
-}
-
-.property-viewer>.polymorphic-list>tbody>tr>td {
-    border-top: 2px solid #BBB;
-    padding-top: 12px;
-    padding-bottom: 12px;
-}
-.property-viewer>.polymorphic-list>tbody>tr>td>.type-selector {
-    margin-bottom: 12px;
-}
-.property-viewer>.bean-list>tfoot>tr>td.no-elements>div {
-    border-top: 2px solid #DDD;
-    margin-top: -7px;
-    padding-top: 7px;
 }
 
 .editable>.polymorphic>.type-selector {

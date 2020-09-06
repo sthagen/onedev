@@ -16,7 +16,7 @@ import io.onedev.commons.codeassist.grammar.LexerRuleRefElementSpec;
 import io.onedev.commons.codeassist.parser.Element;
 import io.onedev.commons.codeassist.parser.ParseExpect;
 import io.onedev.commons.codeassist.parser.TerminalExpect;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.model.Project;
 import io.onedev.server.search.entity.codecomment.CodeCommentQuery;
 import io.onedev.server.search.entity.codecomment.CodeCommentQueryLexer;
@@ -76,16 +76,16 @@ public class CodeCommentQueryBehavior extends ANTLRAssistBehavior {
 								String fieldName = CodeCommentQuery.getValue(fieldElements.get(0).getMatchedText());
 								try {
 									CodeCommentQuery.checkField(project, fieldName, operator);
-									if (fieldName.equals(CodeComment.FIELD_CREATE_DATE) 
-											|| fieldName.equals(CodeComment.FIELD_UPDATE_DATE)) {
+									if (fieldName.equals(CodeComment.NAME_CREATE_DATE) 
+											|| fieldName.equals(CodeComment.NAME_UPDATE_DATE)) {
 										List<InputSuggestion> suggestions = SuggestionUtils.suggest(DateUtils.RELAX_DATE_EXAMPLES, matchWith);
 										return !suggestions.isEmpty()? suggestions: null;
-									} else if (fieldName.equals(CodeComment.FIELD_PATH)) {
+									} else if (fieldName.equals(CodeComment.NAME_PATH)) {
 										return SuggestionUtils.suggestBlobs(projectModel.getObject(), matchWith);
 									} else {
 										return null;
 									}
-								} catch (OneException ex) {
+								} catch (GeneralException ex) {
 								}
 							}
 						}
@@ -112,7 +112,7 @@ public class CodeCommentQueryBehavior extends ANTLRAssistBehavior {
 				String fieldName = CodeCommentQuery.getValue(fieldElements.iterator().next().getMatchedText());
 				try {
 					CodeCommentQuery.checkField(getProject(), fieldName, CodeCommentQuery.getOperator(suggestedLiteral));
-				} catch (OneException e) {
+				} catch (GeneralException e) {
 					return null;
 				}
 			}
@@ -129,8 +129,8 @@ public class CodeCommentQueryBehavior extends ANTLRAssistBehavior {
 				List<Element> fieldElements = terminalExpect.getState().findMatchedElementsByLabel("criteriaField", true);
 				if (!fieldElements.isEmpty()) {
 					String fieldName = ProjectQuery.getValue(fieldElements.get(0).getMatchedText());
-					if (fieldName.equals(CodeComment.FIELD_CONTENT)) {
-						hints.add("Use * for wildcard match");
+					if (fieldName.equals(CodeComment.NAME_CONTENT)) {
+						hints.add("Use '*' for wildcard match");
 						hints.add("Use '\\' to escape quotes");
 					}
 				}

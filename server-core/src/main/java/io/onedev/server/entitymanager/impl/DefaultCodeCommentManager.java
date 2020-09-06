@@ -12,12 +12,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import javax.persistence.criteria.CriteriaBuilder;
 import javax.persistence.criteria.CriteriaQuery;
-import javax.persistence.criteria.Join;
-import javax.persistence.criteria.JoinType;
 import javax.persistence.criteria.Predicate;
 import javax.persistence.criteria.Root;
 
@@ -29,7 +28,6 @@ import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.hibernate.Session;
 import org.hibernate.criterion.Criterion;
-import org.hibernate.criterion.Order;
 import org.hibernate.criterion.Restrictions;
 import org.hibernate.query.Query;
 
@@ -44,14 +42,14 @@ import io.onedev.server.entitymanager.CodeCommentManager;
 import io.onedev.server.event.codecomment.CodeCommentCreated;
 import io.onedev.server.event.codecomment.CodeCommentEvent;
 import io.onedev.server.event.codecomment.CodeCommentUpdated;
+import io.onedev.server.event.pullrequest.PullRequestCodeCommentCreated;
 import io.onedev.server.git.GitUtils;
 import io.onedev.server.git.command.RevListCommand;
 import io.onedev.server.infomanager.CommitInfoManager;
 import io.onedev.server.model.CodeComment;
-import io.onedev.server.model.CodeCommentRelation;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.PullRequest;
-import io.onedev.server.model.User;
+import io.onedev.server.model.support.Mark;
 import io.onedev.server.persistence.annotation.Sessional;
 import io.onedev.server.persistence.annotation.Transactional;
 import io.onedev.server.persistence.dao.AbstractEntityManager;
@@ -61,6 +59,7 @@ import io.onedev.server.search.entity.EntityQuery;
 import io.onedev.server.search.entity.EntitySort;
 import io.onedev.server.search.entity.EntitySort.Direction;
 import io.onedev.server.search.entity.codecomment.CodeCommentQuery;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.diff.DiffUtils;
 import io.onedev.server.util.diff.WhitespaceOption;
 
@@ -84,24 +83,34 @@ public class DefaultCodeCommentManager extends AbstractEntityManager<CodeComment
 
 	@Transactional
 	@Override
-	public void create(CodeComment comment, PullRequest request) {
-		Preconditions.checkArgument(comment.isNew());
-		
-		CodeCommentCreated event = new CodeCommentCreated(comment, request);
-		comment.setLastUpdate(event.getLastUpdate());
-		save(comment);
-		
-		listenerRegistry.post(event);
+	public void save(CodeComment comment) {
+		if (comment.isNew()) {
+			CodeCommentCreated event = new CodeCommentCreated(comment);
+			comment.setLastUpdate(event.getLastUpdate());
+			dao.persist(comment);
+
+			listenerRegistry.post(event);
+			
+			PullRequest request = comment.getRequest();
+			if (request != null) {
+				request.setCommentCount(request.getCommentCount() + 1);
+				if (comment.getCreateDate().after(request.getLastUpdate().getDate())) 
+					listenerRegistry.post(new PullRequestCodeCommentCreated(request, comment));
+			}
+		} else {
+			dao.persist(comment);
+			listenerRegistry.post(new CodeCommentUpdated(SecurityUtils.getUser(), comment));
+		}
 	}
 
 	@Transactional
 	@Override
-	public void delete(CodeComment codeComment) {
-		super.delete(codeComment);
-		for (CodeCommentRelation relation: codeComment.getRelations()) {
-			PullRequest request = relation.getRequest();
-			request.setCommentCount(request.getCommentCount()-codeComment.getReplyCount()-1);
-		}
+	public void delete(CodeComment comment) {
+		super.delete(comment);
+
+		PullRequest request = comment.getRequest();
+		if (request != null)
+			request.setCommentCount(request.getCommentCount() - comment.getReplyCount() - 1);
 	}
 
 	@Transactional
@@ -113,23 +122,12 @@ public class DefaultCodeCommentManager extends AbstractEntityManager<CodeComment
 	
 	@Sessional
 	@Override
-	public List<CodeComment> queryAfter(Project project, Long afterCommentId, int count) {
-		EntityCriteria<CodeComment> criteria = newCriteria();
-		criteria.add(Restrictions.eq("project", project));
-		criteria.addOrder(Order.asc("id"));
-		if (afterCommentId != null) 
-			criteria.add(Restrictions.gt("id", afterCommentId));
-		return query(criteria, 0, count);
-	}
-
-	@Sessional
-	@Override
 	public Collection<CodeComment> query(Project project, ObjectId commitId, String path) {
 		EntityCriteria<CodeComment> criteria = newCriteria();
-		criteria.add(Restrictions.eq("project", project));
-		criteria.add(Restrictions.eq("markPos.commit", commitId.name()));
+		criteria.add(Restrictions.eq(CodeComment.PROP_PROJECT, project));
+		criteria.add(Restrictions.eq(CodeComment.PROP_MARK + "." + Mark.PROP_COMMIT_HASH, commitId.name()));
 		if (path != null)
-			criteria.add(Restrictions.eq("markPos.path", path));
+			criteria.add(Restrictions.eq(CodeComment.PROP_MARK + "." + Mark.PROP_PATH, path));
 		return query(criteria);
 	}
 
@@ -139,10 +137,10 @@ public class DefaultCodeCommentManager extends AbstractEntityManager<CodeComment
 		Preconditions.checkArgument(commitIds.length > 0);
 		
 		EntityCriteria<CodeComment> criteria = newCriteria();
-		criteria.add(Restrictions.eq("project", project));
+		criteria.add(Restrictions.eq(CodeComment.PROP_PROJECT, project));
 		List<Criterion> criterions = new ArrayList<>();
 		for (ObjectId commitId: commitIds) {
-			criterions.add(Restrictions.eq("markPos.commit", commitId.name()));
+			criterions.add(Restrictions.eq(CodeComment.PROP_MARK + "." + Mark.PROP_COMMIT_HASH, commitId.name()));
 		}
 		criteria.add(Restrictions.or(criterions.toArray(new Criterion[criterions.size()])));
 		return query(criteria);
@@ -155,26 +153,28 @@ public class DefaultCodeCommentManager extends AbstractEntityManager<CodeComment
 		Map<String, Map<String, List<CodeComment>>> possibleComments = new HashMap<>();
 		Collection<String> possiblePaths = Sets.newHashSet(path);
 		possiblePaths.addAll(commitInfoManager.getHistoryPaths(project, path));
-		for (String possiblePath: possiblePaths) {
-			EntityCriteria<CodeComment> criteria = EntityCriteria.of(CodeComment.class);
-			criteria.add(Restrictions.eq("markPos.path", possiblePath));
-			for (CodeComment comment: query(criteria)) {
-				if (comment.getMarkPos().getCommit().equals(commitId.name()) && possiblePath.equals(path)) {
-					comments.put(comment, comment.getMarkPos().getRange());
-				} else {
-					Map<String, List<CodeComment>> commentsOnCommit = 
-							possibleComments.get(comment.getMarkPos().getCommit());
-					if (commentsOnCommit == null) {
-						commentsOnCommit = new HashMap<>();
-						possibleComments.put(comment.getMarkPos().getCommit(), commentsOnCommit);
-					}
-					List<CodeComment> commentsOnPath = commentsOnCommit.get(possiblePath);
-					if (commentsOnPath == null) {
-						commentsOnPath = new ArrayList<>();
-						commentsOnCommit.put(possiblePath, commentsOnPath);
-					}
-					commentsOnPath.add(comment);
+		
+		EntityCriteria<CodeComment> criteria = EntityCriteria.of(CodeComment.class);
+		criteria.add(Restrictions.eq(CodeComment.PROP_PROJECT, project));
+		criteria.add(Restrictions.in(CodeComment.PROP_MARK + "." + Mark.PROP_PATH, possiblePaths));
+		
+		for (CodeComment comment: query(criteria)) {
+			String possiblePath = comment.getMark().getPath();
+			if (comment.getMark().getCommitHash().equals(commitId.name()) && possiblePath.equals(path)) {
+				comments.put(comment, comment.getMark().getRange());
+			} else {
+				Map<String, List<CodeComment>> commentsOnCommit = 
+						possibleComments.get(comment.getMark().getCommitHash());
+				if (commentsOnCommit == null) {
+					commentsOnCommit = new HashMap<>();
+					possibleComments.put(comment.getMark().getCommitHash(), commentsOnCommit);
 				}
+				List<CodeComment> commentsOnPath = commentsOnCommit.get(possiblePath);
+				if (commentsOnPath == null) {
+					commentsOnPath = new ArrayList<>();
+					commentsOnCommit.put(possiblePath, commentsOnPath);
+				}
+				commentsOnPath.add(comment);
 			}
 		}
 
@@ -202,8 +202,8 @@ public class DefaultCodeCommentManager extends AbstractEntityManager<CodeComment
 				Set<String> revisions = new HashSet<>(command.call());
 				
 				RevCommit commit = revWalk.parseCommit(commitId);
-				List<String> newLines = GitUtils.readLines(project.getRepository(), commit, path, 
-						WhitespaceOption.DEFAULT);
+				List<String> newLines = Preconditions.checkNotNull(
+						GitUtils.readLines(project.getRepository(), commit, path, WhitespaceOption.DEFAULT));
 
 				Collections.sort(historyCommits, new Comparator<RevCommit>() {
 
@@ -221,14 +221,16 @@ public class DefaultCodeCommentManager extends AbstractEntityManager<CodeComment
 						for (Map.Entry<String, List<CodeComment>> pathEntry: commentsOnCommit.entrySet()) {
 							List<String> oldLines = GitUtils.readLines(project.getRepository(), historyCommit, 
 									pathEntry.getKey(), WhitespaceOption.DEFAULT);
-							Map<Integer, Integer> lineMapping = DiffUtils.mapLines(oldLines, newLines);
-							for (CodeComment comment: pathEntry.getValue()) {
-								PlanarRange newRange = DiffUtils.mapRange(lineMapping, comment.getMarkPos().getRange());
-								if (newRange != null) 
-									comments.put(comment, newRange);
-							}
-							if (++checkedHistoryFiles == MAX_HISTORY_FILES_TO_CHECK) {
-								return comments;
+							if (oldLines != null) {
+								Map<Integer, Integer> lineMapping = DiffUtils.mapLines(oldLines, newLines);
+								for (CodeComment comment: pathEntry.getValue()) {
+									PlanarRange newRange = DiffUtils.mapRange(lineMapping, comment.getMark().getRange());
+									if (newRange != null) 
+										comments.put(comment, newRange);
+								}
+								if (++checkedHistoryFiles == MAX_HISTORY_FILES_TO_CHECK) {
+									return comments;
+								}
 							}
 						}
 					}
@@ -242,15 +244,14 @@ public class DefaultCodeCommentManager extends AbstractEntityManager<CodeComment
 
 	}
 
-	private Predicate[] getPredicates(Project project, io.onedev.server.search.entity.EntityCriteria<CodeComment> criteria, 
-			PullRequest request, Root<CodeComment> root, CriteriaBuilder builder) {
+	private Predicate[] getPredicates(Project project, 
+			@Nullable io.onedev.server.search.entity.EntityCriteria<CodeComment> criteria, 
+			@Nullable PullRequest request, Root<CodeComment> root, CriteriaBuilder builder) {
 		List<Predicate> predicates = new ArrayList<>();
-		if (request != null) {
-			Join<?, ?> relations = root.join(CodeComment.PROP_RELATIONS, JoinType.INNER);
-			relations.on(builder.equal(relations.get(CodeCommentRelation.PROP_REQUEST), request));
-		} else {
+		if (request != null) 
+			predicates.add(builder.equal(root.get(CodeComment.PROP_REQUEST), request));
+		else 
 			predicates.add(builder.equal(root.get(CodeComment.PROP_PROJECT), project));
-		}
 		if (criteria != null) 
 			predicates.add(criteria.getPredicate(root, builder));
 		return predicates.toArray(new Predicate[0]);
@@ -304,18 +305,4 @@ public class DefaultCodeCommentManager extends AbstractEntityManager<CodeComment
 		return getSession().createQuery(criteriaQuery).uniqueResult().intValue();
 	}
 
-	@Transactional
-	@Override
-	public void delete(User user, CodeComment comment) {
-		delete(comment);
-	}
-	
-	@Transactional
-	@Override
-	public void update(User user, CodeComment comment) {
-		Preconditions.checkArgument(!comment.isNew());
-		save(comment);
-		listenerRegistry.post(new CodeCommentUpdated(user, comment));
-	}
-	
 }

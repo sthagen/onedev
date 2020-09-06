@@ -12,6 +12,7 @@ import java.util.regex.Pattern;
 
 import javax.annotation.Nullable;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.wicket.Component;
 import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.ajax.form.AjaxFormComponentUpdatingBehavior;
@@ -37,7 +38,6 @@ import org.apache.wicket.model.AbstractReadOnlyModel;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.model.Model;
-import org.apache.wicket.model.PropertyModel;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 import org.eclipse.jgit.lib.FileMode;
 import org.eclipse.jgit.lib.ObjectId;
@@ -52,9 +52,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Lists;
 
-import io.onedev.commons.utils.StringUtils;
 import io.onedev.server.OneDev;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.git.BlobIdent;
 import io.onedev.server.git.GitUtils;
@@ -67,16 +66,16 @@ import io.onedev.server.search.commit.MessageCriteria;
 import io.onedev.server.search.commit.PathCriteria;
 import io.onedev.server.search.commit.Revision;
 import io.onedev.server.search.commit.RevisionCriteria;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.Constants;
 import io.onedev.server.util.ProjectAndRevision;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.util.patternset.PatternSet;
 import io.onedev.server.web.behavior.CommitQueryBehavior;
-import io.onedev.server.web.behavior.clipboard.CopyClipboardBehavior;
 import io.onedev.server.web.component.commit.message.CommitMessagePanel;
 import io.onedev.server.web.component.commit.status.CommitStatusPanel;
 import io.onedev.server.web.component.contributorpanel.ContributorPanel;
 import io.onedev.server.web.component.link.ViewStateAwarePageLink;
+import io.onedev.server.web.component.link.copytoclipboard.CopyToClipboardLink;
 import io.onedev.server.web.component.savedquery.SavedQueriesClosed;
 import io.onedev.server.web.component.savedquery.SavedQueriesOpened;
 import io.onedev.server.web.component.user.contributoravatars.ContributorAvatars;
@@ -94,27 +93,27 @@ public abstract class CommitListPanel extends Panel {
 	
 	private static final int MAX_PAGES = 50;
 	
-	private String query;
+	private final IModel<String> queryStringModel;
 	
-	private int page = 1;
-	
-	private final IModel<CommitQuery> parsedQueryModel = new LoadableDetachableModel<CommitQuery>() {
+	private final IModel<CommitQuery> queryModel = new LoadableDetachableModel<CommitQuery>() {
 
 		@Override
 		protected CommitQuery load() {
+			getFeedbackMessages().clear();
+			String queryString = queryStringModel.getObject();
 			try {
-				return CommitQuery.merge(getBaseQuery(), CommitQuery.parse(getProject(), query));
-			} catch (OneException e) {
+				return CommitQuery.merge(getBaseQuery(), CommitQuery.parse(getProject(), queryString));
+			} catch (GeneralException e) {
 				error(e.getMessage());
 				return null;
 			} catch (Exception e) {
 				warn("Not a valid formal query, performing fuzzy query");
 				List<CommitCriteria> criterias = new ArrayList<>();
-				ObjectId commitId = getProject().getObjectId(query, false);
+				ObjectId commitId = getProject().getObjectId(queryString, false);
 				if (commitId != null)
-					criterias.add(new RevisionCriteria(Lists.newArrayList(new Revision(query, null))));
+					criterias.add(new RevisionCriteria(Lists.newArrayList(new Revision(queryString, null))));
 				else
-					criterias.add(new MessageCriteria(Lists.newArrayList(query)));
+					criterias.add(new MessageCriteria(Lists.newArrayList(queryString)));
 				return CommitQuery.merge(getBaseQuery(), new CommitQuery(criterias));
 			}
 		}
@@ -140,7 +139,7 @@ public abstract class CommitListPanel extends Panel {
 		
 		@Override
 		protected Commits load() {
-			CommitQuery query = parsedQueryModel.getObject();
+			CommitQuery query = queryModel.getObject();
 			Commits commits = new Commits();
 			List<String> commitHashes;
 			if (query != null) {
@@ -149,7 +148,7 @@ public abstract class CommitListPanel extends Panel {
 					command.ignoreCase(true);
 					
 					if (page > MAX_PAGES)
-						throw new OneException("Page should be no more than " + MAX_PAGES);
+						throw new GeneralException("Page should be no more than " + MAX_PAGES);
 					
 					command.count(page * COMMITS_PER_PAGE);
 					
@@ -223,6 +222,8 @@ public abstract class CommitListPanel extends Panel {
 		}
 	};
 	
+	private int page = 1;
+	
 	private transient Collection<ObjectId> commitIdsToQueryStatus;
 	
 	private WebMarkupContainer body;
@@ -231,14 +232,19 @@ public abstract class CommitListPanel extends Panel {
 	
 	private RepeatingView commitsView;
 	
-	public CommitListPanel(String id, @Nullable String query) {
+	private Component saveQueryLink;
+	
+	private boolean querySubmitted = true;
+	
+	public CommitListPanel(String id, IModel<String> queryModel) {
 		super(id);
-		this.query = query;
+		this.queryStringModel = queryModel;
 	}
 	
 	@Override
 	protected void onDetach() {
-		parsedQueryModel.detach();
+		queryStringModel.detach();
+		queryModel.detach();
 		commitsModel.detach();
 		labelsModel.detach();
 		super.onDetach();
@@ -255,12 +261,19 @@ public abstract class CommitListPanel extends Panel {
 		return new CommitQuery(new ArrayList<>());
 	}
 
-	protected void onQueryUpdated(AjaxRequestTarget target, @Nullable String query) {
-	}
-	
 	@Nullable
 	protected QuerySaveSupport getQuerySaveSupport() {
 		return null;
+	}
+	
+	private void doQuery(AjaxRequestTarget target) {
+		page = 1;
+		target.add(body);
+		target.add(foot);
+		querySubmitted = true;
+		target.appendJavaScript(renderCommitGraph());
+		if (SecurityUtils.getUser() != null && getQuerySaveSupport() != null)
+			target.add(saveQueryLink);
 	}
 	
 	@Override
@@ -291,13 +304,12 @@ public abstract class CommitListPanel extends Panel {
 			
 		}.setOutputMarkupPlaceholderTag(true));
 		
-		Component saveQueryLink;
 		add(saveQueryLink = new AjaxLink<Void>("saveQuery") {
 
 			@Override
 			protected void onConfigure() {
 				super.onConfigure();
-				setEnabled(StringUtils.isNotBlank(query));
+				setEnabled(querySubmitted && queryModel.getObject() != null);
 				setVisible(SecurityUtils.getUser() != null && getQuerySaveSupport() != null);
 			}
 
@@ -305,53 +317,63 @@ public abstract class CommitListPanel extends Panel {
 			protected void onComponentTag(ComponentTag tag) {
 				super.onComponentTag(tag);
 				configure();
-				if (!isEnabled()) {
+				if (!isEnabled()) 
 					tag.put("disabled", "disabled");
-					tag.put("title", "Input query to save");
-				}
+				if (!querySubmitted)
+					tag.put("title", "Query not submitted");
+				else if (queryModel.getObject() == null)
+					tag.put("title", "Can not save malformed query");
 			}
 
 			@Override
 			public void onClick(AjaxRequestTarget target) {
-				getQuerySaveSupport().onSaveQuery(target, query);
+				getQuerySaveSupport().onSaveQuery(target, queryModel.getObject().toString());
 			}		
 			
-		}.setOutputMarkupId(true));
+		}.setOutputMarkupPlaceholderTag(true));
 		
-		TextField<String> input = new TextField<String>("input", new PropertyModel<String>(this, "query"));
-		input.add(new CommitQueryBehavior(new AbstractReadOnlyModel<Project>() {
+		TextField<String> queryInput = new TextField<String>("input", queryStringModel);
+		queryInput.add(new CommitQueryBehavior(new AbstractReadOnlyModel<Project>() {
 
 			@Override
 			public Project getObject() {
 				return getProject();
 			}
 			
-		}));
-		input.add(new AjaxFormComponentUpdatingBehavior("input"){
+		}) {
 			
 			@Override
-			protected void onUpdate(AjaxRequestTarget target) {
-				if (SecurityUtils.getUser() != null && getQuerySaveSupport() != null)
-					target.add(saveQueryLink);
+			protected void onInput(AjaxRequestTarget target, String inputContent) {
+				CommitListPanel.this.getFeedbackMessages().clear();
+				querySubmitted = StringUtils.trimToEmpty(queryStringModel.getObject())
+						.equals(StringUtils.trimToEmpty(inputContent));
+				target.add(saveQueryLink);
 			}
 			
 		});
 		
-		Form<?> form = new Form<Void>("query");
-		form.add(input);
-		form.add(new AjaxButton("submit") {
+		queryInput.add(new AjaxFormComponentUpdatingBehavior("clear") {
+			
+			@Override
+			protected void onUpdate(AjaxRequestTarget target) {
+				doQuery(target);
+			}
+			
+		});
+		
+		Form<?> queryForm = new Form<Void>("query");
+		queryForm.add(queryInput);
+		queryForm.add(new AjaxButton("submit") {
 
 			@Override
 			protected void onSubmit(AjaxRequestTarget target, Form<?> form) {
 				super.onSubmit(target, form);
-				target.add(body);
-				target.add(foot);
-				target.appendJavaScript(renderCommitGraph());
-				onQueryUpdated(target, query);
+				CommitListPanel.this.getFeedbackMessages().clear();
+				doQuery(target);
 			}
 			
 		});
-		add(form);
+		add(queryForm);
 		
 		body = new WebMarkupContainer("body") {
 			
@@ -514,7 +536,7 @@ public abstract class CommitListPanel extends Panel {
 				@Override
 				protected List<Pattern> load() {
 					List<Pattern> patterns =  new ArrayList<>();
-					for (CommitCriteria criteria: parsedQueryModel.getObject().getCriterias()) {
+					for (CommitCriteria criteria: queryModel.getObject().getCriterias()) {
 						if (criteria instanceof MessageCriteria) {
 							for (String value: ((MessageCriteria) criteria).getValues())
 								patterns.add(Pattern.compile(value, Pattern.CASE_INSENSITIVE));
@@ -552,7 +574,7 @@ public abstract class CommitListPanel extends Panel {
 			 */
 			String path = null;
 			
-			for (CommitCriteria criteria: parsedQueryModel.getObject().getCriterias()) {
+			for (CommitCriteria criteria: queryModel.getObject().getCriterias()) {
 				if (criteria instanceof PathCriteria) {
 					for (String value: ((PathCriteria) criteria).getValues()) {
 						if (value.contains("*") || path != null) {
@@ -595,14 +617,14 @@ public abstract class CommitListPanel extends Panel {
 			Link<Void> hashLink = new ViewStateAwarePageLink<Void>("hashLink", CommitDetailPage.class, params);
 			item.add(hashLink);
 			hashLink.add(new Label("hash", GitUtils.abbreviateSHA(commit.name())));
-			item.add(new WebMarkupContainer("copyHash").add(new CopyClipboardBehavior(Model.of(commit.name()))));
+			item.add(new CopyToClipboardLink("copyHash", Model.of(commit.name())));
 			
 			getCommitIdsToQueryStatus().add(commit.copy());
 			CommitStatusPanel commitStatus = new CommitStatusPanel("buildStatus", commit.copy()) {
 
 				@Override
 				protected String getCssClasses() {
-					return "btn btn-default";
+					return "btn btn-outline-secondary";
 				}
 
 				@Override
@@ -612,7 +634,7 @@ public abstract class CommitListPanel extends Panel {
 				
 			};
 			item.add(commitStatus);
-
+			
 			item.add(AttributeAppender.append("class", new LoadableDetachableModel<String>() {
 
 				@Override
@@ -636,6 +658,12 @@ public abstract class CommitListPanel extends Panel {
 		return item;
 	}
 	
+	@Override
+	protected void onBeforeRender() {
+		page = 1;
+		super.onBeforeRender();
+	}
+
 	private String renderCommitGraph() {
 		String jsonOfCommits = asJSON(commitsModel.getObject().current);
 		return String.format("onedev.server.commitList.renderGraph('%s', %s);", body.getMarkupId(), jsonOfCommits);

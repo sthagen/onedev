@@ -1,5 +1,5 @@
 @media(max-width: 991px) {
-	.issue-list>.body .pull-right {
+	.issue-list>.body .float-right {
 		display: none;
 	}
 }
@@ -11,10 +11,10 @@
 	margin-bottom: 20px;
 }
 .issue-list>.head>form {
-	margin-right: 100px;
+	margin-right: 120px;
 }
 .issue-list>.head>.open-new {
-	width: 80px;
+	width: 100px;
 	position: absolute;
 	right: 0;
 	top: 0;
@@ -22,30 +22,25 @@
 .issue-list>.head>.operations>* {
 	margin-right: 16px;
 	color: #444;
+	white-space: nowrap;
 }
 .issue-list>.head>.operations>*:last-child {
 	margin-right: 0;
 }
-.issue-list>.body td .number>a {
-	margin-right: 12px;
-}
-.issue-list>.body td .title>a {
+.issue-list>.body td a.number, .issue-list>.body td .title>a {
 	margin-right: 4px;
-}
-.issue-list>.body td .number>a, .issue-list>.body td .title>a {
 	font-weight: bold;
 	font-size: 15px;
 }
 
 .issue-list>.body td .issue-state {
 	margin-right: 4px;
-	font-size: 11px;
 }
-.issue-list>.body td .secondary>.pull-left>div {
+.issue-list>.body td .secondary>.float-left>div {
 	margin-right: 12px;
 	margin-top: 8px;
 }
-.issue-list>.body td .secondary>.pull-right {
+.issue-list>.body td .secondary>.float-right {
 	margin-top: 8px;
 }
 .issue-list>.body td .last-update, .issue-list>.body td .comments, .issue-list>.body td .votes {

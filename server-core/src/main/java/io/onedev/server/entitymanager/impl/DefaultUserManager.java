@@ -1,8 +1,14 @@
 package io.onedev.server.entitymanager.impl;
 
+import static io.onedev.server.model.User.PROP_PASSWORD;
+import static io.onedev.server.model.User.PROP_SSO_INFO;
+import static io.onedev.server.model.support.SsoInfo.PROP_CONNECTOR;
+import static io.onedev.server.model.support.SsoInfo.PROP_SUBJECT;
+
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
+import java.util.UUID;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -13,23 +19,23 @@ import org.hibernate.ReplicationMode;
 import org.hibernate.criterion.Restrictions;
 import org.hibernate.query.Query;
 
-import io.onedev.commons.launcher.loader.ListenerRegistry;
 import io.onedev.server.entitymanager.IssueFieldManager;
 import io.onedev.server.entitymanager.ProjectManager;
 import io.onedev.server.entitymanager.SettingManager;
 import io.onedev.server.entitymanager.UserManager;
-import io.onedev.server.event.entity.EntityPersisted;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.User;
 import io.onedev.server.model.support.BranchProtection;
+import io.onedev.server.model.support.SsoInfo;
 import io.onedev.server.model.support.TagProtection;
 import io.onedev.server.model.support.administration.jobexecutor.JobExecutor;
+import io.onedev.server.persistence.IdManager;
 import io.onedev.server.persistence.annotation.Sessional;
 import io.onedev.server.persistence.annotation.Transactional;
 import io.onedev.server.persistence.dao.AbstractEntityManager;
 import io.onedev.server.persistence.dao.Dao;
 import io.onedev.server.persistence.dao.EntityCriteria;
-import io.onedev.server.util.Usage;
+import io.onedev.server.util.usage.Usage;
 
 @Singleton
 public class DefaultUserManager extends AbstractEntityManager<User> implements UserManager {
@@ -40,28 +46,30 @@ public class DefaultUserManager extends AbstractEntityManager<User> implements U
     
     private final IssueFieldManager issueFieldManager;
     
-    private final ListenerRegistry listenerRegistry;
+    private final IdManager idManager;
     
 	@Inject
     public DefaultUserManager(Dao dao, ProjectManager projectManager, SettingManager settingManager, 
-    		IssueFieldManager issueFieldManager, ListenerRegistry listenerRegistry) {
+    		IssueFieldManager issueFieldManager, IdManager idManager) {
         super(dao);
         
         this.projectManager = projectManager;
         this.settingManager = settingManager;
         this.issueFieldManager = issueFieldManager;
-        this.listenerRegistry = listenerRegistry;
+        this.idManager = idManager;
     }
 
+	@Transactional
+	@Override
+	public void replicate(User user) {
+		getSession().replicate(user, ReplicationMode.OVERWRITE);
+		idManager.useId(User.class, user.getId());
+	}
+	
     @Transactional
     @Override
 	public void save(User user, String oldName) {
-    	if (user.isRoot() || user.isSystem()) {
-    		getSession().replicate(user, ReplicationMode.OVERWRITE);
-    		listenerRegistry.post(new EntityPersisted(user, false));
-    	} else {
-    		dao.persist(user);
-    	}
+    	dao.persist(user);
 
     	if (oldName != null && !oldName.equals(user.getName())) {
     		for (Project project: projectManager.query()) {
@@ -102,12 +110,14 @@ public class DefaultUserManager extends AbstractEntityManager<User> implements U
 	public void delete(User user) {
     	Usage usage = new Usage();
 		for (Project project: projectManager.query()) {
+			Usage usedInProject = new Usage();
 			for (BranchProtection protection: project.getBranchProtections()) 
-				usage.add(protection.onDeleteUser(user.getName()));
+				usedInProject.add(protection.onDeleteUser(user.getName()));
 			for (TagProtection protection: project.getTagProtections()) 
-				usage.add(protection.onDeleteUser(user.getName()));
-			usage.add(project.getIssueSetting().onDeleteUser(user.getName()));
-			usage.prefix("project '" + project.getName() + "': setting");
+				usedInProject.add(protection.onDeleteUser(user.getName()));
+			usedInProject.add(project.getIssueSetting().onDeleteUser(user.getName()));
+			usedInProject.prefix("project '" + project.getName() + "': setting");
+			usage.add(usedInProject);
 		}
 		
     	int index = 0;
@@ -209,11 +219,30 @@ public class DefaultUserManager extends AbstractEntityManager<User> implements U
     @Override
     public User findByName(String userName) {
 		EntityCriteria<User> criteria = newCriteria();
-		criteria.add(Restrictions.eq("name", userName));
+		criteria.add(Restrictions.ilike(User.PROP_NAME, userName));
 		criteria.setCacheable(true);
 		return find(criteria);
     }
 
+	@Sessional
+    @Override
+    public User findByAccessToken(String accessToken) {
+		EntityCriteria<User> criteria = newCriteria();
+		criteria.add(Restrictions.eq(User.PROP_ACCESS_TOKEN, accessToken));
+		criteria.setCacheable(true);
+		return find(criteria);
+    }
+	
+	@Sessional
+    @Override
+    public User findBySsoInfo(SsoInfo ssoInfo) {
+		EntityCriteria<User> criteria = newCriteria();
+		criteria.add(Restrictions.eq(User.PROP_SSO_INFO + "." + SsoInfo.PROP_CONNECTOR, ssoInfo.getConnector()));
+		criteria.add(Restrictions.eq(User.PROP_SSO_INFO + "." + SsoInfo.PROP_SUBJECT, ssoInfo.getSubject()));
+		criteria.setCacheable(true);
+		return find(criteria);
+    }
+	
 	@Override
 	public List<User> query() {
 		EntityCriteria<User> criteria = newCriteria();
@@ -231,7 +260,7 @@ public class DefaultUserManager extends AbstractEntityManager<User> implements U
     @Override
     public User findByEmail(String email) {
 		EntityCriteria<User> criteria = newCriteria();
-		criteria.add(Restrictions.eq("email", email));
+		criteria.add(Restrictions.ilike(User.PROP_EMAIL, email));
 		criteria.setCacheable(true);
 		return find(criteria);
     }
@@ -253,5 +282,28 @@ public class DefaultUserManager extends AbstractEntityManager<User> implements U
 		users.addAll(0, topUsers);
 		return users;
 	}
-	
+
+	@Transactional
+	@Override
+	public void onRenameSsoConnector(String oldName, String newName) {
+		String connectorProp = PROP_SSO_INFO + "." + PROP_CONNECTOR;
+    	Query<?> query = getSession().createQuery(String.format("update User set %s=:newName "
+    			+ "where %s=:oldName", connectorProp, connectorProp));
+    	query.setParameter("oldName", oldName);
+    	query.setParameter("newName", newName);
+    	query.executeUpdate();
+	}
+
+	@Transactional
+	@Override
+	public void onDeleteSsoConnector(String name) {
+		String connectorProp = PROP_SSO_INFO + "." + PROP_CONNECTOR;
+		String subjectProp = PROP_SSO_INFO + "." + PROP_SUBJECT;
+    	Query<?> query = getSession().createQuery(String.format("update User set %s=null, %s='%s', %s='12345' "
+    			+ "where %s=:name", 
+    			connectorProp, subjectProp, UUID.randomUUID().toString(), PROP_PASSWORD, connectorProp));
+    	query.setParameter("name", name);
+    	query.executeUpdate();
+	}
+
 }

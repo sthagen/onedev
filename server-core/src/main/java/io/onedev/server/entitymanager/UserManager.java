@@ -8,6 +8,7 @@ import javax.annotation.Nullable;
 import org.eclipse.jgit.lib.PersonIdent;
 
 import io.onedev.server.model.User;
+import io.onedev.server.model.support.SsoInfo;
 import io.onedev.server.persistence.dao.EntityManager;
 
 public interface UserManager extends EntityManager<User> {
@@ -24,6 +25,8 @@ public interface UserManager extends EntityManager<User> {
 	 * 			or the name is not changed
 	 */
 	void save(User user, @Nullable String oldName);
+	
+	void replicate(User user);
 	
 	void delete(User user);
 	
@@ -53,6 +56,12 @@ public interface UserManager extends EntityManager<User> {
 	 */
 	@Nullable 
 	User findByName(String userName);
+
+	@Nullable 
+	User findBySsoInfo(SsoInfo ssoInfo);
+	
+	@Nullable
+	User findByAccessToken(String accessToken);
 	
 	/**
 	 * Find user of specified name.
@@ -78,4 +87,7 @@ public interface UserManager extends EntityManager<User> {
 	
 	List<User> queryAndSort(Collection<User> topUsers);
 	
+	void onRenameSsoConnector(String oldName, String newName);
+	 
+	void onDeleteSsoConnector(String name);
 }

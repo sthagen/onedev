@@ -1,9 +1,7 @@
 package io.onedev.server.model.support.issue.changedata;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 import javax.annotation.Nullable;
@@ -15,8 +13,9 @@ import io.onedev.server.model.Issue;
 import io.onedev.server.model.IssueChange;
 import io.onedev.server.model.Milestone;
 import io.onedev.server.model.User;
-import io.onedev.server.util.CommentSupport;
-import io.onedev.server.web.component.diff.plain.PlainDiffPanel;
+import io.onedev.server.util.CollectionUtils;
+import io.onedev.server.util.CommentAware;
+import io.onedev.server.web.component.propertychangepanel.PropertyChangePanel;
 
 public class IssueMilestoneChangeData implements IssueChangeData {
 
@@ -33,25 +32,10 @@ public class IssueMilestoneChangeData implements IssueChangeData {
 	
 	@Override
 	public Component render(String componentId, IssueChange change) {
-		return new PlainDiffPanel(componentId, getOldLines(), "a.txt", getNewLines(), "b.txt", true);
-	}
-	
-	private List<String> getOldLines() {
-		List<String> oldLines = new ArrayList<>();
-		if (oldMilestone != null)
-			oldLines.add("Milestone: " + oldMilestone);
-		else
-			oldLines.add("Milestone: ");
-		return oldLines;
-	}
-
-	private List<String> getNewLines() {
-		List<String> newLines = new ArrayList<>();
-		if (newMilestone != null)
-			newLines.add("Milestone: " + newMilestone);
-		else
-			newLines.add("Milestone: ");
-		return newLines;
+		return new PropertyChangePanel(componentId, 
+				CollectionUtils.newHashMap("Milestone", oldMilestone), 
+				CollectionUtils.newHashMap("Milestone", newMilestone), 
+				true);
 	}
 	
 	public String getOldMilestone() {
@@ -66,12 +50,12 @@ public class IssueMilestoneChangeData implements IssueChangeData {
 	public String getActivity(Issue withIssue) {
 		String activity = "changed milestone";
 		if (withIssue != null)
-			activity += " of issue " + withIssue.describe();
+			activity += " of issue " + withIssue.getNumberAndTitle();
 		return activity;
 	}
 
 	@Override
-	public CommentSupport getCommentSupport() {
+	public CommentAware getCommentAware() {
 		return null;
 	}
 

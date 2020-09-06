@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import javax.persistence.criteria.CriteriaBuilder;
@@ -49,7 +50,9 @@ import io.onedev.commons.utils.StringUtils;
 import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.entitymanager.GroupManager;
 import io.onedev.server.entitymanager.ProjectManager;
+import io.onedev.server.entitymanager.RoleManager;
 import io.onedev.server.entitymanager.SettingManager;
+import io.onedev.server.entitymanager.UserAuthorizationManager;
 import io.onedev.server.event.ProjectCreated;
 import io.onedev.server.event.ProjectEvent;
 import io.onedev.server.event.RefUpdated;
@@ -82,12 +85,12 @@ import io.onedev.server.search.entity.EntityQuery;
 import io.onedev.server.search.entity.EntitySort;
 import io.onedev.server.search.entity.EntitySort.Direction;
 import io.onedev.server.search.entity.project.ProjectQuery;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.security.permission.AccessProject;
-import io.onedev.server.util.SecurityUtils;
-import io.onedev.server.util.Usage;
 import io.onedev.server.util.patternset.PatternSet;
 import io.onedev.server.util.schedule.SchedulableTask;
 import io.onedev.server.util.schedule.TaskScheduler;
+import io.onedev.server.util.usage.Usage;
 import io.onedev.server.web.avatar.AvatarManager;
 
 @Singleton
@@ -114,6 +117,10 @@ public class DefaultProjectManager extends AbstractEntityManager<Project>
     
     private final ListenerRegistry listenerRegistry;
     
+    private final RoleManager roleManager;
+    
+    private final UserAuthorizationManager userAuthorizationManager;
+    
     private final String gitReceiveHook;
     
 	private final Map<Long, Repository> repositoryCache = new ConcurrentHashMap<>();
@@ -127,7 +134,8 @@ public class DefaultProjectManager extends AbstractEntityManager<Project>
     		BuildManager buildManager, AvatarManager avatarManager, GroupManager groupManager,
     		SettingManager settingManager, TransactionManager transactionManager, 
     		SessionManager sessionManager, ListenerRegistry listenerRegistry, 
-    		TaskScheduler taskScheduler) {
+    		TaskScheduler taskScheduler, UserAuthorizationManager userAuthorizationManager, 
+    		RoleManager roleManager) {
     	super(dao);
     	
         this.commitInfoManager = commitInfoManager;
@@ -139,6 +147,8 @@ public class DefaultProjectManager extends AbstractEntityManager<Project>
         this.sessionManager = sessionManager;
         this.listenerRegistry = listenerRegistry;
         this.taskScheduler = taskScheduler;
+        this.userAuthorizationManager = userAuthorizationManager;
+        this.roleManager = roleManager;
         
         try (InputStream is = getClass().getClassLoader().getResourceAsStream("git-receive-hook")) {
         	Preconditions.checkNotNull(is);
@@ -191,7 +201,11 @@ public class DefaultProjectManager extends AbstractEntityManager<Project>
     public void create(Project project) {
     	dao.persist(project);
        	checkSanity(project);
-       	
+       	UserAuthorization authorization = new UserAuthorization();
+       	authorization.setProject(project);
+       	authorization.setUser(SecurityUtils.getUser());
+       	authorization.setRole(roleManager.getOwner());
+       	userAuthorizationManager.save(authorization);
        	listenerRegistry.post(new ProjectCreated(project));
     }
     
@@ -261,7 +275,7 @@ public class DefaultProjectManager extends AbstractEntityManager<Project>
     @Override
     public Project find(String projectName) {
 		EntityCriteria<Project> criteria = newCriteria();
-		criteria.add(Restrictions.eq("name", projectName));
+		criteria.add(Restrictions.ilike("name", projectName));
 		criteria.setCacheable(true);
 		return find(criteria);
     }
@@ -270,6 +284,13 @@ public class DefaultProjectManager extends AbstractEntityManager<Project>
 	@Override
 	public void fork(Project from, Project to) {
     	dao.persist(to);
+    	
+       	UserAuthorization authorization = new UserAuthorization();
+       	authorization.setProject(to);
+       	authorization.setUser(SecurityUtils.getUser());
+       	authorization.setRole(roleManager.getOwner());
+       	userAuthorizationManager.save(authorization);
+    	
         FileUtils.cleanDir(to.getGitDir());
         new CloneCommand(to.getGitDir()).mirror(true).from(from.getGitDir().getAbsolutePath()).call();
         checkSanity(to);
@@ -378,8 +399,6 @@ public class DefaultProjectManager extends AbstractEntityManager<Project>
 	@Transactional
 	@Override
 	public void onDeleteBranch(Project project, String branchName) {
-		Usage usage = new Usage();
-
 		for (Iterator<BranchProtection> it = project.getBranchProtections().iterator(); it.hasNext();) { 
 			BranchProtection protection = it.next();
 			PatternSet patternSet = PatternSet.parse(protection.getBranches());
@@ -389,10 +408,6 @@ public class DefaultProjectManager extends AbstractEntityManager<Project>
 			if (protection.getBranches().length() == 0)
 				it.remove();
 		}
-		
-		usage.add(project.getIssueSetting().onDeleteBranch(branchName));
-		
-		usage.prefix("project setting").checkInUse("Branch '" + branchName + "'");
 	}
 	
 	@Transactional
@@ -431,7 +446,6 @@ public class DefaultProjectManager extends AbstractEntityManager<Project>
 	@Transactional
 	@Override
 	public void onDeleteTag(Project project, String tagName) {
-		Usage usage = new Usage();
 		for (Iterator<TagProtection> it = project.getTagProtections().iterator(); it.hasNext();) { 
 			TagProtection protection = it.next();
 			PatternSet patternSet = PatternSet.parse(protection.getTags());
@@ -441,8 +455,6 @@ public class DefaultProjectManager extends AbstractEntityManager<Project>
 			if (protection.getTags().length() == 0)
 				it.remove();
 		}
-		
-		usage.prefix("project setting").checkInUse("Tag '" + tagName + "'");
 	}
 	
 	@Transactional
@@ -497,23 +509,26 @@ public class DefaultProjectManager extends AbstractEntityManager<Project>
 		} else {
 			User user = SecurityUtils.getUser();
 			if (user != null) {
-				projects.addAll(user.getProjects());
 				for (Membership membership: user.getMemberships()) {
-					for (GroupAuthorization authorization: membership.getGroup().getProjectAuthorizations()) {
+					for (GroupAuthorization authorization: membership.getGroup().getAuthorizations()) {
 						if (authorization.getRole().implies(permission))
 							projects.add(authorization.getProject());
 					}
 				}
-				for (UserAuthorization authorization: user.getProjectAuthorizations()) { 
+				for (UserAuthorization authorization: user.getAuthorizations()) { 
 					if (authorization.getRole().implies(permission))
 						projects.add(authorization.getProject());
 				}
 			}
 			Group group = groupManager.findAnonymous();
 			if (group != null) {
-				for (GroupAuthorization authorization: group.getProjectAuthorizations()) { 
-					if (authorization.getRole().implies(permission))
-						projects.add(authorization.getProject());
+				if (group.isAdministrator()) {
+					projects.addAll(query());
+				} else {
+					for (GroupAuthorization authorization: group.getAuthorizations()) { 
+						if (authorization.getRole().implies(permission))
+							projects.add(authorization.getProject());
+					}
 				}
 			}
 		}
@@ -544,7 +559,7 @@ public class DefaultProjectManager extends AbstractEntityManager<Project>
 		return query;
 	}
 	
-	private Predicate[] getPredicates(io.onedev.server.search.entity.EntityCriteria<Project> criteria, 
+	private Predicate[] getPredicates(@Nullable io.onedev.server.search.entity.EntityCriteria<Project> criteria, 
 			Root<Project> root, CriteriaBuilder builder) {
 		List<Predicate> predicates = new ArrayList<>();
 		if (!SecurityUtils.isAdministrator()) {
@@ -612,5 +627,5 @@ public class DefaultProjectManager extends AbstractEntityManager<Project>
 	public ScheduleBuilder<?> getScheduleBuilder() {
 		return SimpleScheduleBuilder.repeatMinutelyForever();
 	}
-
+	
 }

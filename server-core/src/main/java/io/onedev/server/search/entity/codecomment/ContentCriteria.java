@@ -32,8 +32,8 @@ public class ContentCriteria extends EntityCriteria<CodeComment> {
 	}
 
 	@Override
-	public String asString() {
-		return quote(CodeComment.FIELD_CONTENT) + " " 
+	public String toStringWithoutParens() {
+		return quote(CodeComment.NAME_CONTENT) + " " 
 				+ CodeCommentQuery.getRuleName(CodeCommentQueryLexer.Contains) + " " 
 				+ quote(value);
 	}

@@ -11,10 +11,10 @@ import org.apache.wicket.markup.html.link.Link;
 import org.apache.wicket.model.Model;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.web.component.link.ViewStateAwarePageLink;
 import io.onedev.server.web.component.tabbable.PageTab;
-import io.onedev.server.web.component.tabbable.PageTabLink;
+import io.onedev.server.web.component.tabbable.PageTabHead;
 import io.onedev.server.web.component.tabbable.Tab;
 import io.onedev.server.web.component.tabbable.Tabbable;
 import io.onedev.server.web.page.project.ProjectPage;
@@ -36,7 +36,7 @@ public abstract class ProjectStatsPage extends ProjectPage {
 
 			@Override
 			public Component render(String componentId) {
-				return new PageTabLink(componentId, this) {
+				return new PageTabHead(componentId, this) {
 
 					@Override
 					protected Link<?> newLink(String linkId, Class<? extends Page> pageClass) {
@@ -52,7 +52,7 @@ public abstract class ProjectStatsPage extends ProjectPage {
 			
 			@Override
 			public Component render(String componentId) {
-				return new PageTabLink(componentId, this) {
+				return new PageTabHead(componentId, this) {
 
 					@Override
 					protected Link<?> newLink(String linkId, Class<? extends Page> pageClass) {

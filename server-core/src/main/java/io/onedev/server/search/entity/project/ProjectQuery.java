@@ -14,7 +14,7 @@ import org.antlr.v4.runtime.RecognitionException;
 import org.antlr.v4.runtime.Recognizer;
 
 import io.onedev.commons.codeassist.AntlrUtils;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.model.Project;
 import io.onedev.server.search.entity.AndEntityCriteria;
 import io.onedev.server.search.entity.EntityCriteria;
@@ -90,7 +90,10 @@ public class ProjectQuery extends EntityQuery<Project> {
 
 					@Override
 					public EntityCriteria<Project> visitOperatorCriteria(OperatorCriteriaContext ctx) {
-						return new OwnedByMeCriteria();
+						if (ctx.operator.getType() == ProjectQueryLexer.OwnedByMe)
+							return new OwnedByMeCriteria();
+						else
+							return new OwnedByNoneCriteria();
 					}
 					
 					public EntityCriteria<Project> visitOperatorValueCriteria(OperatorValueCriteriaContext ctx) {
@@ -98,7 +101,7 @@ public class ProjectQuery extends EntityQuery<Project> {
 						if (ctx.operator.getType() == ProjectQueryLexer.ForksOf)
 							return new ForksOfCriteria(value);
 						else
-							return new OwnedByCriteria(value);
+							return new OwnedByCriteria(getUser(value));
 					}
 					
 					@Override
@@ -122,7 +125,7 @@ public class ProjectQuery extends EntityQuery<Project> {
 						case ProjectQueryLexer.IsAfter:
 							return new UpdateDateCriteria(value, operator);
 						default:
-							throw new OneException("Unexpected operator " + getRuleName(operator));
+							throw new GeneralException("Unexpected operator " + getRuleName(operator));
 						}
 					}
 					
@@ -156,7 +159,7 @@ public class ProjectQuery extends EntityQuery<Project> {
 			for (OrderContext order: queryContext.order()) {
 				String fieldName = getValue(order.Quoted().getText());
 				if (!Project.ORDER_FIELDS.containsKey(fieldName)) 
-					throw new OneException("Can not order by field: " + fieldName);
+					throw new GeneralException("Can not order by field: " + fieldName);
 				
 				EntitySort projectSort = new EntitySort();
 				projectSort.setField(fieldName);
@@ -173,25 +176,25 @@ public class ProjectQuery extends EntityQuery<Project> {
 		}
 	}
 	
-	private static OneException newOperatorException(String fieldName, int operator) {
-		return new OneException("Field '" + fieldName + "' is not applicable for operator '" + getRuleName(operator) + "'");
+	private static GeneralException newOperatorException(String fieldName, int operator) {
+		return new GeneralException("Field '" + fieldName + "' is not applicable for operator '" + getRuleName(operator) + "'");
 	}
 	
 	public static void checkField(String fieldName, int operator) {
 		if (!Project.QUERY_FIELDS.contains(fieldName))
-			throw new OneException("Field not found: " + fieldName);
+			throw new GeneralException("Field not found: " + fieldName);
 		switch (operator) {
 		case ProjectQueryLexer.Contains:
-			if (!fieldName.equals(Project.FIELD_DESCRIPTION))
+			if (!fieldName.equals(Project.NAME_DESCRIPTION))
 				throw newOperatorException(fieldName, operator);
 			break;
 		case ProjectQueryLexer.Is:
-			if (!fieldName.equals(Project.FIELD_NAME)) 
+			if (!fieldName.equals(Project.NAME_NAME)) 
 				throw newOperatorException(fieldName, operator);
 			break;
 		case ProjectQueryLexer.IsBefore:
 		case ProjectQueryLexer.IsAfter:
-			if (!fieldName.equals(Project.FIELD_UPDATE_DATE)) 
+			if (!fieldName.equals(Project.NAME_UPDATE_DATE)) 
 				throw newOperatorException(fieldName, operator);
 			break;
 		}

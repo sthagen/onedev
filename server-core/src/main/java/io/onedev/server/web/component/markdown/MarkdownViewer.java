@@ -5,13 +5,14 @@ import static org.apache.wicket.ajax.attributes.CallbackParameter.explicit;
 import javax.annotation.Nullable;
 
 import org.apache.wicket.ajax.AjaxRequestTarget;
+import org.apache.wicket.feedback.FencedFeedbackPanel;
+import org.apache.wicket.markup.ComponentTag;
 import org.apache.wicket.markup.head.IHeaderResponse;
 import org.apache.wicket.markup.head.JavaScriptHeaderItem;
 import org.apache.wicket.markup.head.OnDomReadyHeaderItem;
-import org.apache.wicket.markup.html.basic.Label;
+import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.markup.html.panel.GenericPanel;
 import org.apache.wicket.model.IModel;
-import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.request.IRequestParameters;
 import org.apache.wicket.request.cycle.RequestCycle;
 import org.eclipse.jgit.lib.ObjectId;
@@ -19,7 +20,6 @@ import org.eclipse.jgit.revwalk.RevCommit;
 import org.hibernate.StaleStateException;
 import org.unbescape.javascript.JavaScriptEscape;
 
-import de.agilecoders.wicket.core.markup.html.bootstrap.common.NotificationPanel;
 import io.onedev.commons.launcher.loader.AppLoader;
 import io.onedev.commons.utils.StringUtils;
 import io.onedev.server.OneDev;
@@ -30,13 +30,15 @@ import io.onedev.server.entitymanager.SettingManager;
 import io.onedev.server.entitymanager.UserManager;
 import io.onedev.server.model.Build;
 import io.onedev.server.model.Issue;
+import io.onedev.server.model.Project;
 import io.onedev.server.model.PullRequest;
 import io.onedev.server.model.User;
 import io.onedev.server.model.support.pullrequest.CloseInfo;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.ColorUtils;
 import io.onedev.server.util.DateUtils;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.util.markdown.MarkdownManager;
+import io.onedev.server.web.asset.lozad.LozadResourceReference;
 import io.onedev.server.web.avatar.AvatarManager;
 import io.onedev.server.web.behavior.AbstractPostAjaxBehavior;
 import io.onedev.server.web.page.project.ProjectPage;
@@ -73,26 +75,35 @@ public class MarkdownViewer extends GenericPanel<String> {
 	protected void onInitialize() {
 		super.onInitialize();
 
-		NotificationPanel feedback = new NotificationPanel("feedback", this);
+		FencedFeedbackPanel feedback = new FencedFeedbackPanel("feedback", this);
 		feedback.setOutputMarkupPlaceholderTag(true);
 		add(feedback);
 		
-		add(new Label("content", new LoadableDetachableModel<String>() {
+		add(new WebMarkupContainer("content") {
 
 			@Override
-			protected String load() {
+			protected void onComponentTag(ComponentTag tag) {
+				super.onComponentTag(tag);
+				
 				String markdown = MarkdownViewer.this.getModelObject();
 				if (markdown != null) {
-					MarkdownManager markdownManager = AppLoader.getInstance(MarkdownManager.class);
-					String html = markdownManager.render(markdown);
-					ProjectPage page = (ProjectPage) getPage();
-					return markdownManager.process(page.getProject(), html, getRenderContext());
-				} else {
-					return null;
-				}
+					Project project = null;
+					if (getPage() instanceof ProjectPage)
+						project = ((ProjectPage) getPage()).getProject(); 
+					MarkdownManager manager = AppLoader.getInstance(MarkdownManager.class);
+					
+					/*
+					 *  Render it as html will cause issue when markdown contains some html
+					 *  entities such as "&#27;" and when the component is rendered via ajax. 
+					 *  
+					 *  This is because some html valid chars are not valid xml chars (the 
+					 *  component html will be sent to browser via xml when render via ajax) 
+					 */
+					tag.put("data-content", manager.process(manager.render(markdown), project, getRenderContext()));
+				} 
 			}
 			
-		}).setEscapeModelStrings(false));
+		});
 		
 		add(taskBehavior = new AbstractPostAjaxBehavior() {
 			
@@ -215,6 +226,8 @@ public class MarkdownViewer extends GenericPanel<String> {
 	@Override
 	public void renderHead(IHeaderResponse response) {
 		super.renderHead(response);
+		
+		response.render(JavaScriptHeaderItem.forReference(new LozadResourceReference()));
 		response.render(JavaScriptHeaderItem.forReference(new MarkdownResourceReference()));
 		
 		CharSequence taskCallback = taskBehavior.getCallbackFunction(

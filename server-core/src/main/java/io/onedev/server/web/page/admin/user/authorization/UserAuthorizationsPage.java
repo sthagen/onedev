@@ -6,10 +6,10 @@ import java.util.HashSet;
 import java.util.Set;
 
 import org.apache.wicket.Session;
+import org.apache.wicket.feedback.FencedFeedbackPanel;
 import org.apache.wicket.markup.html.form.Form;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 
-import de.agilecoders.wicket.core.markup.html.bootstrap.common.NotificationPanel;
 import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.ProjectManager;
 import io.onedev.server.entitymanager.RoleManager;
@@ -32,7 +32,7 @@ public class UserAuthorizationsPage extends UserPage {
 		super.onInitialize();
 		
 		AuthorizationsBean authorizationsBean = new AuthorizationsBean();
-		for (UserAuthorization authorization: getUser().getProjectAuthorizations()) {
+		for (UserAuthorization authorization: getUser().getAuthorizations()) {
 			AuthorizationBean authorizationBean = new AuthorizationBean();
 			authorizationBean.setProjectName(authorization.getProject().getName());
 			authorizationBean.setRoleName(authorization.getRole().getName());
@@ -61,12 +61,12 @@ public class UserAuthorizationsPage extends UserPage {
 					}
 				}
 				
-				OneDev.getInstance(UserAuthorizationManager.class).authorize(getUser(), authorizations);
+				OneDev.getInstance(UserAuthorizationManager.class).syncAuthorizations(getUser(), authorizations);
 				Session.get().success("Project authorizations updated");
 			}
 			
 		};
-		form.add(new NotificationPanel("feedback", form));
+		form.add(new FencedFeedbackPanel("feedback", form));
 		form.add(PropertyContext.edit("editor", authorizationsBean, "authorizations"));
 		add(form);	
 	}

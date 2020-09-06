@@ -1,14 +1,14 @@
 package io.onedev.server.search.entity.build;
 
-import static io.onedev.server.model.Build.FIELD_COMMIT;
-import static io.onedev.server.model.Build.FIELD_FINISH_DATE;
-import static io.onedev.server.model.Build.FIELD_JOB;
-import static io.onedev.server.model.Build.FIELD_NUMBER;
-import static io.onedev.server.model.Build.FIELD_PENDING_DATE;
-import static io.onedev.server.model.Build.FIELD_PROJECT;
-import static io.onedev.server.model.Build.FIELD_RUNNING_DATE;
-import static io.onedev.server.model.Build.FIELD_SUBMIT_DATE;
-import static io.onedev.server.model.Build.FIELD_VERSION;
+import static io.onedev.server.model.Build.NAME_COMMIT;
+import static io.onedev.server.model.Build.NAME_FINISH_DATE;
+import static io.onedev.server.model.Build.NAME_JOB;
+import static io.onedev.server.model.Build.NAME_NUMBER;
+import static io.onedev.server.model.Build.NAME_PENDING_DATE;
+import static io.onedev.server.model.Build.NAME_PROJECT;
+import static io.onedev.server.model.Build.NAME_RUNNING_DATE;
+import static io.onedev.server.model.Build.NAME_SUBMIT_DATE;
+import static io.onedev.server.model.Build.NAME_VERSION;
 import static io.onedev.server.model.Build.ORDER_FIELDS;
 import static io.onedev.server.model.Build.QUERY_FIELDS;
 
@@ -28,7 +28,7 @@ import org.antlr.v4.runtime.Recognizer;
 
 import io.onedev.commons.codeassist.AntlrUtils;
 import io.onedev.server.OneDev;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.entitymanager.BuildParamManager;
 import io.onedev.server.model.Build;
 import io.onedev.server.model.Project;
@@ -50,7 +50,7 @@ import io.onedev.server.search.entity.build.BuildQueryParser.OrCriteriaContext;
 import io.onedev.server.search.entity.build.BuildQueryParser.OrderContext;
 import io.onedev.server.search.entity.build.BuildQueryParser.ParensCriteriaContext;
 import io.onedev.server.search.entity.build.BuildQueryParser.QueryContext;
-import io.onedev.server.util.ProjectAwareCommit;
+import io.onedev.server.util.ProjectScopedCommit;
 
 public class BuildQuery extends EntityQuery<Build> {
 
@@ -111,30 +111,30 @@ public class BuildQuery extends EntityQuery<Build> {
 							return new TimedOutCriteria();
 						case BuildQueryLexer.Waiting:
 							if (!withUnfinishedCriteria)
-								throw new OneException("Criteria '" + ctx.operator.getText() + "' is not supported here");
+								throw new GeneralException("Criteria '" + ctx.operator.getText() + "' is not supported here");
 							return new WaitingCriteria();
 						case BuildQueryLexer.Pending:
 							if (!withUnfinishedCriteria)
-								throw new OneException("Criteria '" + ctx.operator.getText() + "' is not supported here");
+								throw new GeneralException("Criteria '" + ctx.operator.getText() + "' is not supported here");
 							return new PendingCriteria();
 						case BuildQueryLexer.Running:
 							if (!withUnfinishedCriteria)
-								throw new OneException("Criteria '" + ctx.operator.getText() + "' is not supported here");
+								throw new GeneralException("Criteria '" + ctx.operator.getText() + "' is not supported here");
 							return new RunningCriteria();
 						case BuildQueryLexer.SubmittedByMe:
 							if (!withCurrentUserCriteria)
-								throw new OneException("Criteria '" + ctx.operator.getText() + "' is not supported here");
+								throw new GeneralException("Criteria '" + ctx.operator.getText() + "' is not supported here");
 							return new SubmittedByMeCriteria();
 						case BuildQueryLexer.CancelledByMe:
 							if (!withCurrentUserCriteria)
-								throw new OneException("Criteria '" + ctx.operator.getText() + "' is not supported here");
+								throw new GeneralException("Criteria '" + ctx.operator.getText() + "' is not supported here");
 							return new CancelledByMeCriteria();
 						case BuildQueryLexer.AssociatedWithPullRequests:
 							return new AssociatedWithPullRequestsCriteria();
 						case BuildQueryLexer.RequiredByPullRequests:
 							return new RequiredByPullRequestsCriteria();
 						default:
-							throw new OneException("Unexpected operator: " + ctx.operator.getText());
+							throw new GeneralException("Unexpected operator: " + ctx.operator.getText());
 						}
 					}
 					
@@ -142,9 +142,9 @@ public class BuildQuery extends EntityQuery<Build> {
 					public EntityCriteria<Build> visitOperatorValueCriteria(OperatorValueCriteriaContext ctx) {
 						String value = getValue(ctx.Quoted().getText());
 						if (ctx.SubmittedBy() != null) 
-							return new SubmittedByCriteria(value);
+							return new SubmittedByCriteria(getUser(value));
 						else if (ctx.CancelledBy() != null) 
-							return new CancelledByCriteria(value);
+							return new CancelledByCriteria(getUser(value));
 						else if (ctx.FixedIssue() != null) 
 							return new FixedIssueCriteria(project, value);
 						else if (ctx.DependsOn() != null) 
@@ -169,7 +169,7 @@ public class BuildQuery extends EntityQuery<Build> {
 						String fieldName = getValue(ctx.Quoted().getText());
 						int operator = ctx.operator.getType();
 						checkField(project, fieldName, operator);
-						if (fieldName.equals(FIELD_VERSION))
+						if (fieldName.equals(NAME_VERSION))
 							return new VersionIsEmptyCriteria();
 						else
 							return new ParamIsEmptyCriteria(fieldName);
@@ -185,28 +185,28 @@ public class BuildQuery extends EntityQuery<Build> {
 						switch (operator) {
 						case BuildQueryLexer.IsBefore:
 						case BuildQueryLexer.IsAfter:
-							if (fieldName.equals(FIELD_SUBMIT_DATE))
+							if (fieldName.equals(NAME_SUBMIT_DATE))
 								return new SubmitDateCriteria(value, operator);
-							else if (fieldName.equals(FIELD_PENDING_DATE))
+							else if (fieldName.equals(NAME_PENDING_DATE))
 								return new PendingDateCriteria(value, operator);
-							else if (fieldName.equals(FIELD_RUNNING_DATE))
+							else if (fieldName.equals(NAME_RUNNING_DATE))
 								return new RunningDateCriteria(value, operator);
-							else if (fieldName.equals(FIELD_FINISH_DATE))
+							else if (fieldName.equals(NAME_FINISH_DATE))
 								return new FinishDateCriteria(value, operator);
 							else
 								throw new IllegalStateException();
 						case BuildQueryLexer.Is:
 							switch (fieldName) {
-							case FIELD_PROJECT:
+							case NAME_PROJECT:
 								return new ProjectCriteria(value);
-							case FIELD_COMMIT:
-								ProjectAwareCommit commitId = getCommitId(project, value); 
+							case NAME_COMMIT:
+								ProjectScopedCommit commitId = getCommitId(project, value); 
 								return new CommitCriteria(commitId.getProject(), commitId.getCommitId());
-							case FIELD_JOB:
+							case NAME_JOB:
 								return new JobCriteria(value);
-							case FIELD_NUMBER:
+							case NAME_NUMBER:
 								return new NumberCriteria(project, value, operator);
-							case FIELD_VERSION:
+							case NAME_VERSION:
 								return new VersionCriteria(value);
 							default: 
 								return new ParamCriteria(fieldName, value);
@@ -249,7 +249,7 @@ public class BuildQuery extends EntityQuery<Build> {
 			for (OrderContext order: queryContext.order()) {
 				String fieldName = getValue(order.Quoted().getText());
 				if (!ORDER_FIELDS.containsKey(fieldName)) 
-					throw new OneException("Can not order by field: " + fieldName);
+					throw new GeneralException("Can not order by field: " + fieldName);
 				
 				EntitySort buildSort = new EntitySort();
 				buildSort.setField(fieldName);
@@ -269,37 +269,37 @@ public class BuildQuery extends EntityQuery<Build> {
 	public static void checkField(Project project, String fieldName, int operator) {
 		Collection<String> paramNames = OneDev.getInstance(BuildParamManager.class).getBuildParamNames(null);
 		if (!QUERY_FIELDS.contains(fieldName) && !paramNames.contains(fieldName))
-			throw new OneException("Field not found: " + fieldName);
+			throw new GeneralException("Field not found: " + fieldName);
 		switch (operator) {
 		case BuildQueryLexer.IsBefore:
 		case BuildQueryLexer.IsAfter:
-			if (!fieldName.equals(FIELD_SUBMIT_DATE) 
-					&& !fieldName.equals(FIELD_PENDING_DATE)
-					&& !fieldName.equals(FIELD_RUNNING_DATE)
-					&& !fieldName.equals(FIELD_FINISH_DATE)) 
+			if (!fieldName.equals(NAME_SUBMIT_DATE) 
+					&& !fieldName.equals(NAME_PENDING_DATE)
+					&& !fieldName.equals(NAME_RUNNING_DATE)
+					&& !fieldName.equals(NAME_FINISH_DATE)) 
 				throw newOperatorException(fieldName, operator);
 			break;
 		case BuildQueryLexer.Is:
-			if (!fieldName.equals(FIELD_PROJECT) && !fieldName.equals(FIELD_COMMIT) 
-					&& !fieldName.equals(FIELD_JOB) && !fieldName.equals(FIELD_NUMBER) 
-					&& !fieldName.equals(FIELD_VERSION) && !paramNames.contains(fieldName)) {
+			if (!fieldName.equals(NAME_PROJECT) && !fieldName.equals(NAME_COMMIT) 
+					&& !fieldName.equals(NAME_JOB) && !fieldName.equals(NAME_NUMBER) 
+					&& !fieldName.equals(NAME_VERSION) && !paramNames.contains(fieldName)) {
 				throw newOperatorException(fieldName, operator);
 			}
 			break;
 		case BuildQueryLexer.IsEmpty:
-			if (!fieldName.equals(FIELD_VERSION) && !paramNames.contains(fieldName))
+			if (!fieldName.equals(NAME_VERSION) && !paramNames.contains(fieldName))
 				throw newOperatorException(fieldName, operator);
 			break;
 		case BuildQueryLexer.IsLessThan:
 		case BuildQueryLexer.IsGreaterThan:
-			if (!fieldName.equals(FIELD_NUMBER))
+			if (!fieldName.equals(NAME_NUMBER))
 				throw newOperatorException(fieldName, operator);
 			break;
 		}
 	}
 	
-	private static OneException newOperatorException(String fieldName, int operator) {
-		return new OneException("Field '" + fieldName + "' is not applicable for operator '" + getRuleName(operator) + "'");
+	private static GeneralException newOperatorException(String fieldName, int operator) {
+		return new GeneralException("Field '" + fieldName + "' is not applicable for operator '" + getRuleName(operator) + "'");
 	}
 	
 	public static String getRuleName(int rule) {
@@ -329,13 +329,7 @@ public class BuildQuery extends EntityQuery<Build> {
 		List<EntitySort> sorts = new ArrayList<>();
 		sorts.addAll(query1.getSorts());
 		sorts.addAll(query2.getSorts());
-
-		if (criterias.size() > 1)
-			return new BuildQuery(new AndEntityCriteria<Build>(criterias), sorts);
-		else if (criterias.size() == 1)
-			return new BuildQuery(criterias.iterator().next(), sorts);
-		else
-			return new BuildQuery(null, sorts);
+		return new BuildQuery(EntityCriteria.andCriterias(criterias), sorts);
 	}
 	
 }

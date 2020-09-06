@@ -11,13 +11,13 @@ import io.onedev.server.model.Issue;
 import io.onedev.server.model.IssueField;
 import io.onedev.server.model.Project;
 import io.onedev.server.search.entity.EntityQuery;
-import io.onedev.server.util.ProjectAwareCommit;
+import io.onedev.server.util.ProjectScopedCommit;
 
 public class CommitFieldCriteria extends FieldCriteria {
 
 	private static final long serialVersionUID = 1L;
 
-	private final ProjectAwareCommit commit;
+	private final ProjectScopedCommit commit;
 	
 	private final String value;
 	
@@ -42,7 +42,7 @@ public class CommitFieldCriteria extends FieldCriteria {
 	}
 
 	@Override
-	public String asString() {
+	public String toStringWithoutParens() {
 		return quote(getFieldName()) + " " 
 				+ IssueQuery.getRuleName(IssueQueryLexer.Is) + " " 
 				+ quote(value);

@@ -1,17 +1,20 @@
 <wicket:extend>
 	<div id="build-detail">
 		<div class="main">
-			<div wicket:id="summary" class="summary clearfix">
-                <div wicket:id="title" class="title pull-left"></div>
-                <div class="status pull-left">
+			<div class="summary clearfix">
+                <div wicket:id="title" class="title float-left"></div>
+                <div wicket:id="status" class="status float-left">
                     <span wicket:id="statusIcon"></span>
                     <span wicket:id="statusLabel"></span>
                 </div>
-                <div class="actions pull-left">
-                    <a wicket:id="rebuild" class="btn btn-warning btn-sm"><i class="fa fa-undo"></i> Rebuild</a>
-                    <a wicket:id="cancel" class="btn btn-danger btn-sm"><i class="fa fa-ban"></i> Cancel</a>
+                <div wicket:id="actions" class="actions float-left">
+                    <a wicket:id="rebuild" class="btn btn-warning btn-sm"><wicket:svg href="undo" class="icon flip-y"/> Rebuild</a>
+                    <a wicket:id="cancel" class="btn btn-danger btn-sm"><wicket:svg href="cancel" class="icon"/> Cancel</a>
                 </div>
-    			<a wicket:id="moreInfo" class="more-info pull-right" title="More info"><span class="fa fa-ellipsis-h"></span></a>
+                <div class="float-left down-stream">
+                	<a wicket:id="downstream" class="btn btn-secondary btn-sm">Downstream <wicket:svg href="arrow" class="icon rotate90"/></a>
+                </div>
+    			<a wicket:id="moreInfo" class="more-info float-right" title="More info"><wicket:svg href="ellipsis" class="icon"/></a>
             </div>
             <pre wicket:id="errorMessage" class="error-message alert alert-danger"></pre>
 			<ul wicket:id="buildTabs" class="tabs nav nav-tabs"></ul>

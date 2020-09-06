@@ -24,9 +24,9 @@ public abstract class JobReport implements Serializable {
 	private transient PatternSet patternSet;
 
 	@Editable(order=100, description="Specify files relative to OneDev workspace. Use * or ? for pattern match. "
-			+ "<b>Note:</b> Type <tt>@</tt> to <a href='https://code.onedev.io/projects/onedev-manual/blob/master/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
+			+ "<b>Note:</b> Type <tt>@</tt> to <a href='$docRoot/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
 	@Interpolative(variableSuggester="suggestVariables")
-	@Patterns(interpolative = true)
+	@Patterns(interpolative = true, path=true)
 	@NotEmpty
 	public String getFilePatterns() {
 		return filePatterns;
@@ -48,5 +48,5 @@ public abstract class JobReport implements Serializable {
 	}
 	
 	public abstract void process(Build build, File workspace, JobLogger logger);
-	
+
 }

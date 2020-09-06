@@ -46,9 +46,11 @@ import com.google.common.base.Splitter;
 import io.onedev.commons.launcher.loader.AppLoader;
 import io.onedev.server.OneDev;
 import io.onedev.server.model.User;
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.security.SecurityUtils;
+import io.onedev.server.web.asset.icon.IconScope;
 import io.onedev.server.web.behavior.AbstractPostAjaxBehavior;
 import io.onedev.server.web.behavior.WebSocketObserver;
+import io.onedev.server.web.component.svg.SpriteImage;
 import io.onedev.server.web.page.init.ServerInitPage;
 import io.onedev.server.web.page.security.LoginPage;
 import io.onedev.server.web.websocket.WebSocketManager;
@@ -84,7 +86,8 @@ public abstract class BasePage extends WebPage {
 				 */
 				response.render(JavaScriptHeaderItem.forReference(new BaseResourceReference()));
 				
-				response.render(OnDomReadyHeaderItem.forScript("onedev.server.onDomReady();"));
+				response.render(OnDomReadyHeaderItem.forScript(String.format("onedev.server.onDomReady('%s');", 
+						SpriteImage.getVersionedHref(IconScope.class, null))));
 				response.render(OnLoadHeaderItem.forScript("onedev.server.onWindowLoad();"));
 			}
 			
@@ -204,6 +207,12 @@ public abstract class BasePage extends WebPage {
 	public void pushState(IPartialPageRequestHandler partialPageRequestHandler, String url, Serializable data) {
 		String encodedData = new String(Base64.encodeBase64(SerializationUtils.serialize(data)));
 		String script = String.format("onedev.server.history.pushState('%s', '%s');", url, encodedData);
+		partialPageRequestHandler.prependJavaScript(script);
+	}
+	
+	public void replaceState(IPartialPageRequestHandler partialPageRequestHandler, String url, Serializable data) {
+		String encodedData = new String(Base64.encodeBase64(SerializationUtils.serialize(data)));
+		String script = String.format("onedev.server.history.replaceState('%s', '%s');", url, encodedData);
 		partialPageRequestHandler.prependJavaScript(script);
 	}
 	

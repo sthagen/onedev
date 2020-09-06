@@ -15,6 +15,7 @@ import org.apache.wicket.ajax.markup.html.AjaxLink;
 import org.apache.wicket.ajax.markup.html.form.AjaxSubmitLink;
 import org.apache.wicket.behavior.AttributeAppender;
 import org.apache.wicket.core.request.handler.IPartialPageRequestHandler;
+import org.apache.wicket.feedback.FencedFeedbackPanel;
 import org.apache.wicket.markup.head.CssHeaderItem;
 import org.apache.wicket.markup.head.IHeaderResponse;
 import org.apache.wicket.markup.html.WebMarkupContainer;
@@ -30,7 +31,6 @@ import org.apache.wicket.request.http.WebResponse;
 
 import com.google.common.collect.Lists;
 
-import de.agilecoders.wicket.core.markup.html.bootstrap.common.NotificationPanel;
 import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.CodeCommentManager;
 import io.onedev.server.entitymanager.IssueCommentManager;
@@ -48,7 +48,7 @@ import io.onedev.server.model.support.issue.changedata.IssueDescriptionChangeDat
 import io.onedev.server.model.support.issue.changedata.IssueReferencedFromCodeCommentData;
 import io.onedev.server.model.support.issue.changedata.IssueReferencedFromIssueData;
 import io.onedev.server.model.support.issue.changedata.IssueReferencedFromPullRequestData;
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.web.behavior.WebSocketObserver;
 import io.onedev.server.web.component.issue.activities.activity.IssueActivity;
 import io.onedev.server.web.component.issue.activities.activity.IssueChangeActivity;
@@ -231,7 +231,14 @@ public abstract class IssueActivitiesPanel extends Panel {
 
 				@Override
 				protected AttachmentSupport getAttachmentSupport() {
-					return new ProjectAttachmentSupport(getProject(), getIssue().getUUID());
+					return new ProjectAttachmentSupport(getProject(), getIssue().getUUID()) {
+
+						@Override
+						public boolean canDeleteAttachment() {
+							return SecurityUtils.canManageIssues(getProject());
+						}
+						
+					};
 				}
 
 				@Override
@@ -253,7 +260,7 @@ public abstract class IssueActivitiesPanel extends Panel {
 			input.setRequired(true).setLabel(Model.of("Comment"));
 			
 			Form<?> form = new Form<Void>("form");
-			form.add(new NotificationPanel("feedback", form));
+			form.add(new FencedFeedbackPanel("feedback", form));
 			form.add(input);
 			form.add(new AjaxSubmitLink("save") {
 

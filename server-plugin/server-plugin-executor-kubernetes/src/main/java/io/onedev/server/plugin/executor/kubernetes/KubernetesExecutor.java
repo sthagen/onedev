@@ -19,16 +19,13 @@ import java.util.Map;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-
 import javax.annotation.Nullable;
-
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.io.IOUtils;
 import org.hibernate.validator.constraints.NotEmpty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.yaml.snakeyaml.Yaml;
-
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -36,7 +33,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import io.onedev.commons.utils.ExceptionUtils;
 import io.onedev.commons.utils.FileUtils;
 import io.onedev.commons.utils.StringUtils;
@@ -45,7 +41,7 @@ import io.onedev.commons.utils.command.ExecuteResult;
 import io.onedev.commons.utils.command.LineConsumer;
 import io.onedev.k8shelper.KubernetesHelper;
 import io.onedev.server.OneDev;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.buildspec.job.CacheSpec;
 import io.onedev.server.buildspec.job.EnvVar;
 import io.onedev.server.buildspec.job.JobContext;
@@ -55,12 +51,12 @@ import io.onedev.server.model.support.RegistryLogin;
 import io.onedev.server.model.support.administration.jobexecutor.JobExecutor;
 import io.onedev.server.model.support.administration.jobexecutor.NodeSelectorEntry;
 import io.onedev.server.model.support.administration.jobexecutor.ServiceLocator;
+import io.onedev.server.model.support.inputspec.SecretInput;
 import io.onedev.server.plugin.executor.kubernetes.KubernetesExecutor.TestData;
 import io.onedev.server.util.CollectionUtils;
 import io.onedev.server.util.JobLogger;
 import io.onedev.server.util.PKCS12CertExtractor;
 import io.onedev.server.util.ServerConfig;
-import io.onedev.server.util.inputspec.SecretInput;
 import io.onedev.server.web.editable.annotation.Editable;
 import io.onedev.server.web.editable.annotation.Horizontal;
 import io.onedev.server.web.editable.annotation.NameOfEmptyValue;
@@ -394,12 +390,12 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 		if (!osInfos.isEmpty()) {
 			return OsInfo.getBaseline(osInfos);
 		} else {
-			throw new OneException("No applicable working nodes found");
+			throw new GeneralException("No applicable working nodes found");
 		}
 	}
 	
 	private String getServerUrl() {
-		return OneDev.getInstance(SettingManager.class).getSystemSetting().getServerUrl();
+		return OneDev.getInstance(SettingManager.class).getSystemSetting().getServerUrl().toString();
 	}
 	
 	@Nullable
@@ -619,7 +615,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 					
 					collectContainerLog(namespace, podName, "default", null, jobLogger);
 					String message = "Service '" + jobService.getName() + "' is stopped unexpectedly";
-					throw new OneException(message);
+					throw new GeneralException(message);
 				}
 			}
 			
@@ -684,11 +680,13 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 			String k8sHelperClassPath;
 			String containerBuildHome;
 			String containerCacheHome;
+			String containerUserHome;
 			String trustCertsHome;
 			String dockerSock;
 			if (baselineOsInfo.isLinux()) {
 				containerBuildHome = "/onedev-build";
 				containerCacheHome = containerBuildHome + "/cache";
+				containerUserHome = "/root/onedev";
 				trustCertsHome = containerBuildHome + "/trust-certs";
 				k8sHelperClassPath = "/k8s-helper/*";
 				mainContainerSpec.put("command", Lists.newArrayList("sh"));
@@ -697,6 +695,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 			} else {
 				containerBuildHome = "C:\\onedev-build";
 				containerCacheHome = containerBuildHome + "\\cache";
+				containerUserHome = "C:\\Users\\ContainerAdministrator\\onedev";
 				trustCertsHome = containerBuildHome + "\\trust-certs";
 				k8sHelperClassPath = "C:\\k8s-helper\\*";
 				mainContainerSpec.put("command", Lists.newArrayList("cmd"));
@@ -707,6 +706,9 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 			Map<String, String> buildHomeMount = CollectionUtils.newLinkedHashMap(
 					"name", "build-home", 
 					"mountPath", containerBuildHome);
+			Map<String, String> userHomeMount = CollectionUtils.newLinkedHashMap(
+					"name", "user-home", 
+					"mountPath", containerUserHome);
 			Map<String, String> cacheHomeMount = CollectionUtils.newLinkedHashMap(
 					"name", "cache-home", 
 					"mountPath", containerCacheHome);
@@ -717,7 +719,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 					"name", "docker-sock", 
 					"mountPath", dockerSock);
 			
-			List<Object> volumeMounts = Lists.<Object>newArrayList(buildHomeMount, cacheHomeMount);
+			List<Object> volumeMounts = Lists.<Object>newArrayList(buildHomeMount, userHomeMount, cacheHomeMount);
 			if (trustCertsConfigMapName != null)
 				volumeMounts.add(trustCertsMount);
 			if (dockerSock != null)
@@ -794,12 +796,15 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 			Map<Object, Object> buildHomeVolume = CollectionUtils.newLinkedHashMap(
 					"name", "build-home", 
 					"emptyDir", CollectionUtils.newLinkedHashMap());
+			Map<Object, Object> userHomeVolume = CollectionUtils.newLinkedHashMap(
+					"name", "user-home", 
+					"emptyDir", CollectionUtils.newLinkedHashMap());
 			Map<Object, Object> cacheHomeVolume = CollectionUtils.newLinkedHashMap(
 					"name", "cache-home", 
 					"hostPath", CollectionUtils.newLinkedHashMap(
 							"path", baselineOsInfo.getCacheHome(), 
 							"type", "DirectoryOrCreate"));
-			List<Object> volumes = Lists.<Object>newArrayList(buildHomeVolume, cacheHomeVolume);
+			List<Object> volumes = Lists.<Object>newArrayList(buildHomeVolume, userHomeVolume, cacheHomeVolume);
 			if (trustCertsConfigMapName != null) {
 				Map<Object, Object> trustCertsHomeVolume = CollectionUtils.newLinkedHashMap(
 						"name", "trust-certs-home", 
@@ -889,7 +894,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 					JsonNode initContainerStatusesNode = statusNode.get("initContainerStatuses");
 					String errorMessage = getContainerError(initContainerStatusesNode, "init");
 					if (errorMessage != null)
-						return new StopWatch(new OneException("Error executing init logic: " + errorMessage));
+						return new StopWatch(new GeneralException("Error executing init logic: " + errorMessage));
 					
 					JsonNode containerStatusesNode = statusNode.get("containerStatuses");
 					if (isContainerStarted(containerStatusesNode, "main")) 
@@ -928,11 +933,11 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 					JsonNode containerStatusesNode = statusNode.get("containerStatuses");
 					String errorMessage = getContainerError(containerStatusesNode, "main");
 					if (errorMessage != null) {
-						return new StopWatch(new OneException(errorMessage));
+						return new StopWatch(new GeneralException(errorMessage));
 					} else {
 						errorMessage = getContainerError(containerStatusesNode, "sidecar");
 						if (errorMessage != null)
-							return new StopWatch(new OneException("Error executing sidecar logic: " + errorMessage));
+							return new StopWatch(new GeneralException("Error executing sidecar logic: " + errorMessage));
 						else if (isContainerStopped(containerStatusesNode, "sidecar"))
 							return new StopWatch(null);
 						else
@@ -1173,7 +1178,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 						} 
 					}
 					if (errorMessage != null) 
-						stopWatchRef.set(new StopWatch(new OneException(errorMessage)));
+						stopWatchRef.set(new StopWatch(new GeneralException(errorMessage)));
 					else 
 						stopWatchRef.set(statusChecker.check(statusNode));
 					if (stopWatchRef.get() != null) 
@@ -1189,7 +1194,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 				
 			}).checkReturnCode();
 			
-			throw new OneException("Unexpected end of pod watching");
+			throw new GeneralException("Unexpected end of pod watching");
 		} catch (Exception e) {
 			StopWatch stopWatch = stopWatchRef.get();
 			if (stopWatch != null) {
@@ -1217,33 +1222,35 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 	
 				@Override
 				public void consume(String line) {
-					if (line.startsWith("{")) {
-						json.append("{").append("\n");
-					} else if (line.startsWith("}")) {
-						json.append("}");
-						logger.trace("Watching event:\n" + json.toString());
-						try {
-							JsonNode eventNode = mapper.readTree(json.toString()); 
-							String type = eventNode.get("type").asText();
-							String reason = eventNode.get("reason").asText();
-							JsonNode messageNode = eventNode.get("message");
-							String message = messageNode!=null? messageNode.asText(): reason;
-							if (type.equals("Warning")) {
-								if (reason.equals("FailedScheduling"))
-									jobLogger.log("Kubernetes: " + message);
-								else
-									stopWatchRef.set(new StopWatch(new OneException(message)));
-							} else if (type.equals("Normal") && reason.equals("Started")) {
-								stopWatchRef.set(new StopWatch(null));
+					if (stopWatchRef.get() == null) {
+						if (line.startsWith("{")) {
+							json.append("{").append("\n");
+						} else if (line.startsWith("}")) {
+							json.append("}");
+							logger.trace("Checking event:\n" + json.toString());
+							try {
+								JsonNode eventNode = mapper.readTree(json.toString()); 
+								String type = eventNode.get("type").asText();
+								String reason = eventNode.get("reason").asText();
+								JsonNode messageNode = eventNode.get("message");
+								String message = messageNode!=null? messageNode.asText(): reason;
+								if (type.equals("Warning")) {
+									if (reason.equals("FailedScheduling"))
+										jobLogger.log("Kubernetes: " + message);
+									else 
+										stopWatchRef.set(new StopWatch(new GeneralException(message)));
+								} else if (type.equals("Normal") && reason.equals("Started")) {
+									stopWatchRef.set(new StopWatch(null));
+								}
+								if (stopWatchRef.get() != null)
+									thread.interrupt();
+							} catch (Exception e) {
+								logger.error("Error processing event watching record", e);
 							}
-							if (stopWatchRef.get() != null)
-								thread.interrupt();
-						} catch (Exception e) {
-							logger.error("Error processing event watching record", e);
+							json.setLength(0);
+						} else {
+							json.append(line).append("\n");
 						}
-						json.setLength(0);
-					} else {
-						json.append(line).append("\n");
 					}
 				}
 				
@@ -1256,7 +1263,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 				
 			}).checkReturnCode();
 			
-			throw new OneException("Unexpected end of event watching");
+			throw new GeneralException("Unexpected end of event watching");
 		} catch (Exception e) {
 			StopWatch stopWatch = stopWatchRef.get();
 			if (stopWatch != null) {
@@ -1315,7 +1322,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 				kubectl.execute(logConsumer, logConsumer).checkReturnCode();
 			} catch (Exception e) {
 				if (errorMessageRef.get() != null) 
-					throw new OneException(errorMessageRef.get());
+					throw new GeneralException(errorMessageRef.get());
 				else
 					throw ExceptionUtils.unchecked(e);
 			}		
@@ -1416,20 +1423,20 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 			if (osInfos.iterator().next().isLinux()) {
 				for (OsInfo osInfo: osInfos) {
 					if (!osInfo.isLinux())
-						throw new OneException("Linux and non-linux nodes should not be included in same executor");
+						throw new GeneralException("Linux and non-linux nodes should not be included in same executor");
 				}
 				return osInfos.iterator().next();
 			} else if (osInfos.iterator().next().isWindows()) {
 				OsInfo baseline = null;
 				for (OsInfo osInfo: osInfos) {
 					if (!osInfo.isWindows())
-						throw new OneException("Windows and non-windows nodes should not be included in same executor");
+						throw new GeneralException("Windows and non-windows nodes should not be included in same executor");
 					if (baseline == null || baseline.getWindowsVersion() > osInfo.getWindowsVersion())
 						baseline = osInfo;
 				}
 				return baseline;
 			} else {
-				throw new OneException("Either Windows or Linux nodes can be included in an executor");
+				throw new GeneralException("Either Windows or Linux nodes can be included in an executor");
 			}
 		}
 		
@@ -1439,7 +1446,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 				if (kernelVersion.contains(entry.getKey()))
 					return entry.getValue();
 			}
-			throw new OneException("Unsupported windows kernel version: " + kernelVersion);
+			throw new GeneralException("Unsupported windows kernel version: " + kernelVersion);
 		}
 		
 		public String getHelperImageSuffix() {

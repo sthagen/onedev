@@ -2,7 +2,6 @@ package io.onedev.server.web.page.project.stats;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,8 +18,8 @@ import io.onedev.server.git.Contributor;
 import io.onedev.server.infomanager.CommitInfoManager;
 import io.onedev.server.model.Project;
 import io.onedev.server.persistence.dao.Dao;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.Day;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.web.avatar.AvatarManager;
 
 class TopContributorsResource extends AbstractResource {
@@ -41,8 +40,8 @@ class TopContributorsResource extends AbstractResource {
 	protected ResourceResponse newResourceResponse(Attributes attributes) {
 		PageParameters params = attributes.getParameters();
 		Long projectId = params.get(PARAM_PROJECT).toLong();
-		Day fromDay = new Day(new Date(params.get(PARAM_FROM).toLong()));
-		Day toDay = new Day(new Date(params.get(PARAM_TO).toLong()));
+		int fromDay = params.get(PARAM_FROM).toInteger();
+		int toDay = params.get(PARAM_TO).toInteger();
 		Contribution.Type type = Contribution.Type.valueOf(params.get(PARAM_TYPE).toString());
 
 		ResourceResponse response = new ResourceResponse();
@@ -70,10 +69,10 @@ class TopContributorsResource extends AbstractResource {
 					contributorData.put("totalAdditions", contributor.getTotalContribution().getAdditions());
 					contributorData.put("totalDeletions", contributor.getTotalContribution().getDeletions());
 					
-					Map<Long, Integer> dailyContributionsData = new HashMap<>();
-					for (Map.Entry<Day, Integer> entry: contributor.getDailyContributions().entrySet()) {
-						dailyContributionsData.put(entry.getKey().getDate().getTime(), entry.getValue());
-					}
+					Map<Integer, Integer> dailyContributionsData = new HashMap<>();
+					for (Map.Entry<Day, Integer> entry: contributor.getDailyContributions().entrySet()) 
+						dailyContributionsData.put(entry.getKey().getValue(), entry.getValue());
+					
 					contributorData.put("dailyContributions", dailyContributionsData);
 					data.add(contributorData);
 				}

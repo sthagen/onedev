@@ -3,6 +3,7 @@ package io.onedev.server.buildspec.job;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
 
@@ -15,14 +16,15 @@ import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.entitymanager.ProjectManager;
 import io.onedev.server.model.Build;
 import io.onedev.server.model.Project;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.security.permission.AccessProject;
 import io.onedev.server.util.EditContext;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.util.interpolative.Segment;
 import io.onedev.server.web.behavior.inputassist.InputAssistBehavior;
 import io.onedev.server.web.editable.annotation.ChoiceProvider;
 import io.onedev.server.web.editable.annotation.Editable;
 import io.onedev.server.web.editable.annotation.Interpolative;
+import io.onedev.server.web.editable.annotation.NameOfEmptyValue;
 import io.onedev.server.web.editable.annotation.Patterns;
 import io.onedev.server.web.page.project.ProjectPage;
 import io.onedev.server.web.util.SuggestionUtils;
@@ -33,13 +35,13 @@ public class ProjectDependency implements Serializable {
 
 	private static final long serialVersionUID = 1L;
 
-	private Authentication authentication;
-	
 	private String projectName;
 
 	private String buildNumber;
 	
 	private String artifacts = "**";
+	
+	private String accessTokenSecret;
 	
 	// change Named("projectName") also if change name of this property 
 	@Editable(order=200, name="Project", description="Specify project to retrieve artifacts from")
@@ -68,7 +70,7 @@ public class ProjectDependency implements Serializable {
 	}
 	
 	@Editable(order=300, name="Build", description="Specify build to retrieve artifacts from. "
-			+ "<b>Note:</b> Type <tt>@</tt> to <a href='https://code.onedev.io/projects/onedev-manual/blob/master/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
+			+ "<b>Note:</b> Type <tt>@</tt> to <a href='$docRoot/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
 	@Interpolative(variableSuggester="suggestVariables", literalSuggester="suggestBuilds")
 	@NotEmpty
 	public String getBuildNumber() {
@@ -99,10 +101,10 @@ public class ProjectDependency implements Serializable {
 			return new ArrayList<>();
 	}
 
-	@Editable(order=400, name="Artifacts to Retrieve", description="Specify artifacts to retrieve into <a href='https://code.onedev.io/projects/onedev-manual/blob/master/pages/concepts.md#job-workspace' target='_blank'>job workspace</a>. "
-			+ "<b>Note:</b> Type <tt>@</tt> to <a href='https://code.onedev.io/projects/onedev-manual/blob/master/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
+	@Editable(order=400, name="Artifacts to Retrieve", description="Specify artifacts to retrieve into <a href='$docRoot/pages/concepts.md#job-workspace' target='_blank'>job workspace</a>. "
+			+ "<b>Note:</b> Type <tt>@</tt> to <a href='$docRoot/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
 	@Interpolative(variableSuggester="suggestVariables")
-	@Patterns(suggester="suggestArtifacts", interpolative=true)
+	@Patterns(suggester="suggestArtifacts", interpolative=true, path=true)
 	@NotEmpty
 	public String getArtifacts() {
 		return artifacts;
@@ -131,15 +133,23 @@ public class ProjectDependency implements Serializable {
 		return new ArrayList<>();
 	}
 
-	@Editable(order=500, description="Optionally authenticate to specified project. If not specified, "
-			+ "project artifacts will be accessed anonymously")
+	@Editable(order=500, description="Specify a secret to be used as access token to retrieve artifacts "
+			+ "from specified project. If not specified, project artifacts will be accessed anonymously")
+	@ChoiceProvider("getAccessTokenSecretChoices")
 	@Nullable
-	public Authentication getAuthentication() {
-		return authentication;
+	@NameOfEmptyValue("Access Anonymously")
+	public String getAccessTokenSecret() {
+		return accessTokenSecret;
 	}
 
-	public void setAuthentication(Authentication authentication) {
-		this.authentication = authentication;
+	public void setAccessTokenSecret(String accessTokenSecret) {
+		this.accessTokenSecret = accessTokenSecret;
 	}
-
+	
+	@SuppressWarnings("unused")
+	private static List<String> getAccessTokenSecretChoices() {
+		return Project.get().getBuildSetting().getJobSecrets()
+				.stream().map(it->it.getName()).collect(Collectors.toList());
+	}
+	
 }

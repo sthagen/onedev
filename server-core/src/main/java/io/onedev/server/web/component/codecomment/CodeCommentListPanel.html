@@ -4,14 +4,24 @@
 			<form wicket:id="query" class="clearable-wrapper">
 				<div class="input-group">
 					<input wicket:id="input" spellcheck="false" autocomplete="off" class="form-control" placeholder="Query and order comments here">
-					<span class="input-group-btn">
-						<button wicket:id="submit" type="submit" class="btn btn-default" title="Query"><i class="fa fa-search"></i></button>
+					<span class="input-group-append">
+						<button wicket:id="submit" type="submit" class="btn btn-outline-secondary" title="Query"><wicket:svg href="magnify" class="icon"></wicket:svg></button>
 					</span>
 				</div>
 			</form>
 			<div class="operations">
-				<a wicket:id="showSavedQueries" class="show-saved-queries"><i class="fa fa-eye"></i> Show Saved Queries</a>
-				<a wicket:id="saveQuery" class="save-query"><i class="fa fa-save"></i> Save Query</a>
+				<a wicket:id="showSavedQueries" class="show-saved-queries">
+					<wicket:svg href="eye" class="icon"></wicket:svg>
+					Show Saved Queries
+				</a>
+				<a wicket:id="saveQuery" class="save-query">
+					<wicket:svg href="save" class="icon"></wicket:svg>
+					Save Query
+				</a>
+				<a wicket:id="orderBy" class="order-by">
+					<wicket:svg href="sort" class="icon"></wicket:svg>
+					Order By
+				</a>
 			</div>
 		</div>
 		<div wicket:id="body" class="body">
@@ -19,4 +29,10 @@
 			<table wicket:id="comments" class="table"></table>
 		</div>
 	</div>
+	<wicket:fragment wicket:id="fileFrag">
+		<a wicket:id="link"><span wicket:id="label"></span></a>
+	</wicket:fragment>
+	<wicket:fragment wicket:id="lastUpdateFrag">
+		<a wicket:id="user"></a> <span wicket:id="activity"></span> <span wicket:id="date"></span>
+	</wicket:fragment>
 </wicket:panel>

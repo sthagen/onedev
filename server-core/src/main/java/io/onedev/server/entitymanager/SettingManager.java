@@ -7,15 +7,17 @@ import javax.annotation.Nullable;
 import io.onedev.server.model.Setting;
 import io.onedev.server.model.support.administration.BackupSetting;
 import io.onedev.server.model.support.administration.GlobalBuildSetting;
-import io.onedev.server.model.support.administration.GroovyScript;
 import io.onedev.server.model.support.administration.GlobalIssueSetting;
 import io.onedev.server.model.support.administration.GlobalProjectSetting;
-import io.onedev.server.model.support.administration.MailSetting;
 import io.onedev.server.model.support.administration.GlobalPullRequestSetting;
+import io.onedev.server.model.support.administration.GroovyScript;
+import io.onedev.server.model.support.administration.MailSetting;
 import io.onedev.server.model.support.administration.SecuritySetting;
+import io.onedev.server.model.support.administration.SshSetting;
 import io.onedev.server.model.support.administration.SystemSetting;
 import io.onedev.server.model.support.administration.authenticator.Authenticator;
 import io.onedev.server.model.support.administration.jobexecutor.JobExecutor;
+import io.onedev.server.model.support.administration.sso.SsoConnector;
 import io.onedev.server.persistence.dao.EntityManager;
 
 public interface SettingManager extends EntityManager<Setting> {
@@ -124,5 +126,13 @@ public interface SettingManager extends EntityManager<Setting> {
 	GlobalProjectSetting getProjectSetting();
 	
 	void saveProjectSetting(GlobalProjectSetting projectSetting);
-	
+
+    SshSetting getSshSetting();
+
+    void saveSshSetting(SshSetting sshSetting);
+
+    List<SsoConnector> getSsoConnectors();
+    
+    void saveSsoConnectors(List<SsoConnector> ssoConnectors);
+    
 }

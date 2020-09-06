@@ -5,7 +5,7 @@ import javax.persistence.criteria.Path;
 import javax.persistence.criteria.Predicate;
 import javax.persistence.criteria.Root;
 
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.model.CodeComment;
 import io.onedev.server.model.User;
 import io.onedev.server.search.entity.EntityCriteria;
@@ -20,7 +20,7 @@ public class CreatedByMeCriteria extends EntityCriteria<CodeComment> {
 			Path<?> attribute = root.get(CodeComment.PROP_USER);
 			return builder.equal(attribute, User.get());
 		} else {
-			throw new OneException("Please login to perform this query");
+			throw new GeneralException("Please login to perform this query");
 		}
 	}
 
@@ -29,11 +29,11 @@ public class CreatedByMeCriteria extends EntityCriteria<CodeComment> {
 		if (User.get() != null)
 			return User.get().equals(comment.getUser());
 		else
-			throw new OneException("Please login to perform this query");
+			throw new GeneralException("Please login to perform this query");
 	}
 
 	@Override
-	public String asString() {
+	public String toStringWithoutParens() {
 		return CodeCommentQuery.getRuleName(CodeCommentQueryLexer.CreatedByMe);
 	}
 

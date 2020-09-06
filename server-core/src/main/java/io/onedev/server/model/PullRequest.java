@@ -1,6 +1,5 @@
 package io.onedev.server.model;
 
-import static io.onedev.server.model.PullRequest.PROP_HEAD_COMMIT_HASH;
 import static io.onedev.server.model.PullRequest.PROP_NO_SPACE_TITLE;
 import static io.onedev.server.model.PullRequest.PROP_NUMBER;
 import static io.onedev.server.model.PullRequest.PROP_SUBMIT_DATE;
@@ -9,9 +8,11 @@ import static io.onedev.server.model.PullRequest.PROP_UUID;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.nio.channels.IllegalSelectorException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -20,7 +21,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Stack;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
 import javax.persistence.CascadeType;
@@ -36,7 +36,9 @@ import javax.persistence.Table;
 import javax.persistence.UniqueConstraint;
 
 import org.apache.commons.lang3.StringUtils;
+import org.eclipse.jgit.lib.ObjectDatabase;
 import org.eclipse.jgit.lib.ObjectId;
+import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.lib.RefUpdate;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevCommit;
@@ -55,6 +57,7 @@ import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.PullRequestManager;
 import io.onedev.server.entitymanager.UserManager;
 import io.onedev.server.git.GitUtils;
+import io.onedev.server.infomanager.PullRequestInfoManager;
 import io.onedev.server.infomanager.UserInfoManager;
 import io.onedev.server.model.support.CompareContext;
 import io.onedev.server.model.support.EntityWatch;
@@ -62,6 +65,7 @@ import io.onedev.server.model.support.LastUpdate;
 import io.onedev.server.model.support.pullrequest.CloseInfo;
 import io.onedev.server.model.support.pullrequest.MergePreview;
 import io.onedev.server.model.support.pullrequest.MergeStrategy;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.storage.AttachmentStorageSupport;
 import io.onedev.server.util.CollectionUtils;
 import io.onedev.server.util.ComponentContext;
@@ -69,7 +73,6 @@ import io.onedev.server.util.IssueUtils;
 import io.onedev.server.util.ProjectAndBranch;
 import io.onedev.server.util.ProjectScopedNumber;
 import io.onedev.server.util.Referenceable;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.util.diff.WhitespaceOption;
 import io.onedev.server.util.jackson.DefaultView;
 import io.onedev.server.util.jackson.RestView;
@@ -83,10 +86,10 @@ import io.onedev.server.web.util.WicketUtils;
 				@Index(columnList=PROP_NO_SPACE_TITLE), @Index(columnList=PROP_NUMBER), 
 				@Index(columnList="o_targetProject_id"), @Index(columnList=PROP_SUBMIT_DATE), 
 				@Index(columnList=LastUpdate.COLUMN_DATE), @Index(columnList="o_sourceProject_id"), 
-				@Index(columnList="o_submitter_id"), @Index(columnList=PROP_HEAD_COMMIT_HASH), 
-				@Index(columnList=MergePreview.COLUMN_REQUEST_HEAD), @Index(columnList=CloseInfo.COLUMN_DATE), 
-				@Index(columnList=CloseInfo.COLUMN_STATUS), @Index(columnList=CloseInfo.COLUMN_USER), 
-				@Index(columnList=CloseInfo.COLUMN_USER_NAME), @Index(columnList="o_numberScope_id")},
+				@Index(columnList="o_submitter_id"), @Index(columnList=MergePreview.COLUMN_HEAD_COMMIT_HASH), 
+				@Index(columnList=CloseInfo.COLUMN_DATE), @Index(columnList=CloseInfo.COLUMN_STATUS), 
+				@Index(columnList=CloseInfo.COLUMN_USER), @Index(columnList=CloseInfo.COLUMN_USER_NAME), 
+				@Index(columnList="o_numberScope_id")},
 		uniqueConstraints={@UniqueConstraint(columnNames={"o_numberScope_id", PROP_NUMBER})})
 //use dynamic update in order not to overwrite other edits while background threads change update date
 @DynamicUpdate
@@ -97,61 +100,59 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 	
 	public static final String PROP_NUMBER_SCOPE = "numberScope";
 	
-	public static final String FIELD_NUMBER = "Number";
+	public static final String NAME_NUMBER = "Number";
 
 	public static final String PROP_NUMBER = "number";
 	
-	public static final String FIELD_STATUS = "Status";
+	public static final String NAME_STATUS = "Status";
 	
-	public static final String FIELD_TARGET_PROJECT = "Target Project";
+	public static final String NAME_TARGET_PROJECT = "Target Project";
 	
 	public static final String PROP_TARGET_PROJECT = "targetProject";
 	
-	public static final String FIELD_TARGET_BRANCH = "Target Branch";
+	public static final String NAME_TARGET_BRANCH = "Target Branch";
 	
 	public static final String PROP_TARGET_BRANCH = "targetBranch";
 	
-	public static final String FIELD_SOURCE_PROJECT = "Source Project";
+	public static final String NAME_SOURCE_PROJECT = "Source Project";
 	
 	public static final String PROP_SOURCE_PROJECT = "sourceProject";
 	
-	public static final String FIELD_SOURCE_BRANCH = "Source Branch";
+	public static final String NAME_SOURCE_BRANCH = "Source Branch";
 	
 	public static final String PROP_SOURCE_BRANCH = "sourceBranch";
 	
-	public static final String FIELD_TITLE = "Title";
+	public static final String NAME_TITLE = "Title";
 	
 	public static final String PROP_TITLE = "title";
 	
-	public static final String FIELD_DESCRIPTION = "Description";
+	public static final String NAME_DESCRIPTION = "Description";
 	
 	public static final String PROP_DESCRIPTION = "description";
 	
-	public static final String FIELD_COMMENT = "Comment";
+	public static final String NAME_COMMENT = "Comment";
 
 	public static final String PROP_COMMENTS = "comments";
 	
-	public static final String PROP_CODE_COMMENT_RELATIONS = "codeCommentRelations";
-	
-	public static final String FIELD_COMMENT_COUNT = "Comment Count";
+	public static final String NAME_COMMENT_COUNT = "Comment Count";
 	
 	public static final String PROP_COMMENT_COUNT = "commentCount";
 
-	public static final String FIELD_SUBMITTER = "Submitter";
+	public static final String NAME_SUBMITTER = "Submitter";
 	
 	public static final String PROP_SUBMITTER = "submitter";
 	
-	public static final String FIELD_SUBMIT_DATE = "Submit Date";
+	public static final String NAME_SUBMIT_DATE = "Submit Date";
 	
 	public static final String PROP_SUBMIT_DATE = "submitDate";
 	
-	public static final String FIELD_UPDATE_DATE = "Update Date";
+	public static final String NAME_UPDATE_DATE = "Update Date";
 	
 	public static final String PROP_LAST_UPDATE = "lastUpdate";
 	
-	public static final String FIELD_CLOSE_DATE = "Close Date";
+	public static final String NAME_CLOSE_DATE = "Close Date";
 	
-	public static final String FIELD_MERGE_STRATEGY = "Merge Strategy";
+	public static final String NAME_MERGE_STRATEGY = "Merge Strategy";
 	
 	public static final String PROP_MERGE_STRATEGY = "mergeStrategy";
 	
@@ -163,14 +164,14 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 	
 	public static final String PROP_REVIEWS = "reviews";
 	
-	public static final String PROP_PULL_REQUEST_BUILDS = "pullRequestBuilds";
+	public static final String PROP_VERIFICATIONS= "verifications";
+	
+	public static final String PROP_ASSIGNMENTS = "assignments";
 	
 	public static final String PROP_UUID = "uuid";
 	
 	public static final String PROP_NO_SPACE_TITLE = "noSpaceTitle";
 
-	public static final String PROP_HEAD_COMMIT_HASH = "headCommitHash";
-	
 	public static final String STATE_OPEN = "Open";
 
 	public static final String REFS_PREFIX = "refs/pull/";
@@ -180,22 +181,22 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 	private static final int MAX_CHECK_ERROR_LEN = 1024;
 
 	public static final List<String> QUERY_FIELDS = Lists.newArrayList(
-			FIELD_NUMBER, FIELD_TITLE, FIELD_TARGET_PROJECT, FIELD_TARGET_BRANCH, 
-			FIELD_SOURCE_PROJECT, FIELD_SOURCE_BRANCH, FIELD_DESCRIPTION, 
-			FIELD_COMMENT, FIELD_SUBMIT_DATE, FIELD_UPDATE_DATE, 
-			FIELD_CLOSE_DATE, FIELD_MERGE_STRATEGY, FIELD_COMMENT_COUNT);
+			NAME_NUMBER, NAME_TITLE, NAME_TARGET_PROJECT, NAME_TARGET_BRANCH, 
+			NAME_SOURCE_PROJECT, NAME_SOURCE_BRANCH, NAME_DESCRIPTION, 
+			NAME_COMMENT, NAME_SUBMIT_DATE, NAME_UPDATE_DATE, 
+			NAME_CLOSE_DATE, NAME_MERGE_STRATEGY, NAME_COMMENT_COUNT);
 
 	public static final Map<String, String> ORDER_FIELDS = CollectionUtils.newLinkedHashMap(
-			FIELD_SUBMIT_DATE, PROP_SUBMIT_DATE,
-			FIELD_UPDATE_DATE, PROP_LAST_UPDATE + "." + LastUpdate.PROP_DATE,
-			FIELD_CLOSE_DATE, PROP_CLOSE_INFO + "." + CloseInfo.PROP_DATE,
-			FIELD_NUMBER, PROP_NUMBER,
-			FIELD_STATUS, PROP_CLOSE_INFO + "." + CloseInfo.PROP_STATUS,
-			FIELD_TARGET_PROJECT, PROP_TARGET_PROJECT,
-			FIELD_TARGET_BRANCH, PROP_TARGET_BRANCH,
-			FIELD_SOURCE_PROJECT, PROP_SOURCE_PROJECT,
-			FIELD_SOURCE_BRANCH, PROP_SOURCE_BRANCH,
-			FIELD_COMMENT_COUNT, PROP_COMMENT_COUNT);
+			NAME_SUBMIT_DATE, PROP_SUBMIT_DATE,
+			NAME_UPDATE_DATE, PROP_LAST_UPDATE + "." + LastUpdate.PROP_DATE,
+			NAME_CLOSE_DATE, PROP_CLOSE_INFO + "." + CloseInfo.PROP_DATE,
+			NAME_NUMBER, PROP_NUMBER,
+			NAME_STATUS, PROP_CLOSE_INFO + "." + CloseInfo.PROP_STATUS,
+			NAME_TARGET_PROJECT, PROP_TARGET_PROJECT,
+			NAME_TARGET_BRANCH, PROP_TARGET_BRANCH,
+			NAME_SOURCE_PROJECT, PROP_SOURCE_PROJECT,
+			NAME_SOURCE_BRANCH, PROP_SOURCE_BRANCH,
+			NAME_COMMENT_COUNT, PROP_COMMENT_COUNT);
 	
 	private static ThreadLocal<Stack<PullRequest>> stack =  new ThreadLocal<Stack<PullRequest>>() {
 
@@ -241,9 +242,6 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 	@Column(nullable=false)
 	private String baseCommitHash;
 	
-	@Column(nullable=false)
-	private String headCommitHash;
-	
 	@Column(nullable=true)
 	private Date lastCodeCommentActivityDate;
 
@@ -278,7 +276,10 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 	private Collection<PullRequestReview> reviews = new ArrayList<>();
 	
 	@OneToMany(mappedBy="request", cascade=CascadeType.REMOVE)
-	private Collection<PullRequestBuild> pullRequestBuilds = new ArrayList<>();
+	private Collection<PullRequestAssignment> assignments = new ArrayList<>();
+	
+	@OneToMany(mappedBy="request", cascade=CascadeType.REMOVE)
+	private Collection<PullRequestVerification> verifications = new ArrayList<>();
 	
 	@OneToMany(mappedBy="request", cascade=CascadeType.REMOVE)
 	private Collection<PullRequestComment> comments = new ArrayList<>();
@@ -289,16 +290,14 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 	@OneToMany(mappedBy="request", cascade=CascadeType.REMOVE)
 	private Collection<PullRequestWatch> watches = new ArrayList<>();
 	
-	@OneToMany(mappedBy="request", cascade=CascadeType.REMOVE)
-	private Collection<CodeCommentRelation> codeCommentRelations = new ArrayList<>();
+	@OneToMany(mappedBy="request")
+	private Collection<CodeComment> codeComments = new ArrayList<>();
 	
 	private transient Boolean mergedIntoTarget;
 
 	private transient List<PullRequestUpdate> sortedUpdates;
 	
-	private transient Collection<RevCommit> pendingCommits;
-	
-	private transient Collection<RevCommit> mergedCommits;
+	private transient List<PullRequestReview> sortedReviews;
 	
 	private transient Optional<MergePreview> mergePreviewOpt;
 	
@@ -307,6 +306,8 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 	private transient Collection<Long> fixedIssueNumbers;
 	
 	private transient Collection<User> participants;
+	
+	private transient Collection<RevCommit> pendingCommits;
 	
 	@Column(length=MAX_CHECK_ERROR_LEN)
 	private String checkError;
@@ -441,20 +442,8 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 		this.baseCommitHash = baseCommitHash;
 	}
 	
-	public String getHeadCommitHash() {
-		return headCommitHash;
-	}
-
-	public void setHeadCommitHash(String headCommitHash) {
-		this.headCommitHash = headCommitHash;
-	}
-	
 	public RevCommit getBaseCommit() {
 		return getTargetProject().getRevCommit(ObjectId.fromString(getBaseCommitHash()), true);
-	}
-	
-	public RevCommit getHeadCommit() {
-		return getTargetProject().getRevCommit(ObjectId.fromString(getHeadCommitHash()), true);
 	}
 	
 	/**
@@ -478,12 +467,12 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 		sortedUpdates = null;
 	}
 
-	public Collection<PullRequestBuild> getPullRequestBuilds() {
-		return pullRequestBuilds;
+	public Collection<PullRequestVerification> getVerifications() {
+		return verifications;
 	}
 
-	public void setPullRequestBuilds(Collection<PullRequestBuild> pullRequestBuilds) {
-		this.pullRequestBuilds = pullRequestBuilds;
+	public void setVerifications(Collection<PullRequestVerification> verifications) {
+		this.verifications = verifications;
 	}
 
 	public Collection<PullRequestComment> getComments() {
@@ -527,14 +516,14 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 		}
 	}
 	
-	public Collection<CodeCommentRelation> getCodeCommentRelations() {
-		return codeCommentRelations;
+	public Collection<CodeComment> getCodeComments() {
+		return codeComments;
 	}
 
-	public void setCodeCommentRelations(Collection<CodeCommentRelation> codeCommentRelations) {
-		this.codeCommentRelations = codeCommentRelations;
+	public void setCodeComments(Collection<CodeComment> codeComments) {
+		this.codeComments = codeComments;
 	}
-	
+
 	@Nullable
 	public CloseInfo getCloseInfo() {
 		return closeInfo;
@@ -597,6 +586,25 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 		}
 		return sortedUpdates;
 	}
+	
+	public List<PullRequestReview> getSortedReviews() {
+		if (sortedReviews == null) {
+			sortedReviews = new ArrayList<>(reviews);
+			
+			Collections.sort(sortedReviews, new Comparator<PullRequestReview>() {
+
+				@Override
+				public int compare(PullRequestReview o1, PullRequestReview o2) {
+					if (o1.getId() != null && o2.getId() != null)
+						return o1.getId().compareTo(o1.getId());
+					else
+						return 0;
+				}
+				
+			});
+		}
+		return sortedReviews;
+	}
 
 	public MergeStrategy getMergeStrategy() {
 		return mergeStrategy;
@@ -646,13 +654,13 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 	
 	public void writeHeadRef() {
 		RefUpdate refUpdate = GitUtils.getRefUpdate(getTargetProject().getRepository(), getHeadRef());
-		refUpdate.setNewObjectId(ObjectId.fromString(getHeadCommitHash()));
+		refUpdate.setNewObjectId(ObjectId.fromString(getLatestUpdate().getHeadCommitHash()));
 		GitUtils.updateRef(refUpdate);
 	}
 	
 	public void writeMergeRef() {
 		RefUpdate refUpdate = GitUtils.getRefUpdate(getTargetProject().getRepository(), getMergeRef());
-		refUpdate.setNewObjectId(ObjectId.fromString(getLastMergePreview().getMerged()));
+		refUpdate.setNewObjectId(ObjectId.fromString(getLastMergePreview().getMergeCommitHash()));
 		GitUtils.updateRef(refUpdate);
 	}
 	
@@ -699,54 +707,20 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 		this.submitDate = submitDate;
 	}
 
-	/**
-	 * Get commits pending merge.
-	 * 
-	 * @return
-	 * 			commits pending merge
-	 */
-	public Collection<RevCommit> getPendingCommits() {
-		if (pendingCommits == null) {
-			pendingCommits = new HashSet<>();
-			Project project = getTargetProject();
-			try (RevWalk revWalk = new RevWalk(project.getRepository())) {
-				revWalk.markStart(revWalk.parseCommit(ObjectId.fromString(getHeadCommitHash())));
-				revWalk.markUninteresting(revWalk.parseCommit(getTarget().getObjectId()));
-				revWalk.forEach(c->pendingCommits.add(c));
-			} catch (IOException e) {
-				throw new RuntimeException(e);
-			}
-		}
-		return pendingCommits;
-	}
-
-	/**
-	 * Merged commits represent commits already merged to target branch since base commit.
-	 * 
-	 * @return
-	 * 			commits already merged to target branch since base commit
-	 */
-	public Collection<RevCommit> getMergedCommits() {
-		if (mergedCommits == null) {
-			mergedCommits = new HashSet<>();
-			Project project = getTargetProject();
-			try (RevWalk revWalk = new RevWalk(project.getRepository())) {
-				revWalk.markStart(revWalk.parseCommit(getTarget().getObjectId(false)));
-				revWalk.markUninteresting(revWalk.parseCommit(ObjectId.fromString(getBaseCommitHash())));
-				revWalk.forEach(c->mergedCommits.add(c));
-			} catch (IOException e) {
-				throw new RuntimeException(e);
-			}
-		}
-		return mergedCommits;
-	}
-	
 	public Collection<PullRequestReview> getReviews() {
 		return reviews;
 	}
 	
 	public void setReviews(Collection<PullRequestReview> reviews) {
 		this.reviews = reviews;
+	}
+
+	public Collection<PullRequestAssignment> getAssignments() {
+		return assignments;
+	}
+
+	public void setAssignments(Collection<PullRequestAssignment> assignments) {
+		this.assignments = assignments;
 	}
 
 	public String getUUID() {
@@ -782,31 +756,6 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 		this.lastUpdate = lastUpdate;
 	}
 
-	public List<RevCommit> getCommits() {
-		List<RevCommit> commits = new ArrayList<>();
-		getSortedUpdates().forEach(update->commits.addAll(update.getCommits()));
-		return commits;
-	}
-	
-	public String getCommitMessage() {
-		if (isNew()) {
-			return "Pull request merge preview";
-		} else {
-			if (mergeStrategy == MergeStrategy.SQUASH_SOURCE_BRANCH_COMMITS) {
-				String commitMessage = getTitle() + "\n\n";
-				if (getDescription() != null)
-					commitMessage += getDescription() + "\n\n";
-				commitMessage += String.format("Squash pull request #%d of project '%s'", 
-						getNumber(), getTargetProject().getName());
-				return commitMessage;
-			} else if (mergeStrategy == MergeStrategy.CREATE_MERGE_COMMIT || mergeStrategy == MergeStrategy.CREATE_MERGE_COMMIT_IF_NECESSARY) {
-				return String.format("Merge pull request #%d of project '%s'", getNumber(), getTargetProject().getName());
-			} else {
-				throw new IllegalStateException("Unexpected merge strategy: " + mergeStrategy);
-			}
-		}
-	}
-	
 	@Nullable
 	public String getCheckError() {
 		return checkError;
@@ -854,10 +803,10 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 		return closeInfo != null && closeInfo.getStatus() == CloseInfo.Status.DISCARDED;
 	}
 	
-	public boolean isMergeIntoTarget() {
+	public boolean isMergedIntoTarget() {
 		if (mergedIntoTarget == null) { 
 			mergedIntoTarget = GitUtils.isMergedInto(getTargetProject().getRepository(), null, 
-					ObjectId.fromString(getHeadCommitHash()), getTarget().getObjectId());
+					ObjectId.fromString(getLatestUpdate().getHeadCommitHash()), getTarget().getObjectId());
 		}
 		return mergedIntoTarget;
 	}
@@ -880,44 +829,64 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 		return null;
 	}
 	
+	public boolean canCommentOnCommit(String commitHash) {
+		if (commitHash.equals(baseCommitHash))
+			return true;
+		for (PullRequestUpdate update: getUpdates()) {
+			for (RevCommit commit: update.getCommits())
+				if (commit.name().equals(commitHash))
+					return true;
+		}
+		return false;
+	}
+	
+	public Collection<RevCommit> getPendingCommits() {
+		if (pendingCommits == null) {
+			pendingCommits = new HashSet<>();
+			Project project = getTargetProject();
+			try (RevWalk revWalk = new RevWalk(project.getRepository())) {
+				ObjectId headCommitId = ObjectId.fromString(getLatestUpdate().getHeadCommitHash());
+				revWalk.markStart(revWalk.parseCommit(headCommitId));
+				ObjectId targetHeadCommitId = ObjectId.fromString(getLatestUpdate().getTargetHeadCommitHash());
+				revWalk.markUninteresting(revWalk.parseCommit(targetHeadCommitId));
+				revWalk.forEach(c->pendingCommits.add(c));
+			} catch (IOException e) {
+				throw new RuntimeException(e);
+			}
+		}
+		return pendingCommits;
+	}
+
 	@Nullable
 	public ComparingInfo getRequestComparingInfo(CodeComment.ComparingInfo commentComparingInfo) {
-		List<String> commits = new ArrayList<>();
-		commits.add(getBaseCommitHash());
+		List<String> commitHashes = new ArrayList<>();
+		commitHashes.add(getBaseCommitHash());
 		for (PullRequestUpdate update: getSortedUpdates()) {
-			commits.addAll(update.getCommits().stream().map(RevCommit::getName).collect(Collectors.toList()));
+			for (RevCommit commit: update.getCommits())
+				commitHashes.add(commit.name());
 		}
-		String commit = commentComparingInfo.getCommit();
+		String commitHash = commentComparingInfo.getCommitHash();
+		int commitIndex = commitHashes.indexOf(commitHash);
+		if (commitIndex == -1)
+			return null;
+		
 		CompareContext compareContext = commentComparingInfo.getCompareContext();
-		if (commit.equals(compareContext.getCompareCommit())) {
-			int index = commits.indexOf(commit);
-			if (index <= 0) {
-				return null;
+		int compareCommitIndex = commitHashes.indexOf(compareContext.getCompareCommitHash());
+		if (compareCommitIndex == -1 || compareCommitIndex == commitIndex) {
+			if (commitIndex == commitHashes.size()-1) {
+				return new ComparingInfo(commitHashes.get(0), commitHash, 
+						compareContext.getWhitespaceOption(), compareContext.getPathFilter());
 			} else {
-				return new ComparingInfo(commits.get(index-1), commit, 
+				return new ComparingInfo(commitHash, commitHashes.get(commitHashes.size()-1),
 						compareContext.getWhitespaceOption(), compareContext.getPathFilter());
 			}
+		} else if (compareCommitIndex < commitIndex) {		
+			return new ComparingInfo(compareContext.getCompareCommitHash(), commitHash, 
+					compareContext.getWhitespaceOption(), compareContext.getPathFilter());
 		} else {
-			int commitIndex = commits.indexOf(commit);
-			int compareCommitIndex = commits.indexOf(compareContext.getCompareCommit());
-			if (commitIndex == -1 || compareCommitIndex == -1) {
-				return null;
-			} else if (compareContext.isLeftSide()) {
-				if (compareCommitIndex < commitIndex) {
-					return new ComparingInfo(compareContext.getCompareCommit(), commit, 
-							compareContext.getWhitespaceOption(), compareContext.getPathFilter());
-				} else {
-					return null;
-				}
-			} else {
-				if (commitIndex < compareCommitIndex) {
-					return new ComparingInfo(commit, compareContext.getCompareCommit(), 
-							compareContext.getWhitespaceOption(), compareContext.getPathFilter());
-				} else {
-					return null;
-				}
-			}
-		} 
+			return new ComparingInfo(commitHash, compareContext.getCompareCommitHash(), 
+					compareContext.getWhitespaceOption(), compareContext.getPathFilter());
+		}
 	}
 	
 	public Collection<User> getParticipants() {
@@ -941,19 +910,23 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 	public boolean isValid() {
 		if (valid == null) {
 			Repository repository = targetProject.getRepository();
-			if (!repository.hasObject(ObjectId.fromString(baseCommitHash))
-					|| !repository.hasObject(ObjectId.fromString(headCommitHash))) {
-				valid = false;
-			} else {
-				for (PullRequestUpdate update: updates) {
-					if (!repository.hasObject(ObjectId.fromString(update.getMergeBaseCommitHash()))
-							|| !repository.hasObject(ObjectId.fromString(update.getHeadCommitHash()))) {
-						valid = false;
-						break;
+			ObjectDatabase objDb = repository.getObjectDatabase();
+			try {
+				if (!objDb.has(ObjectId.fromString(baseCommitHash))) {
+					valid = false;
+				} else {
+					for (PullRequestUpdate update: updates) {
+						if (!objDb.has(ObjectId.fromString(update.getTargetHeadCommitHash()))
+								|| !objDb.has(ObjectId.fromString(update.getHeadCommitHash()))) {
+							valid = false;
+							break;
+						}
 					}
+					if (valid == null)
+						valid = true;
 				}
-				if (valid == null)
-					valid = true;
+			} catch (IOException e) {
+				throw new RuntimeException(e);
 			}
 		} 
 		return valid;
@@ -966,25 +939,25 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 	public Collection<Long> getFixedIssueNumbers() {
 		if (fixedIssueNumbers == null) {
 			fixedIssueNumbers = new HashSet<>();
-			for (RevCommit commit: getCommits())
-				fixedIssueNumbers.addAll(IssueUtils.parseFixedIssueNumbers(commit.getFullMessage()));
+			for (PullRequestUpdate update: getUpdates()) {
+				for (RevCommit commit: update.getCommits())
+					fixedIssueNumbers.addAll(IssueUtils.parseFixedIssueNumbers(commit.getFullMessage()));
+			}
 		}
 		return fixedIssueNumbers;
 	}
 	
 	public boolean isAllReviewsApproved() {
 		for (PullRequestReview review: getReviews()) {
-			if (review.getExcludeDate() == null && 
-					(review.getResult() == null || !review.getResult().isApproved())) {
+			if (review.getResult() == null || !review.getResult().isApproved()) 
 				return false;
-			}
 		}
 		return true;
 	}
 	
 	public boolean isRequiredBuildsSuccessful() {
-		for (PullRequestBuild pullRequestBuild: getPullRequestBuilds()) {
-			if (pullRequestBuild.isRequired() && pullRequestBuild.getBuild().getStatus() != Build.Status.SUCCESSFUL)
+		for (PullRequestVerification verification: getVerifications()) {
+			if (verification.isRequired() && verification.getBuild().getStatus() != Build.Status.SUCCESSFUL)
 				return false;
 		}
 		return true;
@@ -994,27 +967,28 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 		
 		private static final long serialVersionUID = 1L;
 
-		private final String oldCommit; 
+		private final String oldCommitHash; 
 		
-		private final String newCommit;
+		private final String newCommitHash;
 		
 		private final String pathFilter;
 		
 		private final WhitespaceOption whitespaceOption;
 		
-		public ComparingInfo(String oldCommit, String newCommit, WhitespaceOption whitespaceOption, @Nullable String pathFilter) {
-			this.oldCommit = oldCommit;
-			this.newCommit = newCommit;
+		public ComparingInfo(String oldCommitHash, String newCommitHash, 
+				WhitespaceOption whitespaceOption, @Nullable String pathFilter) {
+			this.oldCommitHash = oldCommitHash;
+			this.newCommitHash = newCommitHash;
 			this.whitespaceOption = whitespaceOption;
 			this.pathFilter = pathFilter;
 		}
 
-		public String getOldCommit() {
-			return oldCommit;
+		public String getOldCommitHash() {
+			return oldCommitHash;
 		}
 
-		public String getNewCommit() {
-			return newCommit;
+		public String getNewCommitHash() {
+			return newCommitHash;
 		}
 
 		public String getPathFilter() {
@@ -1026,10 +1000,81 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 		}
 
 	}
-
+	
 	@Override
 	public String getAttachmentStorageUUID() {
 		return uuid;
+	}
+	
+	private boolean contains(ObjectId commitId) {
+		if (commitId.equals(getBaseCommit()))
+			return true;
+		for (PullRequestUpdate update: getUpdates()) {
+			for (RevCommit commit: update.getCommits()) {
+				if (commit.equals(commitId))
+					return true;
+			}
+		}
+		return false;
+	}
+	
+	public ObjectId getComparisonOrigin(ObjectId comparisonBase) {
+		if (contains(comparisonBase))
+			return comparisonBase;
+		
+		RevCommit comparisonBaseCommit = getTargetProject().getRevCommit(comparisonBase, true);
+		for (RevCommit parentCommit: comparisonBaseCommit.getParents()) {
+			if (contains(parentCommit))
+				return parentCommit.copy();
+		}
+		throw new IllegalStateException();
+	}
+	
+	public ObjectId getComparisonBase(ObjectId oldCommitId, ObjectId newCommitId) {
+		if (isNew() || oldCommitId.equals(newCommitId))
+			return oldCommitId;
+		
+		PullRequestInfoManager infoManager = OneDev.getInstance(PullRequestInfoManager.class);
+		ObjectId comparisonBase = infoManager.getComparisonBase(this, oldCommitId, newCommitId);
+		if (comparisonBase != null) {
+			try {
+				if (!getTargetProject().getRepository().getObjectDatabase().has(comparisonBase))
+					comparisonBase = null;
+			} catch (IOException e) {
+				throw new RuntimeException(e);
+			}
+		}
+		if (comparisonBase == null) {
+			for (PullRequestUpdate update: getSortedUpdates()) {
+				if (update.getCommits().contains(newCommitId)) {
+					ObjectId targetHead = ObjectId.fromString(update.getTargetHeadCommitHash());
+					Repository repo = getTargetProject().getRepository();
+					ObjectId mergeBase1 = GitUtils.getMergeBase(repo, targetHead, newCommitId);
+					if (mergeBase1 != null) {
+						ObjectId mergeBase2 = GitUtils.getMergeBase(repo, mergeBase1, oldCommitId);
+						if (mergeBase2.equals(mergeBase1)) {
+							comparisonBase = oldCommitId;
+							break;
+						} else if (mergeBase2.equals(oldCommitId)) {
+							comparisonBase = mergeBase1;
+							break;
+						} else {
+							PersonIdent person = new PersonIdent("OneDev", "");
+							comparisonBase = GitUtils.merge(repo, oldCommitId, mergeBase1, false, 
+									person, person, "helper commit", true);
+							break;
+						}
+					} else {
+						return oldCommitId;
+					}
+				}
+			}
+			if (comparisonBase != null)
+				infoManager.cacheComparisonBase(this, oldCommitId, newCommitId, comparisonBase);
+			else
+				throw new IllegalSelectorException();
+		}
+		return comparisonBase;
 	}
 
 	@Override
@@ -1065,7 +1110,7 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 		}
 	}
 	
-	public String describe() {
+	public String getNumberAndTitle() {
 		return "#" + getNumber() + " - " + getTitle();
 	}
 	

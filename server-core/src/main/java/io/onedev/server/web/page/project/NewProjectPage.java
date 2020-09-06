@@ -12,13 +12,12 @@ import com.google.common.collect.Sets;
 
 import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.ProjectManager;
-import io.onedev.server.entitymanager.UserManager;
 import io.onedev.server.model.Project;
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.security.SecurityUtils;
+import io.onedev.server.util.Path;
+import io.onedev.server.util.PathNode;
 import io.onedev.server.web.editable.BeanContext;
 import io.onedev.server.web.editable.BeanEditor;
-import io.onedev.server.web.editable.Path;
-import io.onedev.server.web.editable.PathNode;
 import io.onedev.server.web.page.layout.LayoutPage;
 import io.onedev.server.web.page.project.blob.ProjectBlobPage;
 
@@ -35,9 +34,7 @@ public class NewProjectPage extends LayoutPage {
 		
 		Project project = new Project();
 		
-		Collection<String> properties = Sets.newHashSet("name", "description");
-		ProjectOwnerBean ownerBean = new ProjectOwnerBean();
-		ownerBean.setOwner(SecurityUtils.getUser().getName());
+		Collection<String> properties = Sets.newHashSet("name", "description", "issueManagementEnabled");
 		
 		BeanEditor editor = BeanContext.edit("editor", project, properties, false);
 		
@@ -53,7 +50,6 @@ public class NewProjectPage extends LayoutPage {
 					editor.error(new Path(new PathNode.Named("name")),
 							"This name has already been used by another project");
 				} else {
-					project.setOwner(OneDev.getInstance(UserManager.class).findByName(ownerBean.getOwner()));
 					projectManager.create(project);
 					Session.get().success("New project created");
 					setResponsePage(ProjectBlobPage.class, ProjectBlobPage.paramsOf(project));
@@ -62,7 +58,6 @@ public class NewProjectPage extends LayoutPage {
 			
 		};
 		form.add(editor);
-		form.add(BeanContext.edit("ownerEditor", ownerBean).setVisible(SecurityUtils.isAdministrator()));
 		
 		add(form);
 	}

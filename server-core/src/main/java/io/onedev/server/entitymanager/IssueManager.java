@@ -14,9 +14,9 @@ import io.onedev.server.search.entity.EntityQuery;
 import io.onedev.server.search.entity.issue.IssueCriteria;
 import io.onedev.server.util.MilestoneAndState;
 import io.onedev.server.util.ProjectScopedNumber;
-import io.onedev.server.util.ValueSetEdit;
 import io.onedev.server.web.component.issue.workflowreconcile.UndefinedFieldResolution;
 import io.onedev.server.web.component.issue.workflowreconcile.UndefinedFieldValue;
+import io.onedev.server.web.component.issue.workflowreconcile.UndefinedFieldValuesResolution;
 import io.onedev.server.web.component.issue.workflowreconcile.UndefinedStateResolution;
 
 public interface IssueManager extends EntityManager<Issue> {
@@ -33,7 +33,7 @@ public interface IssueManager extends EntityManager<Issue> {
 	void open(Issue issue);
 	
 	List<Issue> query(@Nullable Project project, EntityQuery<Issue> issueQuery, 
-			int firstResult, int maxResults);
+			int firstResult, int maxResults, boolean loadFields);
 	
 	int count(@Nullable Project project, @Nullable IssueCriteria issueCriteria);
 	
@@ -49,7 +49,7 @@ public interface IssueManager extends EntityManager<Issue> {
 	
 	Collection<UndefinedFieldValue> getUndefinedFieldValues();
 	
-	void fixUndefinedFieldValues(Map<String, ValueSetEdit> valueSetEdits);
+	void fixUndefinedFieldValues(Map<String, UndefinedFieldValuesResolution> resolutions);
 	
 	void fixFieldValueOrders();
 	

@@ -7,7 +7,7 @@
 	<parent>
 		<groupId>io.onedev</groupId>
 		<artifactId>server</artifactId>
-		<version>3.0.11</version>
+		<version>3.2.8</version>
 	</parent>
 	<build>
 		<plugins>
@@ -97,20 +97,6 @@
 					<artifactId>c3p0</artifactId>
 				</exclusion>
 			</exclusions>
-		</dependency>
-		<dependency>
-			<groupId>org.webjars</groupId>
-			<artifactId>font-awesome</artifactId>
-			<exclusions>
-				<exclusion>
-					<groupId>org.webjars</groupId>
-					<artifactId>bootstrap</artifactId>
-				</exclusion>
-			</exclusions>
-		</dependency>
-		<dependency>
-			<groupId>org.webjars.npm</groupId>
-			<artifactId>codemirror</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.shiro</groupId>
@@ -211,6 +197,14 @@
 			<artifactId>org.eclipse.jgit.archive</artifactId>
 		</dependency>
 		<dependency>
+			<groupId>org.apache.sshd</groupId>
+			<artifactId>sshd-core</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>net.i2p.crypto</groupId>
+			<artifactId>eddsa</artifactId>
+		</dependency>		
+		<dependency>
 			<groupId>org.eclipse.jetty</groupId>
 			<artifactId>jetty-server</artifactId>
 		</dependency>
@@ -263,14 +257,6 @@
 			<artifactId>wicket-native-websocket-core</artifactId>
 		</dependency>
 		<dependency>
-			<groupId>de.agilecoders.wicket</groupId>
-			<artifactId>wicket-bootstrap-core</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>de.agilecoders.wicket</groupId>
-			<artifactId>wicket-bootstrap-extensions</artifactId>
-		</dependency>
-		<dependency>
 			<groupId>commons-fileupload</groupId>
 			<artifactId>commons-fileupload</artifactId>
 		</dependency>
@@ -319,9 +305,12 @@
 			<artifactId>dom4j</artifactId>
 		</dependency>
 		<dependency>
+			<groupId>org.json</groupId>
+			<artifactId>json</artifactId>
+		</dependency>
+		<dependency>
 			<groupId>io.onedev</groupId>
 			<artifactId>k8s-helper</artifactId>
-			<version>1.0.12</version>
 		</dependency>
 	</dependencies>
 	<properties>

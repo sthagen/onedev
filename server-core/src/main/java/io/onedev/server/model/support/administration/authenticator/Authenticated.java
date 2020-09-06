@@ -12,12 +12,16 @@ public class Authenticated {
 	
 	private final Collection<String> groupNames;
 	
-	public Authenticated(String email, @Nullable String fullName, Collection<String> groupNames) {
+	private final Collection<String> sshKeys;
+	
+	public Authenticated(String email, @Nullable String fullName, 
+			@Nullable Collection<String> groupNames, @Nullable Collection<String> sshKeys) {
 		this.email = email;
 		this.fullName = fullName;
 		this.groupNames = groupNames;
+		this.sshKeys = sshKeys;
 	}
-
+	
 	@Nullable
 	public String getFullName() {
 		return fullName;
@@ -27,8 +31,14 @@ public class Authenticated {
 		return email;
 	}
 
+	@Nullable
 	public Collection<String> getGroupNames() {
 		return groupNames;
 	}
-	
+
+	@Nullable
+	public Collection<String> getSshKeys() {
+		return sshKeys;
+	}
+
 }

@@ -14,6 +14,8 @@ import javax.inject.Singleton;
 import javax.validation.Validator;
 
 import org.apache.shiro.authc.credential.PasswordService;
+import org.apache.wicket.request.Url;
+import org.apache.wicket.request.Url.StringMode;
 import org.joda.time.DateTime;
 import org.joda.time.format.DateTimeFormat;
 import org.quartz.CronScheduleBuilder;
@@ -28,12 +30,14 @@ import io.onedev.commons.launcher.loader.Listen;
 import io.onedev.commons.launcher.loader.ManagedSerializedForm;
 import io.onedev.commons.utils.ExceptionUtils;
 import io.onedev.commons.utils.FileUtils;
+import io.onedev.commons.utils.StringUtils;
 import io.onedev.commons.utils.ZipUtils;
 import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.RoleManager;
 import io.onedev.server.entitymanager.SettingManager;
 import io.onedev.server.entitymanager.UserManager;
 import io.onedev.server.event.system.SystemStarting;
+import io.onedev.server.model.Role;
 import io.onedev.server.model.Setting;
 import io.onedev.server.model.Setting.Key;
 import io.onedev.server.model.User;
@@ -44,13 +48,14 @@ import io.onedev.server.model.support.administration.GlobalProjectSetting;
 import io.onedev.server.model.support.administration.GlobalPullRequestSetting;
 import io.onedev.server.model.support.administration.MailSetting;
 import io.onedev.server.model.support.administration.SecuritySetting;
+import io.onedev.server.model.support.administration.SshSetting;
 import io.onedev.server.model.support.administration.SystemSetting;
 import io.onedev.server.model.support.administration.jobexecutor.AutoDiscoveredJobExecutor;
 import io.onedev.server.notification.MailManager;
-import io.onedev.server.persistence.IdManager;
 import io.onedev.server.persistence.PersistManager;
 import io.onedev.server.persistence.annotation.Sessional;
 import io.onedev.server.persistence.annotation.Transactional;
+import io.onedev.server.ssh.SshKeyUtils;
 import io.onedev.server.util.init.ManualConfig;
 import io.onedev.server.util.init.Skippable;
 import io.onedev.server.util.schedule.SchedulableTask;
@@ -62,8 +67,6 @@ public class DefaultDataManager implements DataManager, Serializable {
 	private final UserManager userManager;
 	
 	private final SettingManager settingManager;
-	
-	private final IdManager idManager;
 	
 	private final Validator validator;
 	
@@ -78,9 +81,9 @@ public class DefaultDataManager implements DataManager, Serializable {
 	private final RoleManager roleManager;
 	
 	private String backupTaskId;
-	
+
 	@Inject
-	public DefaultDataManager(IdManager idManager, UserManager userManager, 
+	public DefaultDataManager(UserManager userManager, 
 			SettingManager settingManager, PersistManager persistManager, 
 			MailManager mailManager, Validator validator, TaskScheduler taskScheduler, 
 			PasswordService passwordService, RoleManager roleManager) {
@@ -88,7 +91,6 @@ public class DefaultDataManager implements DataManager, Serializable {
 		this.settingManager = settingManager;
 		this.validator = validator;
 		this.taskScheduler = taskScheduler;
-		this.idManager = idManager;
 		this.persistManager = persistManager;
 		this.mailManager = mailManager;
 		this.passwordService = passwordService;
@@ -107,7 +109,7 @@ public class DefaultDataManager implements DataManager, Serializable {
 			system.setName(OneDev.NAME);
 			system.setEmail("no email");
 			system.setPassword("no password");
-			userManager.save(system, null);
+    		userManager.replicate(system);
 		}
 		User administrator = userManager.get(User.ROOT_ID);		
 		if (administrator == null) {
@@ -125,8 +127,7 @@ public class DefaultDataManager implements DataManager, Serializable {
 				public void complete() {
 					User user = (User) getSetting();
 					user.setPassword(passwordService.encryptPassword(user.getPassword()));
-					userManager.save(user, null);
-					idManager.init(User.class);
+		    		userManager.replicate(user);
 				}
 				
 			});
@@ -134,10 +135,11 @@ public class DefaultDataManager implements DataManager, Serializable {
 
 		Setting setting = settingManager.getSetting(Key.SYSTEM);
 		SystemSetting systemSetting = null;
+		Url webServerUrl = OneDev.getInstance().guessServerUrl(false);
 		
 		if (setting == null || setting.getValue() == null) {
-			systemSetting = new SystemSetting();
-			systemSetting.setServerUrl(OneDev.getInstance().guessServerUrl());
+		    systemSetting = new SystemSetting();
+			systemSetting.setServerUrl(StringUtils.stripEnd(webServerUrl.toString(StringMode.FULL), "/"));
 		} else if (!validator.validate(setting.getValue()).isEmpty()) {
 			systemSetting = (SystemSetting) setting.getValue();
 		}
@@ -163,6 +165,16 @@ public class DefaultDataManager implements DataManager, Serializable {
 			});
 		}
 
+		setting = settingManager.getSetting(Key.SSH);
+		if (setting == null || setting.getValue() == null) {
+			SshSetting sshSetting = new SshSetting();
+			Url sshServerUrl = OneDev.getInstance().guessServerUrl(true);
+            sshSetting.setServerUrl(StringUtils.stripEnd(sshServerUrl.toString(StringMode.FULL), "/"));
+            sshSetting.setPemPrivateKey(SshKeyUtils.generatePEMPrivateKey());
+            
+            settingManager.saveSshSetting(sshSetting);
+        }
+		
 		setting = settingManager.getSetting(Key.SECURITY);
 		if (setting == null) {
 			settingManager.saveSecuritySetting(new SecuritySetting());
@@ -181,7 +193,11 @@ public class DefaultDataManager implements DataManager, Serializable {
 			executor.setName("auto-discovered");
 			settingManager.saveJobExecutors(Lists.newArrayList(executor));
 		}
-		setting = settingManager.getSetting(Key.JOB_SCRIPTS);
+		setting = settingManager.getSetting(Key.SSO_CONNECTORS);
+		if (setting == null) {
+			settingManager.saveSsoConnectors(Lists.newArrayList());
+		}
+		setting = settingManager.getSetting(Key.GROOVY_SCRIPTS);
 		if (setting == null) {
 			settingManager.saveGroovyScripts(Lists.newArrayList());
 		}
@@ -237,8 +253,14 @@ public class DefaultDataManager implements DataManager, Serializable {
 			});
 		}
 		
-		if (roleManager.count() == 0) 
+		if (roleManager.get(Role.OWNER_ID) == null) {
+			Role owner = new Role();
+			owner.setName("Project Owner");
+			owner.setId(Role.OWNER_ID);
+			owner.setManageProject(true);
+			roleManager.replicate(owner);
 			roleManager.setupDefaults();
+		}
 		
 		return manualConfigs;
 	}
@@ -286,7 +308,7 @@ public class DefaultDataManager implements DataManager, Serializable {
 	protected void notifyBackupError(Throwable e) {
 		User root = userManager.getRoot();
 		String url = settingManager.getSystemSetting().getServerUrl();
-		String body = String.format(""
+		String htmlBody = String.format(""
 				+ "OneDev url: <a href='%s'>%s</a>"
 				+ "<p style='margin: 16px 0;'>"
 				+ "<b>Error detail:</b>"
@@ -294,7 +316,13 @@ public class DefaultDataManager implements DataManager, Serializable {
 				+ "<p style='margin: 16px 0;'>"
 				+ "-- Sent by OneDev", 
 				url, url, Throwables.getStackTraceAsString(e));
-		mailManager.sendMail(Lists.newArrayList(root.getEmail()), "OneDev database auto-backup failed", body);
+		String textBody = String.format(""
+				+ "OneDev url: %s\n\n"
+				+ "Error detail:\n"
+				+ "%s",
+				url, Throwables.getStackTraceAsString(e));
+		mailManager.sendMail(Lists.newArrayList(root.getEmail()), 
+				"OneDev database auto-backup failed", htmlBody, textBody);
 	}
 	
 	public Object writeReplace() throws ObjectStreamException {

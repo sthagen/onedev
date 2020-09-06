@@ -13,7 +13,7 @@ import org.glassfish.jersey.internal.guava.Preconditions;
 
 import io.onedev.commons.launcher.bootstrap.Bootstrap;
 import io.onedev.commons.utils.FileUtils;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.util.ServerConfig;
 
 @Singleton
@@ -22,6 +22,8 @@ public class DefaultServerConfig implements ServerConfig {
 	private static final String PROP_HTTPPORT = "http_port";
 	
 	private static final String PROP_HTTPSPORT = "https_port";
+
+	private static final String PROP_SSHPORT = "ssh_port";
 	
 	private static final String PROP_KEYSTORE = "keystore";
 	
@@ -38,6 +40,8 @@ public class DefaultServerConfig implements ServerConfig {
 	private int sessionTimeout;
 	
 	private int httpsPort;
+
+	private int sshPort;
 	
 	private File trustCertsDir;
 	
@@ -60,7 +64,15 @@ public class DefaultServerConfig implements ServerConfig {
 			httpsPort = Integer.parseInt(httpsPortStr.trim());
 		
 		if (httpPort == 0 && httpsPort == 0)
-			throw new RuntimeException("Either " + PROP_HTTPPORT + " or " + PROP_HTTPSPORT + " or both should be enabled");
+			throw new GeneralException("Either " + PROP_HTTPPORT + " or " + PROP_HTTPSPORT + " or both should be enabled");
+		
+		String sshPortStr = System.getenv(PROP_SSHPORT);
+        if (StringUtils.isBlank(sshPortStr))
+            sshPortStr = props.getProperty(PROP_SSHPORT);
+        if (StringUtils.isNotBlank(sshPortStr))
+            sshPort = Integer.parseInt(sshPortStr.trim());
+        else
+        	throw new GeneralException(PROP_SSHPORT + " should be specified");
 		
 		String keystore = System.getenv(PROP_KEYSTORE); 
 		if (StringUtils.isBlank(keystore))
@@ -88,7 +100,7 @@ public class DefaultServerConfig implements ServerConfig {
 				}
 			} 
 		} else if (httpsPort != 0) {
-			throw new OneException(PROP_KEYSTORE + " is required for https support");
+			throw new GeneralException(PROP_KEYSTORE + " is required for https support");
 		}
 		
 		keystorePassword = System.getenv(PROP_KEYSTOREPASSWORD);
@@ -114,7 +126,7 @@ public class DefaultServerConfig implements ServerConfig {
 		if (StringUtils.isNotBlank(sessionTimeoutStr))
 			sessionTimeout = Integer.parseInt(sessionTimeoutStr.trim());
 		else
-			throw new RuntimeException(PROP_SESSION_TIMEOUT + " should be specified");
+			throw new GeneralException(PROP_SESSION_TIMEOUT + " should be specified");
 	}
 	
 	@Override
@@ -146,5 +158,10 @@ public class DefaultServerConfig implements ServerConfig {
 	public File getTrustCertsDir() {
 		return trustCertsDir;
 	}
+
+	@Override
+    public int getSshPort() {
+        return sshPort;
+    }
 	
 }

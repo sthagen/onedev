@@ -6,7 +6,6 @@ import java.util.Collections;
 import java.util.List;
 
 import org.apache.commons.lang3.StringUtils;
-import org.apache.wicket.AttributeModifier;
 import org.apache.wicket.Component;
 import org.apache.wicket.ajax.AbstractDefaultAjaxBehavior;
 import org.apache.wicket.ajax.AjaxRequestTarget;
@@ -24,6 +23,7 @@ import org.apache.wicket.markup.html.panel.Panel;
 import org.apache.wicket.model.AbstractReadOnlyModel;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LoadableDetachableModel;
+import org.apache.wicket.model.Model;
 import org.apache.wicket.request.cycle.RequestCycle;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 import org.eclipse.jgit.lib.FileMode;
@@ -40,8 +40,9 @@ import com.google.common.base.Preconditions;
 import io.onedev.server.buildspec.BuildSpec;
 import io.onedev.server.git.Blob;
 import io.onedev.server.git.BlobIdent;
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.web.behavior.AbstractPostAjaxBehavior;
+import io.onedev.server.web.component.blob.BlobIcon;
 import io.onedev.server.web.component.link.ViewStateAwareAjaxLink;
 import io.onedev.server.web.component.markdown.MarkdownViewer;
 import io.onedev.server.web.component.user.card.PersonCardPanel;
@@ -99,8 +100,14 @@ public class FolderViewPanel extends Panel {
 				
 				Collections.sort(children);
 				
+				BlobIdent oldBuildSpecIdent = new BlobIdent(context.getBlobIdent().revision, 
+						".onedev-buildspec", FileMode.REGULAR_FILE.getBits());
 				BlobIdent buildSpecIdent = new BlobIdent(context.getBlobIdent().revision, 
 						BuildSpec.BLOB_PATH, FileMode.REGULAR_FILE.getBits());
+				if (children.contains(oldBuildSpecIdent)) {
+					children.remove(oldBuildSpecIdent);
+					children.add(0, oldBuildSpecIdent);
+				}
 				if (children.contains(buildSpecIdent)) {
 					children.remove(buildSpecIdent);
 					children.add(0, buildSpecIdent);
@@ -202,25 +209,11 @@ public class FolderViewPanel extends Panel {
 					
 				}; 
 
-				WebMarkupContainer icon = new WebMarkupContainer("icon");
-				String iconClass;
-				if (blobIdent.isTree())
-					iconClass = "fa fa-folder-o";
-				else if (blobIdent.isGitLink()) 
-					iconClass = "fa fa-ext fa-folder-submodule-o";
-				else if (blobIdent.isSymbolLink()) 
-					iconClass = "fa fa-ext fa-folder-symbol-link-o";
-				else if (blobIdent.path.equals(BuildSpec.BLOB_PATH))
-					iconClass = "fa fa-cog";
-				else  
-					iconClass = "fa fa-file-text-o";
-				icon.add(AttributeModifier.append("class", iconClass));
-				
-				pathLink.add(icon);
+				pathLink.add(new BlobIcon("icon", Model.of(blobIdent)));
 				
 				if (context.getBlobIdent().path != null) 
 					pathLink.add(new Label("label", blobIdent.path.substring(context.getBlobIdent().path.length()+1)));
-				else if (blobIdent.path.equals(BuildSpec.BLOB_PATH))
+				else if (blobIdent.path.equals(BuildSpec.BLOB_PATH) || blobIdent.path.equals(".onedev-buildspec"))
 					pathLink.add(new Label("label", "<b>" + HtmlEscape.escapeHtml5(blobIdent.path) + "</b>").setEscapeModelStrings(false));
 				else
 					pathLink.add(new Label("label", blobIdent.path));

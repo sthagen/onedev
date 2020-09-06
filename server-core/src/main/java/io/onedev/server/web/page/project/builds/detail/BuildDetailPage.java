@@ -8,13 +8,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 
-import javax.annotation.Nullable;
 import javax.persistence.EntityNotFoundException;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.wicket.Component;
 import org.apache.wicket.Page;
 import org.apache.wicket.RestartResponseException;
+import org.apache.wicket.Session;
 import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.ajax.markup.html.AjaxLink;
 import org.apache.wicket.core.request.handler.IPartialPageRequestHandler;
@@ -27,6 +27,7 @@ import org.apache.wicket.markup.html.link.Link;
 import org.apache.wicket.model.AbstractReadOnlyModel;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LoadableDetachableModel;
+import org.apache.wicket.request.flow.RedirectToUrlException;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 
 import com.google.common.base.Preconditions;
@@ -34,27 +35,35 @@ import com.google.common.collect.Sets;
 
 import io.onedev.commons.utils.LockUtils;
 import io.onedev.server.OneDev;
+import io.onedev.server.buildspec.BuildSpec;
+import io.onedev.server.buildspec.job.Job;
+import io.onedev.server.buildspec.job.JobDependency;
 import io.onedev.server.buildspec.job.JobManager;
 import io.onedev.server.buildspec.job.paramspec.ParamSpec;
 import io.onedev.server.buildspec.job.paramsupply.ParamSupply;
 import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.model.Build;
 import io.onedev.server.model.Build.Status;
+import io.onedev.server.model.Project;
+import io.onedev.server.model.support.inputspec.InputContext;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.ProjectScopedNumber;
-import io.onedev.server.util.SecurityUtils;
-import io.onedev.server.util.inputspec.InputContext;
 import io.onedev.server.util.script.identity.JobIdentity;
 import io.onedev.server.util.script.identity.ScriptIdentity;
 import io.onedev.server.util.script.identity.ScriptIdentityAware;
+import io.onedev.server.web.WebSession;
 import io.onedev.server.web.behavior.WebSocketObserver;
 import io.onedev.server.web.component.beaneditmodal.BeanEditModalPanel;
 import io.onedev.server.web.component.build.side.BuildSidePanel;
 import io.onedev.server.web.component.build.status.BuildStatusIcon;
+import io.onedev.server.web.component.floating.FloatingPanel;
+import io.onedev.server.web.component.job.joblist.JobListPanel;
+import io.onedev.server.web.component.link.DropdownLink;
 import io.onedev.server.web.component.link.ViewStateAwarePageLink;
-import io.onedev.server.web.component.modal.confirm.ConfirmModal;
+import io.onedev.server.web.component.modal.confirm.ConfirmModalPanel;
 import io.onedev.server.web.component.sideinfo.SideInfoLink;
 import io.onedev.server.web.component.sideinfo.SideInfoPanel;
-import io.onedev.server.web.component.tabbable.PageTabLink;
+import io.onedev.server.web.component.tabbable.PageTabHead;
 import io.onedev.server.web.component.tabbable.Tab;
 import io.onedev.server.web.component.tabbable.Tabbable;
 import io.onedev.server.web.editable.BeanDescriptor;
@@ -68,9 +77,9 @@ import io.onedev.server.web.page.project.builds.detail.dashboard.BuildDashboardP
 import io.onedev.server.web.page.project.builds.detail.issues.FixedIssuesPage;
 import io.onedev.server.web.page.project.builds.detail.log.BuildLogPage;
 import io.onedev.server.web.util.BuildAware;
-import io.onedev.server.web.util.ConfirmOnClick;
-import io.onedev.server.web.util.QueryPosition;
-import io.onedev.server.web.util.QueryPositionSupport;
+import io.onedev.server.web.util.ConfirmClickModifier;
+import io.onedev.server.web.util.Cursor;
+import io.onedev.server.web.util.CursorSupport;
 
 @SuppressWarnings("serial")
 public abstract class BuildDetailPage extends ProjectPage 
@@ -82,7 +91,25 @@ public abstract class BuildDetailPage extends ProjectPage
 	
 	protected final IModel<Build> buildModel;
 	
-	private final QueryPosition position;
+	private final IModel<List<Job>> downstreamJobsModel = new LoadableDetachableModel<List<Job>>() {
+
+		@Override
+		protected List<Job> load() {
+			BuildSpec buildSpec = getProject().getBuildSpec(getBuild().getCommitId());
+			
+			List<Job> downstreamJobs = new ArrayList<>();
+			for (Job job: buildSpec.getJobs()) {
+				for (JobDependency dependency: job.getJobDependencies()) {
+					if (dependency.getJobName().equals(getBuild().getJobName()) 
+							&& getBuild().matchParams(dependency.getJobParams())) { 
+						downstreamJobs.add(job);
+					}
+				}
+			}
+			return downstreamJobs;
+		}
+		
+	};
 	
 	public BuildDetailPage(PageParameters params) {
 		super(params);
@@ -100,7 +127,7 @@ public abstract class BuildDetailPage extends ProjectPage
 				if (build == null)
 					throw new EntityNotFoundException("Unable to find build #" + buildNumber + " in project " + getProject());
 				else if (!build.getProject().equals(getProject()))
-					throw new RestartResponseException(getPageClass(), paramsOf(build, position));
+					throw new RestartResponseException(getPageClass(), paramsOf(build));
 				else
 					return build;
 			}
@@ -109,8 +136,6 @@ public abstract class BuildDetailPage extends ProjectPage
 	
 		if (!getBuild().isValid())
 			throw new RestartResponseException(InvalidBuildPage.class, InvalidBuildPage.paramsOf(getBuild()));
-		
-		position = QueryPosition.from(params);
 	}
 	
 	@Override
@@ -144,12 +169,7 @@ public abstract class BuildDetailPage extends ProjectPage
 	protected void onInitialize() {
 		super.onInitialize();
 		
-		WebMarkupContainer summary = new WebMarkupContainer("summary");
-		summary.add(newBuildObserver(getBuild().getId()));
-		summary.setOutputMarkupId(true);
-		add(summary);
-		
-		summary.add(new Label("title", new AbstractReadOnlyModel<String>() {
+		add(new Label("title", new AbstractReadOnlyModel<String>() {
 
 			@Override
 			public String getObject() {
@@ -160,9 +180,22 @@ public abstract class BuildDetailPage extends ProjectPage
 				
 			}
 			
-		}));
+		}) {
+
+			@Override
+			protected void onInitialize() {
+				super.onInitialize();
+				add(newBuildObserver(getBuild().getId()));
+				setOutputMarkupId(true);
+			}
+			
+		});
 		
-		summary.add(new BuildStatusIcon("statusIcon", new AbstractReadOnlyModel<Status>() {
+		WebMarkupContainer statusContainer = new WebMarkupContainer("status");
+		add(statusContainer);
+		statusContainer.add(newBuildObserver(getBuild().getId()));
+		statusContainer.setOutputMarkupId(true);
+		statusContainer.add(new BuildStatusIcon("statusIcon", new AbstractReadOnlyModel<Status>() {
 
 			@Override
 			public Status getObject() {
@@ -177,7 +210,7 @@ public abstract class BuildDetailPage extends ProjectPage
 			}
 			
 		});
-		summary.add(new Label("statusLabel", new AbstractReadOnlyModel<String>() {
+		statusContainer.add(new Label("statusLabel", new AbstractReadOnlyModel<String>() {
 
 			@Override
 			public String getObject() {
@@ -186,13 +219,19 @@ public abstract class BuildDetailPage extends ProjectPage
 			
 		}));
 		
-		summary.add(new AjaxLink<Void>("rebuild") {
+		WebMarkupContainer actionsContainer = new WebMarkupContainer("actions");
+		actionsContainer.setOutputMarkupId(true);
+		add(actionsContainer);
+		
+		actionsContainer.add(newBuildObserver(getBuild().getId()));
+		
+		actionsContainer.add(new AjaxLink<Void>("rebuild") {
 
 			private void resubmit(Serializable paramBean) {
 				Map<String, List<String>> paramMap = ParamSupply.getParamMap(getBuild().getJob(), paramBean, 
 						getBuild().getJob().getParamSpecMap().keySet());
 				OneDev.getInstance(JobManager.class).resubmit(getBuild(), paramMap);
-				setResponsePage(BuildDashboardPage.class, BuildDashboardPage.paramsOf(getBuild(), position));
+				setResponsePage(BuildDashboardPage.class, BuildDashboardPage.paramsOf(getBuild()));
 			}
 			
 			@Override
@@ -222,7 +261,7 @@ public abstract class BuildDetailPage extends ProjectPage
 						
 					};
 				} else {
-					new ConfirmModal(target) {
+					new ConfirmModalPanel(target) {
 						
 						@Override
 						protected void onConfirm(AjaxRequestTarget target) {
@@ -252,7 +291,7 @@ public abstract class BuildDetailPage extends ProjectPage
 			
 		});
 		
-		summary.add(new Link<Void>("cancel") {
+		actionsContainer.add(new Link<Void>("cancel") {
 
 			@Override
 			public void onClick() {
@@ -266,9 +305,36 @@ public abstract class BuildDetailPage extends ProjectPage
 				setVisible(!getBuild().isFinished() && SecurityUtils.canRunJob(getBuild().getProject(), getBuild().getJobName()));
 			}
 			
-		}.add(new ConfirmOnClick("Do you really want to cancel this build?")));
+		}.add(new ConfirmClickModifier("Do you really want to cancel this build?")));
 		
-		summary.add(new SideInfoLink("moreInfo"));
+		add(new DropdownLink("downstream") {
+
+			@Override
+			protected Component newContent(String id, FloatingPanel dropdown) {
+				return new JobListPanel(id, getBuild().getCommitId(), downstreamJobsModel.getObject()) {
+					
+					@Override
+					protected Project getProject() {
+						return BuildDetailPage.this.getProject();
+					}
+
+					@Override
+					protected void onRunJob(AjaxRequestTarget target) {
+						dropdown.close();
+					}
+					
+				};
+			}
+
+			@Override
+			protected void onConfigure() {
+				super.onConfigure();
+				setVisible(!downstreamJobsModel.getObject().isEmpty());
+			}
+			
+		});
+		
+		add(new SideInfoLink("moreInfo"));
 		
 		add(new Label("errorMessage", new AbstractReadOnlyModel<String>() {
 
@@ -334,12 +400,12 @@ public abstract class BuildDetailPage extends ProjectPage
 
 					@Override
 					public Component render(String componentId) {
-						return new PageTabLink(componentId, this) {
+						return new PageTabHead(componentId, this) {
 
 							@Override
 							protected Link<?> newLink(String linkId, Class<? extends Page> pageClass) {
 								return new ViewStateAwarePageLink<Void>(linkId, pageClass, 
-										FixedIssuesPage.paramsOf(getBuild(), getPosition(), 
+										FixedIssuesPage.paramsOf(getBuild(), 
 										getBuild().getJob().getDefaultFixedIssuesFilter()));
 							}
 							
@@ -383,17 +449,18 @@ public abstract class BuildDetailPage extends ProjectPage
 					}
 
 					@Override
-					protected QueryPositionSupport<Build> getQueryPositionSupport() {
-						return new QueryPositionSupport<Build>() {
+					protected CursorSupport<Build> getCursorSupport() {
+						return new CursorSupport<Build>() {
 
 							@Override
-							public QueryPosition getPosition() {
-								return position;
+							public Cursor getCursor() {
+								return WebSession.get().getBuildCursor();
 							}
 
 							@Override
-							public void navTo(AjaxRequestTarget target, Build entity, QueryPosition position) {
-								BuildDetailPage.this.navTo(target, entity, position);
+							public void navTo(AjaxRequestTarget target, Build entity, Cursor cursor) {
+								WebSession.get().setBuildCursor(cursor);
+								setResponsePage(getPageClass(), paramsOf(entity));
 							}
 							
 						};
@@ -406,15 +473,18 @@ public abstract class BuildDetailPage extends ProjectPage
 							@Override
 							public void onClick() {
 								OneDev.getInstance(BuildManager.class).delete(getBuild());
-								PageParameters params = ProjectBuildsPage.paramsOf(
-										getProject(), 
-										QueryPosition.getQuery(position), 
-										QueryPosition.getPage(position) + 1); 
-								setResponsePage(ProjectBuildsPage.class, params);
+								
+								Session.get().success("Build #" + getBuild().getNumber() + " deleted");
+								
+								String redirectUrlAfterDelete = WebSession.get().getRedirectUrlAfterDelete(Build.class);
+								if (redirectUrlAfterDelete != null)
+									throw new RedirectToUrlException(redirectUrlAfterDelete);
+								else
+									setResponsePage(ProjectBuildsPage.class, ProjectBuildsPage.paramsOf(getProject()));
 							}
 							
 						};
-						deleteLink.add(new ConfirmOnClick("Do you really want to delete this build?"));
+						deleteLink.add(new ConfirmClickModifier("Do you really want to delete this build?"));
 						deleteLink.setVisible(SecurityUtils.canManage(getBuild()));
 						return deleteLink;
 					}
@@ -426,14 +496,11 @@ public abstract class BuildDetailPage extends ProjectPage
 		
 	}
 	
-	public QueryPosition getPosition() {
-		return position;
-	}
-	
 	@Override
 	public void renderHead(IHeaderResponse response) {
 		super.renderHead(response);
 		response.render(JavaScriptHeaderItem.forReference(new BuildDetailResourceReference()));
+		response.render(OnDomReadyHeaderItem.forScript("onedev.server.buildDetail.onDomReady();"));
 	}
 
 	@Override
@@ -442,23 +509,16 @@ public abstract class BuildDetailPage extends ProjectPage
 		super.onDetach();
 	}
 
-	public static PageParameters paramsOf(Build build, @Nullable QueryPosition position) {
-		return paramsOf(build.getFQN(), position);
+	public static PageParameters paramsOf(Build build) {
+		return paramsOf(build.getFQN());
 	}
 	
-	public static PageParameters paramsOf(ProjectScopedNumber buildFQN, @Nullable QueryPosition position) {
+	public static PageParameters paramsOf(ProjectScopedNumber buildFQN) {
 		PageParameters params = ProjectPage.paramsOf(buildFQN.getProject());
 		params.add(PARAM_BUILD, buildFQN.getNumber());
-		if (position != null)
-			position.fill(params);
 		return params;
 	}
 	
-	protected void navTo(AjaxRequestTarget target, Build entity, QueryPosition position) {
-		PageParameters params = BuildDetailPage.paramsOf(entity, position);
-		setResponsePage(getPageClass(), params);
-	}
-
 	@Override
 	public List<String> getInputNames() {
 		return new ArrayList<>(getBuild().getJob().getParamSpecMap().keySet());

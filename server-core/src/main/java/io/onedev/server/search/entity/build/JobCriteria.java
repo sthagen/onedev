@@ -32,8 +32,8 @@ public class JobCriteria extends EntityCriteria<Build> {
 	}
 
 	@Override
-	public String asString() {
-		return quote(Build.FIELD_JOB) + " " 
+	public String toStringWithoutParens() {
+		return quote(Build.NAME_JOB) + " " 
 				+ BuildQuery.getRuleName(BuildQueryLexer.Is) + " " 
 				+ quote(jobName);
 	}

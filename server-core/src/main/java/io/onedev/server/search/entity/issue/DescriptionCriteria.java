@@ -31,8 +31,8 @@ public class DescriptionCriteria extends IssueCriteria {
 	}
 
 	@Override
-	public String asString() {
-		return quote(Issue.FIELD_DESCRIPTION) + " " 
+	public String toStringWithoutParens() {
+		return quote(Issue.NAME_DESCRIPTION) + " " 
 				+ IssueQuery.getRuleName(IssueQueryLexer.Contains) + " " 
 				+ quote(value);
 	}

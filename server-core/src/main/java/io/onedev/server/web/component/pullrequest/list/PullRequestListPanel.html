@@ -4,15 +4,25 @@
 			<form wicket:id="query" class="clearable-wrapper">
 				<div class="input-group">
 					<input wicket:id="input" spellcheck="false" autocomplete="off" class="form-control" placeholder="Query and order pull requests here">
-					<span class="input-group-btn">
-						<button wicket:id="submit" type="submit" class="btn btn-default" title="Query"><i class="fa fa-search"></i></button>
+					<span class="input-group-append">
+						<button wicket:id="submit" type="submit" class="btn btn-outline-secondary" title="Query"><wicket:svg href="magnify" class="icon"></wicket:svg></button>
 					</span>
 				</div>
 			</form>
-			<a wicket:id="newRequest" class="open-new btn btn-success"><i class="fa fa-plus"></i> New</a>
+			<a wicket:id="newRequest" class="open-new btn btn-success"></a>
 			<div class="operations">
-				<a wicket:id="showSavedQueries" class="show-saved-queries"><i class="fa fa-eye"></i> Show Saved Queries</a>
-				<a wicket:id="saveQuery" class="save-query"><i class="fa fa-save"></i> Save Query</a>
+				<a wicket:id="showSavedQueries" class="show-saved-queries">
+					<wicket:svg href="eye" class="icon"></wicket:svg>
+					Show Saved Queries
+				</a>
+				<a wicket:id="saveQuery" class="save-query">
+					<wicket:svg href="save" class="icon"></wicket:svg>
+					Save Query
+				</a>
+				<a wicket:id="orderBy" class="order-by">
+					<wicket:svg href="sort" class="icon"></wicket:svg>
+					Order By
+				</a>
 			</div>
 		</div>
 		<div wicket:id="body" class="body">
@@ -22,24 +32,24 @@
 	</div>
 	<wicket:fragment wicket:id="contentFrag">
 		<div class="primary clearfix">
-			<div class="pull-left">
-				<span wicket:id="number" class="number"></span> 
+			<div class="float-left">
+				<a wicket:id="number" class="number"></a> 
 				<span wicket:id="title" class="title"></span> 
 			</div>
-			<div class="pull-right comments" title="Comments">
-				<span class="fa fa-comments-o"></span> <span wicket:id="comments"></span>
+			<div class="float-right comments extra-info" title="Comments">
+				<wicket:svg href="comments" class="icon"></wicket:svg> <span wicket:id="comments"></span>
 			</div>
 		</div>
 		<div class="secondary clearfix">
-			<div class="pull-left clearfix">
-				<div class="status pull-left"><span wicket:id="status"></span></div>
-				<div class="branches pull-left">
-					<a wicket:id="target" title="Target"></a>
-					<span class="fa fa-arrow-left"></span>
-					<a wicket:id="source" title="Source"></a>
-				</div>
+			<div class="status float-left"><span wicket:id="status"></span></div>
+			<div class="float-left review" wicket:id="reviews"></div>
+			<div class="float-left jobs" wicket:id="jobs"></div>
+			<div class="branches float-left extra-info">
+				<a wicket:id="target" title="Target"></a>
+				<wicket:svg href="arrow3" class="icon rotate-180"/>
+				<a wicket:id="source" title="Source"></a>
 			</div>
-			<div class="last-update pull-right">
+			<div class="last-update float-right extra-info">
 				<a wicket:id="user"></a> <span wicket:id="activity"></span> <span wicket:id="date"></span>
 			</div>
 		</div>

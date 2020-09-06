@@ -10,6 +10,7 @@ import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.ajax.markup.html.AjaxLink;
 import org.apache.wicket.ajax.markup.html.form.AjaxButton;
 import org.apache.wicket.core.request.handler.IPartialPageRequestHandler;
+import org.apache.wicket.feedback.FencedFeedbackPanel;
 import org.apache.wicket.markup.head.CssHeaderItem;
 import org.apache.wicket.markup.head.IHeaderResponse;
 import org.apache.wicket.markup.html.WebMarkupContainer;
@@ -25,23 +26,22 @@ import org.apache.wicket.request.mapper.parameter.PageParameters;
 
 import com.google.common.collect.Sets;
 
-import de.agilecoders.wicket.core.markup.html.bootstrap.common.NotificationPanel;
 import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.IssueChangeManager;
 import io.onedev.server.entitymanager.SettingManager;
-import io.onedev.server.issue.fieldspec.DateField;
-import io.onedev.server.issue.fieldspec.FieldSpec;
 import io.onedev.server.model.Issue;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.support.administration.GlobalIssueSetting;
+import io.onedev.server.model.support.issue.fieldspec.DateField;
+import io.onedev.server.model.support.issue.fieldspec.FieldSpec;
 import io.onedev.server.search.entity.issue.IssueQuery;
 import io.onedev.server.search.entity.issue.IssueQueryLexer;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.Input;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.util.criteria.Criteria;
 import io.onedev.server.web.behavior.ReferenceInputBehavior;
 import io.onedev.server.web.behavior.WebSocketObserver;
-import io.onedev.server.web.behavior.clipboard.CopyClipboardBehavior;
+import io.onedev.server.web.component.link.copytoclipboard.CopyToClipboardLink;
 import io.onedev.server.web.page.project.issues.create.NewIssuePage;
 import io.onedev.server.web.util.ReferenceTransformer;
 
@@ -108,7 +108,7 @@ public abstract class IssueTitlePanel extends Panel {
 		
 		titleEditor.add(form);
 		
-		form.add(new NotificationPanel("feedback", form));
+		form.add(new FencedFeedbackPanel("feedback", form));
 		titleEditor.setOutputMarkupId(true);
 		
 		return titleEditor;
@@ -143,8 +143,7 @@ public abstract class IssueTitlePanel extends Panel {
 			}
 			
 		});
-		String copyContent = "#" + getIssue().getNumber() + ": " + getIssue().getTitle();
-		titleViewer.add(new WebMarkupContainer("copy").add(new CopyClipboardBehavior(Model.of(copyContent))));
+		titleViewer.add(new CopyToClipboardLink("copy", Model.of(getIssue().getNumberAndTitle())));
 		
 		if (withIssueCreation) {
 			titleViewer.add(new BookmarkablePageLink<Void>("create", NewIssuePage.class) {
@@ -154,7 +153,7 @@ public abstract class IssueTitlePanel extends Panel {
 					GlobalIssueSetting issueSetting = OneDev.getInstance(SettingManager.class).getIssueSetting();
 					List<String> criterias = new ArrayList<>();
 					if (getIssue().getMilestone() != null) {
-						criterias.add(Criteria.quote(Issue.FIELD_MILESTONE) + " " 
+						criterias.add(Criteria.quote(Issue.NAME_MILESTONE) + " " 
 								+ IssueQuery.getRuleName(IssueQueryLexer.Is) + " " 
 								+ Criteria.quote(getIssue().getMilestoneName()));
 					}

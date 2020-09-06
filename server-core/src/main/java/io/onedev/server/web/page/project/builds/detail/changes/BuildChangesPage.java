@@ -7,6 +7,9 @@ import java.util.List;
 import javax.annotation.Nullable;
 
 import org.apache.wicket.ajax.AjaxRequestTarget;
+import org.apache.wicket.markup.ComponentTag;
+import org.apache.wicket.markup.html.WebMarkupContainer;
+import org.apache.wicket.model.IModel;
 import org.apache.wicket.request.cycle.RequestCycle;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 
@@ -19,9 +22,9 @@ import io.onedev.server.model.Project;
 import io.onedev.server.search.commit.CommitQuery;
 import io.onedev.server.search.commit.Revision;
 import io.onedev.server.search.commit.RevisionCriteria;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.web.component.commit.list.CommitListPanel;
 import io.onedev.server.web.page.project.builds.detail.BuildDetailPage;
-import io.onedev.server.web.util.QueryPosition;
 
 @SuppressWarnings("serial")
 public class BuildChangesPage extends BuildDetailPage {
@@ -31,6 +34,8 @@ public class BuildChangesPage extends BuildDetailPage {
 	private String query;
 	
 	private final String baseCommitHash;
+	
+	private CommitListPanel commitList;
 	
 	public BuildChangesPage(PageParameters params) {
 		super(params);
@@ -47,27 +52,29 @@ public class BuildChangesPage extends BuildDetailPage {
 	@Override
 	protected void onInitialize() {
 		super.onInitialize();
-		add(newCommitList());
-	}
-	
-	@Override
-	protected void onPopState(AjaxRequestTarget target, Serializable data) {
-		query = (String) data;
-		CommitListPanel listPanel = newCommitList();
-		replace(listPanel);
-		target.add(listPanel);
-	}
-	
-	private CommitListPanel newCommitList() {
-		return new CommitListPanel("commits", query) {
+		
+		add(commitList = new CommitListPanel("commits", new IModel<String>() {
 
 			@Override
-			protected void onQueryUpdated(AjaxRequestTarget target, String query) {
-				CharSequence url = RequestCycle.get().urlFor(BuildChangesPage.class, paramsOf(getBuild(), getPosition(), query));
-				BuildChangesPage.this.query = query;
-				pushState(target, url.toString(), query);
+			public void detach() {
+			}
+
+			@Override
+			public String getObject() {
+				return query;
+			}
+
+			@Override
+			public void setObject(String object) {
+				query = object;
+				PageParameters params = getPageParameters();
+				params.set(PARAM_QUERY, query);
+				CharSequence url = RequestCycle.get().urlFor(BuildChangesPage.class, params);
+				pushState(RequestCycle.get().find(AjaxRequestTarget.class), url.toString(), query);
 			}
 			
+		}) {
+
 			@Override
 			protected CommitQuery getBaseQuery() {
 				List<Revision> revisions = new ArrayList<>();
@@ -83,11 +90,33 @@ public class BuildChangesPage extends BuildDetailPage {
 				return BuildChangesPage.this.getProject();
 			}
 			
-		};
+		});
+		
+		add(new WebMarkupContainer("buildStreamHelpUrl") {
+
+			@Override
+			protected void onComponentTag(ComponentTag tag) {
+				super.onComponentTag(tag);
+				tag.put("href", OneDev.getInstance().getDocRoot() + "/pages/concepts.md#build-stream");
+			}
+			
+		});
+	}
+	
+	@Override
+	protected boolean isPermitted() {
+		return SecurityUtils.canReadCode(getProject());
 	}
 
-	public static PageParameters paramsOf(Build build, @Nullable QueryPosition position, @Nullable String query) {
-		PageParameters params = paramsOf(build, position);
+	@Override
+	protected void onPopState(AjaxRequestTarget target, Serializable data) {
+		query = (String) data;
+		getPageParameters().set(PARAM_QUERY, query);
+		target.add(commitList);
+	}
+	
+	public static PageParameters paramsOf(Build build, @Nullable String query) {
+		PageParameters params = paramsOf(build);
 		if (query != null)
 			params.add(PARAM_QUERY, query);
 		return params;

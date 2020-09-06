@@ -1,6 +1,6 @@
 package io.onedev.server.util.jobmatch;
 
-import static io.onedev.server.model.Build.FIELD_JOB;
+import static io.onedev.server.model.Build.NAME_JOB;
 import static io.onedev.server.util.jobmatch.JobMatch.getRuleName;
 import static io.onedev.server.util.jobmatch.JobMatchLexer.Is;
 
@@ -25,8 +25,8 @@ public class NameCriteria extends Criteria<Build> {
 	}
 
 	@Override
-	public String asString() {
-		return quote(FIELD_JOB) + " " + getRuleName(Is) + " " + quote(jobName);
+	public String toStringWithoutParens() {
+		return quote(NAME_JOB) + " " + getRuleName(Is) + " " + quote(jobName);
 	}
 	
 }

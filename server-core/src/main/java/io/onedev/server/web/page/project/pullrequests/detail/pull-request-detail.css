@@ -8,7 +8,7 @@
 }
 
 body.PullRequestDetailPage #layout>.body {
-	padding: 50px 0 0 0;
+	padding: 59px 0 0 0;
 }
 #request-detail>.main {
 	overflow: auto;
@@ -79,54 +79,56 @@ body.PullRequestDetailPage #layout>.body {
 	font-size: 24px;
 	margin: 0;
 	color: #666;
-	transform: rotate(-90deg);
 }
 
-#request-detail>.main>.summary>div {
-	margin-bottom: 20px;
-}
-#request-detail>.main>.summary ul {
+#request-detail>.main>.summary .alert {
 	margin-bottom: 0;
+	border-radius: 0;
+	border-bottom: 1px dotted #888;
 }
-#request-detail>.main>.summary .calculating img {
-	width: 24px;
-	height: 24px;
-}
-
-#request-detail>.main>.summary .no-conflict>* {
-	margin-right: 4px;
-}
-#request-detail>.main>.summary>.operations>.confirm {
-	margin-top: 12px;
-}
-#request-detail>.main>.summary>.operations>.confirm>.hint {
-	margin-bottom: 12px;
-	font-size: 16px;
-} 
-#request-detail>.main>.summary>.operations>.confirm>.hint .warning {
-	color: #EC5544;
-} 
-#request-detail>.main>.summary>.operations>.buttons>a, 
-#request-detail>.main>.summary>.operations>.confirm>form>input {
+#request-detail>.main>.summary .alert svg {
 	margin-right: 8px;
-} 
-#request-detail>.main>.summary>.operations>.buttons>.btn-primary.active {
-	background-color: #204C72;
-} 
-#request-detail>.main>.summary>.operations>.buttons>.btn-danger.active {
-	background-color: #A62924;
-} 
-
-#request-detail>.main>.summary>.operations>.confirm>form .markdown-editor {
-	margin-bottom: 16px;
-} 
-
-ul>li>a.code-comments .fa-circle {
-	color: #4667EE;
-	display: none;
-	margin-left: 4px;
 }
-ul>li>a.code-comments.new .fa-circle {
+#request-detail>.main>.summary>.alert:first-child  {
+	border-radius: 4px 4px 0 0;
+}
+#request-detail>.main>.summary>.alert:last-child  {
+	border-radius: 0 0 4px 4px;
+	border-bottom: none;
+}
+#request-detail>.main>.summary>.alert:first-child:last-child  {
+	border-radius: 4px;
+}
+
+#request-detail>.main>.summary>.calculating-merge-preview img {
+	width: 18px;
+	height: 18px;
+	margin: -4px 8px 0 0;
+}
+#request-detail>.main>.summary .more-info.not-link {
+	color: inherit;
+	cursor: inherit; 
+}
+#request-detail>.main>.summary .more-info.not-link:hover {
+	text-decoration: inherit;
+}
+
+#request-detail>.main>.operations { 
+	margin-bottom: 12px;
+}
+#request-detail>.main>.operations>a { 
+	margin-right: 8px;
+	margin-bottom: 8px;
+} 
+
+ul>li>a.code-comments .icon {
+	display: none;
+	fill: #4667EE;
+	margin: 0 0 0 4px;
+	width: 12px;
+	height: 12px;
+}
+ul>li>a.code-comments.new .icon {
 	display: inline;
 }
 
@@ -137,6 +139,7 @@ ul>li>a.code-comments.new .fa-circle {
 	padding-right: 20px;
 	border-right: 1px solid #D8D8D8;
 	margin-right: 30px;
+	display: block;
 }
 #request-detail>.side-info>.content>.nav a {
 	position: absolute;
@@ -155,6 +158,13 @@ ul>li>a.code-comments.new .fa-circle {
 	font-weight: bold;
 	margin-bottom: 12px;
 }
+#request-detail>.side-info>.content>div>.head>.warning {
+	color: #D09022;
+}
+#request-detail>.side-info .pull-request-jobs>.job {
+	margin-right: 12px;
+	line-height: 24px;
+}
 
 #request-detail>.side-info {
 	width: 360px;
@@ -170,35 +180,34 @@ ul>li>a.code-comments.new .fa-circle {
 	border-top: none;
 	padding-top: 0;
 }
-#request-detail>.side-info>.content>.jobs>.body>.job {
-	margin-right: 8px;
-	margin-bottom: 8px;
-}
-#request-detail>.side-info>.content>.jobs>.body {
-	margin-bottom: -8px;
+#request-detail>.side-info>.content .manage .synchronize>.help {
+	margin-left: 4px;
+	font-size: 16px;
 }
 
-.floating>.content>.instruction {
-	padding: 20px 20px 20px 32px; 
-	width: 500px;
+.conflict-resolve-instruction {
+	padding: 12px;
+}
+.conflict-resolve-instruction .title {
+	font-weight: bold;
+	font-size: 16px;
+	text-align: center;
+	margin-bottom: 8px;
+}
+.conflict-resolve-instruction .body>ul {
+	padding-left: 20px;
 	margin-bottom: 0;
 }
-.floating>.content>.instruction>li {
+.conflict-resolve-instruction .body>ul>li {
 	list-style: decimal;
 	margin-bottom: 12px;
 }
-.floating>.content>.instruction>li:last-child {
+.conflict-resolve-instruction .body>ul>li:last-child {
 	margin-bottom: 0;
 }
 
-.floating>.content>.instruction>li>.code {
+.conflict-resolve-instruction .body>ul>li>.code {
 	margin-top: 8px;
-	font-family: monospace;
-	font-size: 13px;
-	background: #F5F5F5;
-	border: 1px dashed #BBB;
-	border-radius: 4px;
-	padding: 8px;
 }
 
 @media(min-width: 1150px) {

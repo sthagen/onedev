@@ -28,6 +28,7 @@ import org.apache.wicket.markup.repeater.Item;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.model.Model;
+import org.apache.wicket.request.cycle.RequestCycle;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 import org.hibernate.criterion.Restrictions;
 
@@ -40,19 +41,21 @@ import io.onedev.server.persistence.dao.Dao;
 import io.onedev.server.persistence.dao.EntityCriteria;
 import io.onedev.server.search.entity.issue.IssueQuery;
 import io.onedev.server.search.entity.issue.StateCriteria;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.MilestoneAndState;
 import io.onedev.server.util.MilestoneSort;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.web.WebConstants;
-import io.onedev.server.web.component.datatable.DefaultDataTable;
-import io.onedev.server.web.component.datatable.LoadableDetachableDataProvider;
+import io.onedev.server.web.WebSession;
+import io.onedev.server.web.component.datatable.HistoryAwareDataTable;
 import io.onedev.server.web.component.floating.FloatingPanel;
 import io.onedev.server.web.component.issue.statestats.StateStatsBar;
+import io.onedev.server.web.component.link.ActionablePageLink;
 import io.onedev.server.web.component.link.ViewStateAwarePageLink;
 import io.onedev.server.web.component.menu.MenuItem;
 import io.onedev.server.web.component.menu.MenuLink;
 import io.onedev.server.web.component.milestone.MilestoneDueLabel;
 import io.onedev.server.web.page.project.issues.ProjectIssuesPage;
+import io.onedev.server.web.util.LoadableDetachableDataProvider;
 import io.onedev.server.web.util.PagingHistorySupport;
 
 @SuppressWarnings("serial")
@@ -140,6 +143,14 @@ public class MilestoneListPage extends ProjectIssuesPage {
 						}
 
 						@Override
+						public String getIconHref() {
+							if (sort == MilestoneListPage.this.sort)
+								return "tick";
+							else
+								return null;
+						}
+
+						@Override
 						public WebMarkupContainer newLink(String id) {
 							PageParameters params = paramsOf(getProject(), closed, sort);
 							Link<Void> link = new BookmarkablePageLink<Void>(id, MilestoneListPage.class, params);
@@ -180,12 +191,22 @@ public class MilestoneListPage extends ProjectIssuesPage {
 					IModel<Milestone> rowModel) {
 				Milestone milestone = rowModel.getObject();
 				Fragment fragment = new Fragment(componentId, "nameFrag", MilestoneListPage.this);
-				Link<Void> link = new BookmarkablePageLink<Void>("link", MilestoneDetailPage.class, 
-						MilestoneDetailPage.paramsOf(milestone, null));
+				WebMarkupContainer link = new ActionablePageLink<Void>("link", MilestoneDetailPage.class, 
+						MilestoneDetailPage.paramsOf(milestone, null)) {
+
+					@Override
+					protected void doBeforeNav(AjaxRequestTarget target) {
+						String redirectUrlAfterDelete = RequestCycle.get().urlFor(
+								MilestoneListPage.class, getPageParameters()).toString();
+						WebSession.get().setRedirectUrlAfterDelete(Milestone.class, redirectUrlAfterDelete);
+					}
+					
+				};
 				link.add(new Label("label", milestone.getName()));
 				fragment.add(link);
 				cellItem.add(fragment);
 			}
+			
 		});
 		
 		columns.add(new AbstractColumn<Milestone, Void>(Model.of("Due Date")) {
@@ -331,7 +352,7 @@ public class MilestoneListPage extends ProjectIssuesPage {
 			
 		};
 		
-		add(milestonesTable = new DefaultDataTable<Milestone, Void>("milestones", columns, dataProvider, 
+		add(milestonesTable = new HistoryAwareDataTable<Milestone, Void>("milestones", columns, dataProvider, 
 				WebConstants.PAGE_SIZE, pagingHistorySupport));		
 		milestonesTable.setOutputMarkupId(true);
 	}

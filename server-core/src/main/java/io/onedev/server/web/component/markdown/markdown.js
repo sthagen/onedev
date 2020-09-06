@@ -495,7 +495,7 @@ onedev.server.markdown = {
 		if (!canMentionUser)
 			$head.find(".do-mention").remove();
 		if (!canReferenceEntity)
-			$head.find(".do-reference").remove();
+			$head.find(".do-reference, .reference.dropdown").remove();
 			
 		$head.find(".do-mention, .do-reference").click(function() {
 			if (!$edit.is(":visible")) 
@@ -787,19 +787,24 @@ onedev.server.markdown = {
 		var $preview = $body.children(".preview");
 		var $rendered = $preview.children(".markdown-rendered");
 
+		var defaultHeight = 200;
 		var inputHeight = Cookies.get(onedev.server.markdown.getCookiePrefix($container)+".inputHeight");
 		if (inputHeight) {
 			$input.outerHeight(parseInt(inputHeight));
 		} else {
-			$input.outerHeight(100);
+			$input.outerHeight(defaultHeight);
 		}
 		$edit.outerHeight($input.outerHeight());
-		var renderedHeight = Cookies.get(onedev.server.markdown.getCookiePrefix($container)+".renderedHeight");
-		if (renderedHeight) {
-			$rendered.outerHeight(parseInt(renderedHeight));
+		
+		var renderedHeight;
+		if ($container.hasClass("normal-mode") && $container.hasClass("split-mode")) {
+			renderedHeight = $input.outerHeight();
 		} else {
-			$rendered.outerHeight(100);
+			renderedHeight = Cookies.get(onedev.server.markdown.getCookiePrefix($container)+".renderedHeight");
+			if (!renderedHeight) 
+				renderedHeight  = defaultHeight;
 		}
+		$rendered.outerHeight(renderedHeight);
 		$preview.outerHeight($rendered.outerHeight());
     },
 	onWindowLoad: function(containerId) {
@@ -869,7 +874,9 @@ onedev.server.markdown = {
 		$rendered.find("span.header-anchor").parent().addClass("header-anchor");
 		$rendered.find("a.header-anchor").each(function() {
 			var $headerAnchor = $(this);
-			$headerAnchor.before("<a href='" + $headerAnchor.attr("href") + "' class='header-link'><i class='fa fa-link'></i></a>");
+			$headerAnchor.before("<a href='" + $headerAnchor.attr("href") 
+				+ "' class='header-link'><svg class='icon'><use xlink:href='" 
+				+ onedev.server.icons + "#link'/></svg></a>");
 		});
 		
 		$rendered.find("a").click(function() {
@@ -922,6 +929,11 @@ onedev.server.markdown = {
 	},
 	onViewerDomReady: function(containerId, taskCallback, taskSourcePositionDataAttribute, referenceCallback) {
 		var $container = $("#" + containerId);
+		var $rendered = $container.find(".markdown-rendered");
+		
+		var content = $rendered.data("content");
+		if (content) 
+			$rendered.html(content).removeData("content");
 		
 		if (taskCallback) {
 			var $task = $container.find(".task-list-item");
@@ -958,7 +970,17 @@ onedev.server.markdown = {
 			}
 		}, alignment);
 		
-		onedev.server.markdown.initRendered($container.find(".markdown-rendered"));
+		onedev.server.markdown.initRendered($rendered);
+		
+		var $img = $rendered.find("img");
+		$img.each(function() {
+			var $this = $(this);
+			var src = $this.attr("src");
+			$this.removeAttr("src");
+			$this.attr("data-src", src);
+		});
+		
+		lozad("#" + containerId + " .markdown-rendered img").observe();
 	},
 	renderIssueTooltip: function(title, state, stateFontColor, stateBackgroundColor) {
 		var $tooltip = $("#reference-tooltip");

@@ -1,0 +1,39 @@
+.order-edit {
+	padding: 8px;
+	overflow: hidden !important;
+}
+.order-edit tr:hover td {
+	background: #F2F2F2;
+}
+.order-edit td {
+	padding: 8px;
+	white-space: nowrap;
+}
+.order-edit .checkbox {
+	margin-top: 0;
+	margin-bottom: 0;
+}
+.order-edit .index, .order-edit .drag-indicator {
+	padding-right: 0;
+	text-align: right;
+}
+.order-edit .available td.name {
+	width: 1px;
+}
+
+.order-edit ul {
+	margin-bottom: 0;
+}
+.order-edit ul>li>a {
+	display: block;
+	padding: 8px;
+	color: #444;
+}
+.order-edit ul>li>a:hover {
+	background: #F2F2F2;
+	text-decoration: none;
+}
+.order-edit ul>li>a>i {
+	color: #666;
+	margin-right: 8px;
+}

@@ -26,7 +26,6 @@ import javax.persistence.criteria.Predicate;
 import javax.persistence.criteria.Root;
 import javax.persistence.criteria.Selection;
 
-import org.eclipse.jgit.errors.MissingObjectException;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
@@ -77,9 +76,9 @@ import io.onedev.server.search.entity.EntityQuery;
 import io.onedev.server.search.entity.EntitySort;
 import io.onedev.server.search.entity.EntitySort.Direction;
 import io.onedev.server.search.entity.build.BuildQuery;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.storage.StorageManager;
 import io.onedev.server.util.ProjectScopedNumber;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.util.facade.BuildFacade;
 import io.onedev.server.util.match.StringMatcher;
 import io.onedev.server.util.patternset.PatternSet;
@@ -570,7 +569,7 @@ public class DefaultBuildManager extends AbstractEntityManager<Build> implements
 			public void run() {
 				for (Project project: projectManager.query()) {
 					logger.debug("Populating preserved build ids of project '" + project.getName() + "'...");
-					List<BuildPreservation> preservations = project.getBuildSetting().getHierarchyBuildPreservations(project);
+					List<BuildPreservation> preservations = project.getBuildSetting().getBuildPreservations();
 					if (preservations.isEmpty()) {
 						idsToPreserve.addAll(queryIds(project, new BuildQuery(), 0, Integer.MAX_VALUE));
 					} else {
@@ -675,23 +674,21 @@ public class DefaultBuildManager extends AbstractEntityManager<Build> implements
 		}
 		
 		Collection<Long> prevBuildNumbers = new HashSet<>();
-		try (RevWalk revWalk = new RevWalk(build.getProject().getRepository())) {
-			RevCommit current = revWalk.lookupCommit(build.getCommitId());
-			revWalk.parseHeaders(current);
-			while (current.getParentCount() != 0) {
-				RevCommit firstParent = current.getParent(0);
-				Long buildNumber = buildNumbers.get(firstParent);
-				if (buildNumber != null) {
-					prevBuildNumbers.add(buildNumber);
-					if (prevBuildNumbers.size() >= limit)
-						break;
+		if (!buildNumbers.isEmpty()) {
+			try (RevWalk revWalk = new RevWalk(build.getProject().getRepository())) {
+				revWalk.markStart(revWalk.lookupCommit(build.getCommitId()));
+				RevCommit nextCommit;
+				while ((nextCommit = revWalk.next()) != null) {
+					Long buildNumber = buildNumbers.remove(nextCommit);
+					if (buildNumber != null) {
+						prevBuildNumbers.add(buildNumber);
+						if (prevBuildNumbers.size() >= limit || buildNumbers.isEmpty())
+							break;
+					}
 				}
-				current = firstParent;
-				revWalk.parseHeaders(current);
-			} 
-		} catch (MissingObjectException e) {
-		} catch (IOException e) {
-			throw new RuntimeException(e);
+			} catch (IOException e) {
+				throw new RuntimeException(e);
+			}
 		}
 		return prevBuildNumbers;
 	}
@@ -705,20 +702,18 @@ public class DefaultBuildManager extends AbstractEntityManager<Build> implements
 			buildIds.put(ObjectId.fromString((String) fields[0]), (Long)fields[1]);
 		}
 		
-		try (RevWalk revWalk = new RevWalk(build.getProject().getRepository())) {
-			RevCommit current = revWalk.lookupCommit(build.getCommitId());
-			revWalk.parseHeaders(current);
-			while (current.getParentCount() != 0) {
-				RevCommit firstParent = current.getParent(0);
-				Long buildId = buildIds.get(firstParent);
-				if (buildId != null)
-					return load(buildId);
-				current = firstParent;
-				revWalk.parseHeaders(current);
-			} 
-		} catch (MissingObjectException e) {
-		} catch (IOException e) {
-			throw new RuntimeException(e);
+		if (!buildIds.isEmpty()) {
+			try (RevWalk revWalk = new RevWalk(build.getProject().getRepository())) {
+				revWalk.markStart(revWalk.lookupCommit(build.getCommitId()));
+				RevCommit nextCommit;
+				while ((nextCommit = revWalk.next()) != null) {
+					Long buildId = buildIds.get(nextCommit);
+					if (buildId != null)
+						return load(buildId);
+				}
+			} catch (IOException e) {
+				throw new RuntimeException(e);
+			}
 		}
 		return null;
 	}
@@ -821,14 +816,14 @@ public class DefaultBuildManager extends AbstractEntityManager<Build> implements
 					accessibleJobNames.put(projectManager.load(entry.getKey()), new HashSet<>(entry.getValue()));
 			} else {
 				if (user != null) {
-					for (UserAuthorization authorization: user.getProjectAuthorizations()) {
+					for (UserAuthorization authorization: user.getAuthorizations()) {
 						if (project == null || project.equals(authorization.getProject())) {
 							populateAccessibleJobNames(accessibleJobNames, jobNames, 
 									authorization.getProject(), authorization.getRole());
 						}
 					}
 					for (Group group: user.getGroups()) {
-						for (GroupAuthorization authorization: group.getProjectAuthorizations()) {
+						for (GroupAuthorization authorization: group.getAuthorizations()) {
 							if (project == null || project.equals(authorization.getProject())) {
 								populateAccessibleJobNames(accessibleJobNames, jobNames, 
 										authorization.getProject(), authorization.getRole());
@@ -838,7 +833,7 @@ public class DefaultBuildManager extends AbstractEntityManager<Build> implements
 				}
 				Group group = groupManager.findAnonymous();
 				if (group != null) {
-					for (GroupAuthorization authorization: group.getProjectAuthorizations()) {
+					for (GroupAuthorization authorization: group.getAuthorizations()) {
 						if (project == null || project.equals(authorization.getProject())) {
 							populateAccessibleJobNames(accessibleJobNames, jobNames, 
 									authorization.getProject(), authorization.getRole());

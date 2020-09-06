@@ -7,10 +7,12 @@ import org.eclipse.jgit.lib.ObjectId;
 
 import io.onedev.commons.codeassist.InputSuggestion;
 import io.onedev.server.buildspec.job.Job;
+import io.onedev.server.buildspec.job.SubmitReason;
 import io.onedev.server.event.ProjectEvent;
 import io.onedev.server.event.RefUpdated;
 import io.onedev.server.git.GitUtils;
 import io.onedev.server.model.Project;
+import io.onedev.server.model.PullRequest;
 import io.onedev.server.util.match.Matcher;
 import io.onedev.server.util.match.PathMatcher;
 import io.onedev.server.util.patternset.PatternSet;
@@ -19,7 +21,7 @@ import io.onedev.server.web.editable.annotation.NameOfEmptyValue;
 import io.onedev.server.web.editable.annotation.Patterns;
 import io.onedev.server.web.util.SuggestionUtils;
 
-@Editable(order=100, name="When update branches")
+@Editable(order=100, name="Branch update")
 public class BranchUpdateTrigger extends JobTrigger {
 
 	private static final long serialVersionUID = 1L;
@@ -28,10 +30,10 @@ public class BranchUpdateTrigger extends JobTrigger {
 	
 	private String paths;
 	
-	@Editable(name="Branches", order=100, 
-			description="Optionally specify space-separated branches to check. Use * or ? for wildcard match. "
-					+ "Leave empty to match all branches")
-	@Patterns(suggester = "suggestBranches")
+	@Editable(name="Branches", order=100, description="Optionally specify space-separated branches "
+			+ "to check. Use '**', '*' or '?' for <a href='$docRoot/pages/path-wildcard.md' target='_blank'>path wildcard match</a>. "
+			+ "Prefix with '-' to exclude. Leave empty to match all branches")
+	@Patterns(suggester = "suggestBranches", path=true)
 	@NameOfEmptyValue("Any branch")
 	public String getBranches() {
 		return branches;
@@ -47,9 +49,9 @@ public class BranchUpdateTrigger extends JobTrigger {
 	}
 	
 	@Editable(name="Touched Files", order=200, 
-			description="Optionally specify space-separated files to check. Use * or ? for wildcard match. "
-					+ "Leave empty to match all files")
-	@Patterns(suggester = "getPathSuggestions")
+			description="Optionally specify space-separated files to check. Use '**', '*' or '?' for <a href='$docRoot/pages/path-wildcard.md' target='_blank'>path wildcard match</a>. "
+					+ "Prefix with '-' to exclude. Leave empty to match all files")
+	@Patterns(suggester = "getPathSuggestions", path=true)
 	@NameOfEmptyValue("Any file")
 	public String getPaths() {
 		return paths;
@@ -87,22 +89,39 @@ public class BranchUpdateTrigger extends JobTrigger {
 	}
 	
 	@Override
-	public boolean matches(ProjectEvent event, Job job) {
+	public SubmitReason matchesWithoutProject(ProjectEvent event, Job job) {
 		if (event instanceof RefUpdated) {
 			RefUpdated refUpdated = (RefUpdated) event;
-			String branch = GitUtils.ref2branch(refUpdated.getRefName());
-			if (branch != null) {
-				if ((getBranches() == null || PatternSet.parse(getBranches()).matches(new PathMatcher(), branch)) 
-						&& touchedFile(refUpdated)) {
-					return true;
-				}
+			String updatedBranch = GitUtils.ref2branch(refUpdated.getRefName());
+			Matcher matcher = new PathMatcher();
+			if (updatedBranch != null 
+					&& (branches == null || PatternSet.parse(branches).matches(matcher, updatedBranch)) 
+					&& touchedFile(refUpdated)) {
+				return new SubmitReason() {
+
+					@Override
+					public String getUpdatedRef() {
+						return refUpdated.getRefName();
+					}
+
+					@Override
+					public PullRequest getPullRequest() {
+						return null;
+					}
+
+					@Override
+					public String getDescription() {
+						return "Branch '" + updatedBranch + "' is updated";
+					}
+					
+				};
 			}
 		}
-		return false;
+		return null;
 	}
 
 	@Override
-	public String getDescription() {
+	public String getDescriptionWithoutProject() {
 		String description;
 		if (getBranches() != null && getPaths() != null)
 			description = String.format("When update branches '%s' and touch files '%s'", getBranches(), getPaths());

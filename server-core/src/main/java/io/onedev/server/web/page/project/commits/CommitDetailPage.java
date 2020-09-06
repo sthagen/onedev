@@ -50,6 +50,7 @@ import io.onedev.server.buildspec.BuildSpec;
 import io.onedev.server.buildspec.job.Job;
 import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.entitymanager.CodeCommentManager;
+import io.onedev.server.entitymanager.CodeCommentReplyManager;
 import io.onedev.server.git.BlobIdent;
 import io.onedev.server.git.GitUtils;
 import io.onedev.server.git.RefInfo;
@@ -57,13 +58,13 @@ import io.onedev.server.infomanager.CommitInfoManager;
 import io.onedev.server.model.Build;
 import io.onedev.server.model.Build.Status;
 import io.onedev.server.model.CodeComment;
+import io.onedev.server.model.CodeCommentReply;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.PullRequest;
-import io.onedev.server.model.support.MarkPos;
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.model.support.Mark;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.diff.WhitespaceOption;
 import io.onedev.server.web.behavior.WebSocketObserver;
-import io.onedev.server.web.behavior.clipboard.CopyClipboardBehavior;
 import io.onedev.server.web.component.branch.create.CreateBranchLink;
 import io.onedev.server.web.component.build.simplelist.SimpleBuildListPanel;
 import io.onedev.server.web.component.build.status.BuildStatusIcon;
@@ -75,6 +76,8 @@ import io.onedev.server.web.component.floating.FloatingPanel;
 import io.onedev.server.web.component.job.RunJobLink;
 import io.onedev.server.web.component.link.DropdownLink;
 import io.onedev.server.web.component.link.ViewStateAwarePageLink;
+import io.onedev.server.web.component.link.copytoclipboard.CopyToClipboardLink;
+import io.onedev.server.web.component.svg.SpriteImage;
 import io.onedev.server.web.component.user.contributoravatars.ContributorAvatars;
 import io.onedev.server.web.page.project.ProjectPage;
 import io.onedev.server.web.page.project.blob.ProjectBlobPage;
@@ -110,6 +113,17 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 	
 	private ObjectId resolvedCompareWith;
 	
+	private final IModel<Collection<CodeComment>> commentsModel = 
+			new LoadableDetachableModel<Collection<CodeComment>>() {
+
+		@Override
+		protected Collection<CodeComment> load() {
+			CodeCommentManager manager = OneDev.getInstance(CodeCommentManager.class);
+			return manager.query(projectModel.getObject(), getCompareWith(), resolvedRevision);
+		}
+		
+	};
+	
 	private WebMarkupContainer revisionDiff;
 	
 	public CommitDetailPage(PageParameters params) {
@@ -136,7 +150,7 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 		state.pathFilter = params.get(PARAM_PATH_FILTER).toString();
 		state.blameFile = params.get(PARAM_BLAME_FILE).toString();
 		state.commentId = params.get(PARAM_COMMENT).toOptionalLong();
-		state.mark = MarkPos.fromString(params.get(PARAM_MARK).toString());
+		state.mark = Mark.fromString(params.get(PARAM_MARK).toString());
 		
 		resolvedRevision = getProject().getRevCommit(state.revision, true).copy();
 		if (state.compareWith != null)
@@ -204,7 +218,7 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 					@Override
 					public void renderHead(IHeaderResponse response) {
 						super.renderHead(response);
-						String script = String.format("onedev.server.commitdetail.initRefs('%s');", getMarkupId());
+						String script = String.format("onedev.server.commitDetail.initRefs('%s');", getMarkupId());
 						response.render(OnDomReadyHeaderItem.forScript(script));
 					}
 					
@@ -234,6 +248,7 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 							ProjectBlobPage.State state = new ProjectBlobPage.State(blobIdent);
 							Link<Void> link = new ViewStateAwarePageLink<Void>("link", ProjectBlobPage.class, 
 									ProjectBlobPage.paramsOf(projectModel.getObject(), state));
+							link.add(new SpriteImage("icon", "branch"));
 							link.add(new Label("label", branch));
 							item.add(link);
 							item.add(AttributeAppender.append("class", "branch"));
@@ -243,6 +258,7 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 							ProjectBlobPage.State state = new ProjectBlobPage.State(blobIdent);
 							Link<Void> link = new ViewStateAwarePageLink<Void>("link", ProjectBlobPage.class, 
 									ProjectBlobPage.paramsOf(projectModel.getObject(), state));
+							link.add(new SpriteImage("icon", "tag"));
 							link.add(new Label("label", tag));
 							item.add(link);
 							item.add(AttributeAppender.append("class", "tag"));
@@ -259,7 +275,7 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 		add(new ContributorPanel("contribution", getCommit().getAuthorIdent(), getCommit().getCommitterIdent()));
 
 		add(new Label("hash", GitUtils.abbreviateSHA(getCommit().name())));
-		add(new WebMarkupContainer("copyHash").add(new CopyClipboardBehavior(Model.of(getCommit().name()))));
+		add(new CopyToClipboardLink("copyHash", Model.of(getCommit().name())));
 		
 		newParentsContainer(null);
 
@@ -267,15 +283,20 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 
 			@Override
 			protected List<Job> load() {
+				List<Job> jobs = new ArrayList<>();
 				try {
 					BuildSpec buildSpec = getProject().getBuildSpec(getCommit().copy());
-					if (buildSpec != null) 
-						return buildSpec.getJobs();
+					if (buildSpec != null) {
+						for (Job job: buildSpec.getJobs()) {
+							if (SecurityUtils.canAccess(getProject(), job.getName()))
+								jobs.add(job);
+						}
+					}
 				} catch (Exception e) {
 					logger.error("Error retrieving build spec (project: {}, commit: {})", 
 							getProject().getName(), getCommit().name(), e);
 				}
-				return new ArrayList<>();
+				return jobs;
 			}
 			
 		}) {
@@ -324,7 +345,7 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 					protected void onComponentTag(ComponentTag tag) {
 						super.onComponentTag(tag);
 						
-						String cssClasses = "btn btn-default";
+						String cssClasses = "btn btn-outline-secondary";
 						Build.Status status = getProject().getCommitStatus(commitId).get(job.getName());
 						String title;
 						if (status != null) {
@@ -554,6 +575,7 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 	public void renderHead(IHeaderResponse response) {
 		super.renderHead(response);
 		response.render(JavaScriptHeaderItem.forReference(new CommitDetailResourceReference()));
+		response.render(OnDomReadyHeaderItem.forScript("onedev.server.commitDetail.onDomReady();"));
 	}
 
 	public static PageParameters paramsOf(Project project, State state) {
@@ -614,17 +636,17 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 		public String blameFile;
 		
 		@Nullable
-		public MarkPos mark;
+		public Mark mark;
 		
 	}
 
 	@Override
-	public MarkPos getMark() {
+	public Mark getMark() {
 		return state.mark;
 	}
 
 	@Override
-	public String getMarkUrl(MarkPos mark) {
+	public String getMarkUrl(Mark mark) {
 		State markState = new State();
 		markState.mark = mark;
 		markState.whitespaceOption = state.whitespaceOption;
@@ -635,19 +657,6 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 	}
 
 	@Override
-	public String getCommentUrl(CodeComment comment) {
-		State commentState = new State();
-		String compareWith = getCompareWith().name();
-		commentState.mark = comment.getMarkPos();
-		commentState.commentId = comment.getId();
-		commentState.whitespaceOption = state.whitespaceOption;
-		commentState.compareWith = compareWith;
-		commentState.pathFilter = state.pathFilter;
-		commentState.revision = resolvedRevision.name();
-		return urlFor(CommitDetailPage.class, paramsOf(getProject(), commentState)).toString();
-	}
-	
-	@Override
 	public CodeComment getOpenComment() {
 		if (state.commentId != null)
 			return OneDev.getInstance(CodeCommentManager.class).load(state.commentId);
@@ -657,29 +666,48 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 
 	@Override
 	public void onCommentOpened(AjaxRequestTarget target, CodeComment comment) {
-		if (comment != null) {
-			state.commentId = comment.getId();
-			state.mark = comment.getMarkPos();
-		} else {
-			state.commentId = null;
-			state.mark = null;
-		}
+		state.commentId = comment.getId();
+		state.mark = comment.getMark();
 		pushState(target);
 	}
 	
 	@Override
-	public void onMark(AjaxRequestTarget target, MarkPos mark) {
+	public void onCommentClosed(AjaxRequestTarget target) {
+		state.commentId = null;
+		state.mark = null;
+		pushState(target);
+	}
+	
+	@Override
+	public void onMark(AjaxRequestTarget target, Mark mark) {
 		state.mark = mark;
 		pushState(target);
 	}
 
 	@Override
-	public void onAddComment(AjaxRequestTarget target, MarkPos mark) {
+	public void onUnmark(AjaxRequestTarget target) {
+		state.mark = null;
+		pushState(target);
+	}
+	
+	@Override
+	public void onAddComment(AjaxRequestTarget target, Mark mark) {
 		state.commentId = null;
 		state.mark = mark;
 		pushState(target);
 	}
 	
+	@Override
+	public Collection<CodeComment> getComments() {
+		return commentsModel.getObject();
+	}
+	
+	@Override
+	protected void onDetach() {
+		commentsModel.detach();
+		super.onDetach();
+	}
+
 	@Override
 	protected Map<String, ObjectId> getObjectIdCache() {
 		Map<String, ObjectId> objectIdCache = new HashMap<>();
@@ -692,6 +720,16 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 	@Override
 	protected boolean isPermitted() {
 		return SecurityUtils.canReadCode(getProject());
+	}
+
+	@Override
+	public void onSaveComment(CodeComment comment) {
+		OneDev.getInstance(CodeCommentManager.class).save(comment);
+	}
+	
+	@Override
+	public void onSaveCommentReply(CodeCommentReply reply) {
+		OneDev.getInstance(CodeCommentReplyManager.class).save(reply);
 	}
 	
 }

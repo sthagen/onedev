@@ -14,7 +14,7 @@ import org.antlr.v4.runtime.RecognitionException;
 import org.antlr.v4.runtime.Recognizer;
 
 import io.onedev.commons.codeassist.AntlrUtils;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.PullRequest;
 import io.onedev.server.model.support.pullrequest.MergeStrategy;
@@ -98,6 +98,8 @@ public class PullRequestQuery extends EntityQuery<PullRequest> {
 							return new RequestedForChangesByMeCriteria();
 						case PullRequestQueryLexer.ApprovedByMe:
 							return new ApprovedByMeCriteria();
+						case PullRequestQueryLexer.AssignedToMe:
+							return new AssignedToMeCriteria();
 						case PullRequestQueryLexer.DiscardedByMe:
 							return new DiscardedByMeCriteria();
 						case PullRequestQueryLexer.SomeoneRequestedForChanges:
@@ -111,7 +113,7 @@ public class PullRequestQuery extends EntityQuery<PullRequest> {
 						case PullRequestQueryLexer.HasPendingReviews:
 							return new HasPendingReviewsCriteria();
 						default:
-							throw new OneException("Unexpected operator: " + ctx.operator.getText());
+							throw new GeneralException("Unexpected operator: " + ctx.operator.getText());
 						}
 					}
 					
@@ -120,21 +122,23 @@ public class PullRequestQuery extends EntityQuery<PullRequest> {
 						String value = getValue(ctx.Quoted().getText());
 						switch (ctx.operator.getType()) {
 						case PullRequestQueryLexer.ToBeReviewedBy:
-							return new ToBeReviewedByCriteria(value);
+							return new ToBeReviewedByCriteria(getUser(value));
 						case PullRequestQueryLexer.ApprovedBy:
-							return new ApprovedByCriteria(value);
+							return new ApprovedByCriteria(getUser(value));
+						case PullRequestQueryLexer.AssignedTo:
+							return new AssignedToCriteria(getUser(value));
 						case PullRequestQueryLexer.RequestedForChangesBy:
-							return new RequestedForChangesByCriteria(value);
+							return new RequestedForChangesByCriteria(getUser(value));
 						case PullRequestQueryLexer.SubmittedBy:
-							return new SubmittedByCriteria(value);
+							return new SubmittedByCriteria(getUser(value));
 						case PullRequestQueryLexer.DiscardedBy:
-							return new DiscardedByCriteria(value);
+							return new DiscardedByCriteria(getUser(value));
 						case PullRequestQueryLexer.IncludesCommit:
 							return new IncludesCommitCriteria(project, value);
 						case PullRequestQueryLexer.IncludesIssue:
 							return new IncludesIssueCriteria(project, value);
 						default:
-							throw new OneException("Unexpected operator: " + ctx.operator.getText());
+							throw new GeneralException("Unexpected operator: " + ctx.operator.getText());
 						}
 					}
 					
@@ -154,41 +158,41 @@ public class PullRequestQuery extends EntityQuery<PullRequest> {
 						case PullRequestQueryLexer.IsBefore:
 						case PullRequestQueryLexer.IsAfter:
 							switch (fieldName) {
-							case PullRequest.FIELD_SUBMIT_DATE:
+							case PullRequest.NAME_SUBMIT_DATE:
 								return new SubmitDateCriteria(value, operator);
-							case PullRequest.FIELD_UPDATE_DATE:
+							case PullRequest.NAME_UPDATE_DATE:
 								return new UpdateDateCriteria(value, operator);
-							case PullRequest.FIELD_CLOSE_DATE:
+							case PullRequest.NAME_CLOSE_DATE:
 								return new CloseDateCriteria(value, operator);
 							default:
 								throw new IllegalStateException();
 							}
 						case PullRequestQueryLexer.Contains:
 							switch (fieldName) {
-							case PullRequest.FIELD_TITLE:
+							case PullRequest.NAME_TITLE:
 								return new TitleCriteria(value);
-							case PullRequest.FIELD_DESCRIPTION:
+							case PullRequest.NAME_DESCRIPTION:
 								return new DescriptionCriteria(value);
-							case PullRequest.FIELD_COMMENT:
+							case PullRequest.NAME_COMMENT:
 								return new CommentCriteria(value);
 							default:
 								throw new IllegalStateException();
 							}
 						case PullRequestQueryLexer.Is:
 							switch (fieldName) {
-							case PullRequest.FIELD_NUMBER:
+							case PullRequest.NAME_NUMBER:
 								return new NumberCriteria(project, value, operator);
-							case PullRequest.FIELD_MERGE_STRATEGY:
+							case PullRequest.NAME_MERGE_STRATEGY:
 								return new MergeStrategyCriteria(MergeStrategy.fromString(value));
-							case PullRequest.FIELD_SOURCE_BRANCH:
+							case PullRequest.NAME_SOURCE_BRANCH:
 								return new SourceBranchCriteria(value);
-							case PullRequest.FIELD_SOURCE_PROJECT:
+							case PullRequest.NAME_SOURCE_PROJECT:
 								return new SourceProjectCriteria(value);
-							case PullRequest.FIELD_TARGET_BRANCH:
+							case PullRequest.NAME_TARGET_BRANCH:
 								return new TargetBranchCriteria(value);
-							case PullRequest.FIELD_TARGET_PROJECT:
+							case PullRequest.NAME_TARGET_PROJECT:
 								return new TargetProjectCriteria(value);
-							case PullRequest.FIELD_COMMENT_COUNT:
+							case PullRequest.NAME_COMMENT_COUNT:
 								return new CommentCountCriteria(getIntValue(value), operator);
 							default: 
 								throw new IllegalStateException();
@@ -196,9 +200,9 @@ public class PullRequestQuery extends EntityQuery<PullRequest> {
 						case PullRequestQueryLexer.IsLessThan:
 						case PullRequestQueryLexer.IsGreaterThan:
 							switch (fieldName) {
-							case PullRequest.FIELD_NUMBER:
+							case PullRequest.NAME_NUMBER:
 								return new NumberCriteria(project, value, operator);
-							case PullRequest.FIELD_COMMENT_COUNT:
+							case PullRequest.NAME_COMMENT_COUNT:
 								return new CommentCountCriteria(getIntValue(value), operator);
 							default:
 								throw new IllegalStateException();
@@ -238,7 +242,7 @@ public class PullRequestQuery extends EntityQuery<PullRequest> {
 			for (OrderContext order: queryContext.order()) {
 				String fieldName = getValue(order.Quoted().getText());
 				if (!PullRequest.ORDER_FIELDS.containsKey(fieldName))
-					throw new OneException("Can not order by field: " + fieldName);
+					throw new GeneralException("Can not order by field: " + fieldName);
 				
 				EntitySort requestSort = new EntitySort();
 				requestSort.setField(fieldName);
@@ -257,46 +261,46 @@ public class PullRequestQuery extends EntityQuery<PullRequest> {
 	
 	public static void checkField(String fieldName, int operator) {
 		if (!PullRequest.QUERY_FIELDS.contains(fieldName))
-			throw new OneException("Field not found: " + fieldName);
+			throw new GeneralException("Field not found: " + fieldName);
 		switch (operator) {
 		case PullRequestQueryLexer.IsBefore:
 		case PullRequestQueryLexer.IsAfter:
-			if (!fieldName.equals(PullRequest.FIELD_SUBMIT_DATE) 
-					&& !fieldName.equals(PullRequest.FIELD_UPDATE_DATE) 
-					&& !fieldName.equals(PullRequest.FIELD_CLOSE_DATE)) {
+			if (!fieldName.equals(PullRequest.NAME_SUBMIT_DATE) 
+					&& !fieldName.equals(PullRequest.NAME_UPDATE_DATE) 
+					&& !fieldName.equals(PullRequest.NAME_CLOSE_DATE)) {
 				throw newOperatorException(fieldName, operator);
 			}
 			break;
 		case PullRequestQueryLexer.Contains:
-			if (!fieldName.equals(PullRequest.FIELD_TITLE) 
-					&& !fieldName.equals(PullRequest.FIELD_DESCRIPTION)
-					&& !fieldName.equals(PullRequest.FIELD_COMMENT)) {
+			if (!fieldName.equals(PullRequest.NAME_TITLE) 
+					&& !fieldName.equals(PullRequest.NAME_DESCRIPTION)
+					&& !fieldName.equals(PullRequest.NAME_COMMENT)) {
 				throw newOperatorException(fieldName, operator);
 			}
 			break;
 		case PullRequestQueryLexer.Is:
-			if (!fieldName.equals(PullRequest.FIELD_NUMBER)
-					&& !fieldName.equals(PullRequest.FIELD_MERGE_STRATEGY)
-					&& !fieldName.equals(PullRequest.FIELD_TARGET_PROJECT)
-					&& !fieldName.equals(PullRequest.FIELD_TARGET_BRANCH)
-					&& !fieldName.equals(PullRequest.FIELD_SOURCE_PROJECT)
-					&& !fieldName.equals(PullRequest.FIELD_SOURCE_BRANCH)
-					&& !fieldName.equals(PullRequest.FIELD_COMMENT_COUNT)) {
+			if (!fieldName.equals(PullRequest.NAME_NUMBER)
+					&& !fieldName.equals(PullRequest.NAME_MERGE_STRATEGY)
+					&& !fieldName.equals(PullRequest.NAME_TARGET_PROJECT)
+					&& !fieldName.equals(PullRequest.NAME_TARGET_BRANCH)
+					&& !fieldName.equals(PullRequest.NAME_SOURCE_PROJECT)
+					&& !fieldName.equals(PullRequest.NAME_SOURCE_BRANCH)
+					&& !fieldName.equals(PullRequest.NAME_COMMENT_COUNT)) {
 				throw newOperatorException(fieldName, operator);
 			}
 			break;
 		case PullRequestQueryLexer.IsLessThan:
 		case PullRequestQueryLexer.IsGreaterThan:
-			if (!fieldName.equals(PullRequest.FIELD_NUMBER) 
-					&& !fieldName.equals(PullRequest.FIELD_COMMENT_COUNT)) {
+			if (!fieldName.equals(PullRequest.NAME_NUMBER) 
+					&& !fieldName.equals(PullRequest.NAME_COMMENT_COUNT)) {
 				throw newOperatorException(fieldName, operator);
 			}
 			break;
 		}
 	}
 	
-	private static OneException newOperatorException(String fieldName, int operator) {
-		return new OneException("Field '" + fieldName + "' is not applicable for operator '" + getRuleName(operator) + "'");
+	private static GeneralException newOperatorException(String fieldName, int operator) {
+		return new GeneralException("Field '" + fieldName + "' is not applicable for operator '" + getRuleName(operator) + "'");
 	}
 	
 	public static String getRuleName(int rule) {
@@ -315,6 +319,18 @@ public class PullRequestQuery extends EntityQuery<PullRequest> {
 	@Override
 	public List<EntitySort> getSorts() {
 		return sorts;
+	}
+	
+	public static PullRequestQuery merge(PullRequestQuery query1, PullRequestQuery query2) {
+		List<EntityCriteria<PullRequest>> criterias = new ArrayList<>();
+		if (query1.getCriteria() != null)
+			criterias.add(query1.getCriteria());
+		if (query2.getCriteria() != null)
+			criterias.add(query2.getCriteria());
+		List<EntitySort> sorts = new ArrayList<>();
+		sorts.addAll(query1.getSorts());
+		sorts.addAll(query2.getSorts());
+		return new PullRequestQuery(EntityCriteria.andCriterias(criterias), sorts);
 	}
 	
 }

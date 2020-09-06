@@ -4,6 +4,7 @@ import java.io.Serializable;
 import java.util.Date;
 import java.util.List;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
 import javax.persistence.criteria.Path;
@@ -13,7 +14,7 @@ import com.google.common.base.Splitter;
 import io.onedev.commons.codeassist.FenceAware;
 import io.onedev.commons.utils.StringUtils;
 import io.onedev.server.OneDev;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.entitymanager.IssueManager;
 import io.onedev.server.entitymanager.MilestoneManager;
@@ -28,9 +29,9 @@ import io.onedev.server.model.Project;
 import io.onedev.server.model.PullRequest;
 import io.onedev.server.model.User;
 import io.onedev.server.util.DateUtils;
-import io.onedev.server.util.ProjectAwareCommit;
-import io.onedev.server.util.ProjectAwareRevision;
+import io.onedev.server.util.ProjectScopedCommit;
 import io.onedev.server.util.ProjectScopedNumber;
+import io.onedev.server.util.ProjectScopedRevision;
 
 public abstract class EntityQuery<T extends AbstractEntity> implements Serializable {
 
@@ -50,7 +51,7 @@ public abstract class EntityQuery<T extends AbstractEntity> implements Serializa
 		try {
 			return Integer.parseInt(value);
 		} catch (NumberFormatException e) {
-			throw new OneException("Invalid number: " + value);
+			throw new GeneralException("Invalid number: " + value);
 		}
 	}
 	
@@ -58,21 +59,21 @@ public abstract class EntityQuery<T extends AbstractEntity> implements Serializa
 		try {
 			return Long.parseLong(value);
 		} catch (NumberFormatException e) {
-			throw new OneException("Invalid number: " + value);
+			throw new GeneralException("Invalid number: " + value);
 		}
 	}
 	
 	public static User getUser(String loginName) {
 		User user = OneDev.getInstance(UserManager.class).findByName(loginName);
 		if (user == null)
-			throw new OneException("Unable to find user with login: " + loginName);
+			throw new GeneralException("Unable to find user with login: " + loginName);
 		return user;
 	}
 	
 	public static Project getProject(String projectName) {
 		Project project = OneDev.getInstance(ProjectManager.class).find(projectName);
 		if (project == null)
-			throw new OneException("Unable to find project with name: " + projectName);
+			throw new GeneralException("Unable to find project with name: " + projectName);
 		return project;
 	}
 	
@@ -82,34 +83,34 @@ public abstract class EntityQuery<T extends AbstractEntity> implements Serializa
 		else if (value.equals("false"))
 			return false;
 		else
-			throw new OneException("Invalid boolean: " + value);
+			throw new GeneralException("Invalid boolean: " + value);
 	}
 	
 	public static Date getDateValue(String value) {
 		Date dateValue = DateUtils.parseRelaxed(value);
 		if (dateValue == null)
-			throw new OneException("Unrecognized date: " + value);
+			throw new GeneralException("Unrecognized date: " + value);
 		return dateValue;
 	}
 	
-	public static ProjectAwareCommit getCommitId(@Nullable Project project, String value) {
+	public static ProjectScopedCommit getCommitId(@Nullable Project project, String value) {
 		if (project != null && !value.contains(":"))
 			value = project.getName() + ":" + value;
-		ProjectAwareCommit commitId = ProjectAwareCommit.from(value);
+		ProjectScopedCommit commitId = ProjectScopedCommit.from(value);
 		if (commitId != null && commitId.getCommitId() != null)
 			return commitId;
 		else
-			throw new OneException("Unable to find revision: " + value);
+			throw new GeneralException("Unable to find revision: " + value);
 	}
 
-	public static ProjectAwareRevision getRevision(@Nullable Project project, String value) {
+	public static ProjectScopedRevision getRevision(@Nullable Project project, String value) {
 		if (project != null && !value.contains(":"))
 			value = project.getName() + ":" + value;
-		ProjectAwareRevision revision = ProjectAwareRevision.from(value);
+		ProjectScopedRevision revision = ProjectScopedRevision.from(value);
 		if (revision != null)
 			return revision;
 		else
-			throw new OneException("Unable to find revision: " + value);
+			throw new GeneralException("Unable to find revision: " + value);
 	}
 	
 	public static Issue getIssue(@Nullable Project project, String value) {
@@ -123,7 +124,7 @@ public abstract class EntityQuery<T extends AbstractEntity> implements Serializa
 		if (issue != null)
 			return issue;
 		else
-			throw new OneException("Unable to find issue: " + value);
+			throw new GeneralException("Unable to find issue: " + value);
 	}
 	
 	public static PullRequest getPullRequest(@Nullable Project project, String value) {
@@ -137,7 +138,7 @@ public abstract class EntityQuery<T extends AbstractEntity> implements Serializa
 		if (pullRequest != null)
 			return pullRequest;
 		else
-			throw new OneException("Unable to find pull request: " + value);
+			throw new GeneralException("Unable to find pull request: " + value);
 	}
 	
 	public static Build getBuild(@Nullable Project project, String value) {
@@ -151,7 +152,7 @@ public abstract class EntityQuery<T extends AbstractEntity> implements Serializa
 		if (build != null)
 			return build;
 		else
-			throw new OneException("Unable to find build: " + value);
+			throw new GeneralException("Unable to find build: " + value);
 	}
 	
 	public static ProjectScopedNumber getProjectScopedNumber(@Nullable Project project, String value) {
@@ -171,7 +172,7 @@ public abstract class EntityQuery<T extends AbstractEntity> implements Serializa
 		if (milestone != null)
 			return milestone;
 		else
-			throw new OneException("Unable to find milestone: " + value);
+			throw new GeneralException("Unable to find milestone: " + value);
 	}
 	
 	public boolean matches(T entity) {
@@ -185,8 +186,7 @@ public abstract class EntityQuery<T extends AbstractEntity> implements Serializa
 			builder.append(getCriteria().toString()).append(" ");
 		if (!getSorts().isEmpty()) {
 			builder.append("order by ");
-			for (EntitySort sort: getSorts())
-				builder.append(sort.toString()).append(" ");
+			builder.append(getSorts().stream().map(it->it.toString()).collect(Collectors.joining(" and ")));
 		}
 		return builder.toString().trim();
 	}

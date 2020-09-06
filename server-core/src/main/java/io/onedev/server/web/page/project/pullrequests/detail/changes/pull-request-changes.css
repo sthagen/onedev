@@ -14,6 +14,13 @@
 	color: #666;
 }
 
+.commits-selector>.short-cuts {
+	padding: 8px;
+}
+.commits-selector>.short-cuts>a {
+	margin-right: 8px;
+	font-size: 16px;
+}
 .commits-selector>.head {
 	padding: 8px;
 	border-bottom: 1px solid #DDD;
@@ -28,6 +35,10 @@
 	padding: 8px;
 	overflow-y: auto;
 }
+.commits-selector ul li.rebased a,
+.commits-selector ul li.rebased a span {
+	color: #aaa;
+}
 .commits-selector ul a {
 	text-decoration: none;
 	display: block;
@@ -37,13 +48,13 @@
 	font-family: Consolas, "Liberation Mono", Menlo, Courier, monospace;
 }
 .commits-selector ul a:hover {
-	background: #FCEDAA;
+	background: #F2F2F2;
 }
 .commits-selector ul a.selected {
-	background: #FAE170;	
+	background: #FDF2C5;	
 }
 .commits-selector ul a.selected:hover {
-	background: #F7CD11;	
+	background: #FDF2C5;	
 }
 .commits-selector ul .hash, .commits-selector ul .icon {
 	color: #666;

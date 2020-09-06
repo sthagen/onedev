@@ -36,8 +36,8 @@ public class MilestoneCriteria extends IssueCriteria {
 	}
 
 	@Override
-	public String asString() {
-		return quote(Issue.FIELD_MILESTONE) + " " 
+	public String toStringWithoutParens() {
+		return quote(Issue.NAME_MILESTONE) + " " 
 				+ IssueQuery.getRuleName(IssueQueryLexer.Is) + " " 
 				+ quote(milestoneName);
 	}

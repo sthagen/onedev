@@ -10,7 +10,7 @@ import io.onedev.server.buildspec.BuildSpec;
 import io.onedev.server.buildspec.job.Job;
 import io.onedev.server.git.BlobIdent;
 import io.onedev.server.model.Project;
-import io.onedev.server.util.SecurityUtils;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.web.page.project.blob.ProjectBlobPage;
 import io.onedev.server.web.page.project.blob.render.renderers.buildspec.BuildSpecRendererProvider;
 
@@ -46,6 +46,8 @@ public abstract class JobDefLink extends BookmarkablePageLink<Void> {
 	public PageParameters getPageParameters() {
 		ProjectBlobPage.State state = new ProjectBlobPage.State();
 		state.blobIdent = new BlobIdent(commitId.name(), BuildSpec.BLOB_PATH, FileMode.REGULAR_FILE.getBits()); 
+		if (getProject().getBlob(state.blobIdent, false) == null)
+			state.blobIdent = new BlobIdent(commitId.name(), ".onedev-buildspec", FileMode.REGULAR_FILE.getBits());
 		state.position = BuildSpecRendererProvider.getPosition(Job.SELECTION_PREFIX + jobName);
 		return ProjectBlobPage.paramsOf(getProject(), state);
 	}

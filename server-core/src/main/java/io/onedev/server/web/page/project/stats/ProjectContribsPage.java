@@ -21,8 +21,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.onedev.server.OneDev;
 import io.onedev.server.git.Contribution;
 import io.onedev.server.infomanager.CommitInfoManager;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.Day;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.web.behavior.AbstractPostAjaxBehavior;
 import io.onedev.server.web.component.user.card.PersonCardPanel;
 
@@ -74,12 +74,12 @@ public class ProjectContribsPage extends ProjectStatsPage {
 		super.renderHead(response);
 
 		CommitInfoManager commitInfoManager = OneDev.getInstance(CommitInfoManager.class);
-		Map<Long, Integer[]> data = new HashMap<>();
+		Map<Integer, Integer[]> data = new HashMap<>();
 		Map<Day, Contribution> overallContributions = commitInfoManager.getOverallContributions(getProject());
 		for (Map.Entry<Day, Contribution> entry: overallContributions.entrySet()) {
 			Contribution contribution = entry.getValue();
 			Integer[] dataValue = new Integer[] {contribution.getCommits(), contribution.getAdditions(), contribution.getDeletions()};
-			data.put(entry.getKey().getDate().getTime(), dataValue);
+			data.put(entry.getKey().getValue(), dataValue);
 		}
 		
 		PageParameters params = TopContributorsResource.paramsOf(getProject()); 

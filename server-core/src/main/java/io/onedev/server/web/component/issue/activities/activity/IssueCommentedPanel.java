@@ -13,8 +13,8 @@ import io.onedev.server.entitymanager.UserManager;
 import io.onedev.server.model.IssueComment;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.User;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.DateUtils;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.web.component.markdown.AttachmentSupport;
 import io.onedev.server.web.component.markdown.ContentVersionSupport;
 import io.onedev.server.web.component.project.comment.ProjectCommentPanel;
@@ -65,8 +65,14 @@ class IssueCommentedPanel extends GenericPanel<IssueComment> {
 			
 			@Override
 			protected AttachmentSupport getAttachmentSupport() {
-				return new ProjectAttachmentSupport(IssueCommentedPanel.this.getComment().getIssue().getProject(), 
-						IssueCommentedPanel.this.getComment().getIssue().getUUID());
+				return new ProjectAttachmentSupport(getProject(), IssueCommentedPanel.this.getComment().getIssue().getUUID()) {
+
+					@Override
+					public boolean canDeleteAttachment() {
+						return SecurityUtils.canManageIssues(getProject());
+					}
+					
+				};
 			}
 
 			@Override

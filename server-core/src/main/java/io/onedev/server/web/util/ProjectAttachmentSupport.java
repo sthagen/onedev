@@ -19,13 +19,13 @@ import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.ProjectManager;
 import io.onedev.server.model.Project;
 import io.onedev.server.persistence.SessionManager;
+import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.storage.AttachmentStorageManager;
-import io.onedev.server.util.SecurityUtils;
 import io.onedev.server.web.component.markdown.AttachmentSupport;
-import io.onedev.server.web.download.AttachmentDownloadResource;
-import io.onedev.server.web.download.AttachmentDownloadResourceReference;
+import io.onedev.server.web.resource.AttachmentResource;
+import io.onedev.server.web.resource.AttachmentResourceReference;
 
-public class ProjectAttachmentSupport implements AttachmentSupport {
+public abstract class ProjectAttachmentSupport implements AttachmentSupport {
 
 	private static final long serialVersionUID = 1L;
 
@@ -44,8 +44,8 @@ public class ProjectAttachmentSupport implements AttachmentSupport {
 	
 	@Override
 	public String getAttachmentUrl(String attachment) {
-		PageParameters params = AttachmentDownloadResource.paramsOf(getProject(), attachmentDirUUID, attachment);
-		return RequestCycle.get().urlFor(new AttachmentDownloadResourceReference(), params).toString();
+		PageParameters params = AttachmentResource.paramsOf(getProject(), attachmentDirUUID, attachment);
+		return RequestCycle.get().urlFor(new AttachmentResourceReference(), params).toString();
 	}
 	
 	@Override

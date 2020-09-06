@@ -1,8 +1,14 @@
 package io.onedev.server.buildspec.job;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.stream.Collectors;
 
+import org.eclipse.jgit.lib.Repository;
+
 import io.onedev.commons.utils.StringUtils;
+import io.onedev.server.git.GitUtils;
+import io.onedev.server.git.RefInfo;
 import io.onedev.server.model.Build;
 
 public enum JobVariable {
@@ -23,6 +29,36 @@ public enum JobVariable {
 		}
 		
 	}, 
+	UPDATED_REF {
+
+		@Override
+		public String getValue(Build build) {
+			return build.getUpdatedRef();
+		}
+		
+	},
+	UPDATED_BRANCH {
+
+		@Override
+		public String getValue(Build build) {
+			if (build.getUpdatedRef() != null)
+				return GitUtils.ref2branch(build.getUpdatedRef());
+			else
+				return null;
+		}
+		
+	},
+	UPDATED_TAG {
+
+		@Override
+		public String getValue(Build build) {
+			if (build.getUpdatedRef() != null)
+				return GitUtils.ref2tag(build.getUpdatedRef());
+			else
+				return null;
+		}
+		
+	},
 	COMMIT_HASH {
 
 		@Override
@@ -55,11 +91,24 @@ public enum JobVariable {
 		}
 		
 	}, 
+	COMMIT_TAGS {
+
+		@Override
+		public String getValue(Build build) {
+			List<String> tags = new ArrayList<>();
+			for (RefInfo refInfo: build.getProject().getTagRefInfos()) {
+				if (refInfo.getPeeledObj().equals(build.getCommitId())) 
+					tags.add(Repository.shortenRefName(refInfo.getRef().getName()));
+			}
+			return StringUtils.join(tags, " ");
+		}
+		
+	},
 	PULL_REQUEST_IDS {
 
 		@Override
 		public String getValue(Build build) {
-			return build.getPullRequestBuilds()
+			return build.getVerifications()
 					.stream()
 					.map(it->it.getRequest().getId().toString())
 					.collect(Collectors.joining(" "));

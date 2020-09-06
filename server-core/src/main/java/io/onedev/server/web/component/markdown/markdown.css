@@ -41,7 +41,7 @@ body.fullscreen {
 	border-radius: 4px 4px 0 0;
 	padding: 4px;
 }
-.markdown-editor>.head>.actions>div>a {
+.markdown-editor>.head>.actions>div>a, .markdown-editor>.head>.actions>div>.dropdown>a {
 	color: #777;
 	padding: 2px;
 	border: 1px solid white;
@@ -51,23 +51,19 @@ body.fullscreen {
 	text-align: center;
 	margin-right: 4px;
 }
+
 .markdown-editor>.head>.actions .separator {
 	display: block;
 	border-left: 1px solid #E0E0E0;
 	margin-right: 4px;
 	height: 24px;
 }
-.markdown-editor>.head>.actions>div>a:hover, .markdown-editor>.head>.actions>div>a.active {
+.markdown-editor>.head>.actions>div>a:hover, .markdown-editor>.head>.actions>div>a.active, 
+.markdown-editor>.head>.actions>div>.dropdown>a:hover, .markdown-editor>.head>.actions>div>.dropdown>a.active {
 	background: #EEE;
 	border: 1px solid #E0E0E0;
 }
 
-.markdown-editor>.head>.actions .dropdown .active:BEFORE {
-	font-family: "FontAwesome";
-	content: "\f00c";
-	position: absolute;
-	left: 4px;
-}
 .markdown-editor .ui-resizable-handle {
 	background: #EEE url(hgrabber.png) no-repeat scroll center center;
     cursor: s-resize;
@@ -207,15 +203,6 @@ body.fullscreen {
 	color: inherit;	
 }
 
-.insert-url .directory>div {
-	position: relative;
-	padding-right: 48px;
-}
-.insert-url .directory>div>a {
-	position: absolute;
-	right: 0;
-	top: 0;
-}
 .insert-url .blob-picker {
 	padding: 0;
 }
@@ -226,12 +213,14 @@ body.fullscreen {
 	margin-bottom: 0;
 }
 
+.insert-url .attachment.image {
+	text-align: center;
+}
 .insert-url .attachment.image img {
 	max-width: 100%;
-	border-radius: 4px 4px 0 0 ;
 }
 .insert-url .attachment.image .btn {
-	border-radius: 0 0 4px 4px;
+	margin-top: 8px;
 }
 
 .insert-url .alert-info {
@@ -317,16 +306,13 @@ body.fullscreen {
 	margin-top: 10px;
 }
 .markdown-rendered h2 .header-link {
-	margin-top: 6px;
+	margin-top: 4px;
 }
 .markdown-rendered h3 .header-link {
 	margin-top: 2px;
 }
-.markdown-rendered h4 .header-link {
-	margin-top: -2px;
-}
 .markdown-rendered h5 .header-link {
-	margin-top: -4px;
+	margin-top: -2px;
 }
 .markdown-rendered h6 .header-link {
 	margin-top: -6px;

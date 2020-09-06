@@ -7,6 +7,7 @@ import javax.annotation.Nullable;
 
 import org.eclipse.jgit.api.AddCommand;
 import org.eclipse.jgit.api.CommitCommand;
+import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.RmCommand;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.diff.DiffAlgorithm.SupportedAlgorithm;
@@ -21,7 +22,6 @@ import org.slf4j.LoggerFactory;
 import io.onedev.commons.launcher.loader.AppLoader;
 import io.onedev.commons.launcher.loader.AppLoaderMocker;
 import io.onedev.commons.utils.FileUtils;
-import io.onedev.server.git.GitUtils;
 import io.onedev.server.git.command.GitCommand;
 import io.onedev.server.git.config.GitConfig;
 
@@ -31,7 +31,7 @@ public abstract class AbstractGitTest extends AppLoaderMocker {
 	
 	protected File gitDir;
 	
-	protected org.eclipse.jgit.api.Git git;
+	protected Git git;
 	
 	protected PersonIdent user = new PersonIdent("foo", "foo@example.com");
 	
@@ -40,7 +40,7 @@ public abstract class AbstractGitTest extends AppLoaderMocker {
 		gitDir = FileUtils.createTempDir();
 		
 		try {
-			git = org.eclipse.jgit.api.Git.init().setBare(false).setDirectory(gitDir).call();
+			git = Git.init().setBare(false).setDirectory(gitDir).call();
 		} catch (IllegalStateException | GitAPIException e) {
 			throw new RuntimeException(e);
 		}
@@ -63,27 +63,38 @@ public abstract class AbstractGitTest extends AppLoaderMocker {
 	    Assert.assertTrue(gitError, gitError == null);
 	}
 
-	@Override
-	protected void teardown() {
-		git.close();
-		
-		while (gitDir.exists()) {
+	protected void deleteDir(File dir, int retries) {
+		int retried = 0;
+		while (dir.exists()) {
 			try {
-				FileUtils.deleteDir(gitDir);
+				FileUtils.deleteDir(dir);
 				break;
 			} catch (Exception e) {
-				// git gc might be running, so we'll retry deletion 
-				logger.error("Error deleting directory '" + gitDir.getAbsolutePath() + "', will retry later...", e);
-				try {
-					Thread.sleep(5000);
-				} catch (InterruptedException e2) {
+				if (retried++ < retries) {
+					logger.error("Error deleting directory '" + dir.getAbsolutePath() + "', will retry later...", e);
+					try {
+						Thread.sleep(5000);
+					} catch (InterruptedException e2) {
+					}
+				} else {
+					throw e;
 				}
 			}
 		}
 	}
+	
+	@Override
+	protected void teardown() {
+		git.close();
+		deleteDir(gitDir, 3);
+	}
 
 	protected void createDir(String path) {
 		FileUtils.createDir(new File(gitDir, path));
+	}
+	
+	protected void deleteDir(String path) {
+		FileUtils.deleteDir(new File(gitDir, path));
 	}
 	
 	protected void writeFile(String path, String content) {
@@ -113,13 +124,13 @@ public abstract class AbstractGitTest extends AppLoaderMocker {
 		}
 	}
 	
-	protected void commit(String comment) {
+	protected String commit(String comment) {
 		CommitCommand ci = git.commit();
 		ci.setMessage(comment);
 		ci.setAuthor(user);
 		ci.setCommitter(user);
 		try {
-			ci.call();
+			return ci.call().name();
 		} catch (GitAPIException e) {
 			throw new RuntimeException(e);
 		}
@@ -130,14 +141,14 @@ public abstract class AbstractGitTest extends AppLoaderMocker {
 		add(path);
 	}
 	
-	protected void addFileAndCommit(String path, String content, String comment) {
+	protected String addFileAndCommit(String path, String content, String comment) {
 		addFile(path, content);
-		commit(comment);
+		return commit(comment);
 	}
 	
-	protected void removeFileAndCommit(String path, String comment) {
+	protected String removeFileAndCommit(String path, String comment) {
 		rm(path);
-		commit(comment);
+		return commit(comment);
 	}
 
 	protected void updateRef(String refName, String newValue, @Nullable String oldValue) {

@@ -66,7 +66,7 @@ public interface CommitInfoManager {
 	 * @return
 	 * 			list of top user contributors, reversely ordered by number of contributions 
 	 */
-	List<Contributor> getTopContributors(Project project, int top, Contribution.Type type, Day fromDay, Day toDay);
+	List<Contributor> getTopContributors(Project project, int top, Contribution.Type type, int fromDay, int toDay);
 
 	/**
 	 * Get source code line statistics over time
@@ -79,5 +79,7 @@ public interface CommitInfoManager {
 	Map<Day, Map<String, Integer>> getLineIncrements(Project project);
 
 	Collection<ObjectId> getFixCommits(Project project, Long issueNumber);
+	
+	void sortUsersByContribution(List<User> users, Project project, Collection<String> files);
 	
 }

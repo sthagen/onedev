@@ -22,9 +22,11 @@ import io.onedev.server.model.support.administration.GlobalPullRequestSetting;
 import io.onedev.server.model.support.administration.GroovyScript;
 import io.onedev.server.model.support.administration.MailSetting;
 import io.onedev.server.model.support.administration.SecuritySetting;
+import io.onedev.server.model.support.administration.SshSetting;
 import io.onedev.server.model.support.administration.SystemSetting;
 import io.onedev.server.model.support.administration.authenticator.Authenticator;
 import io.onedev.server.model.support.administration.jobexecutor.JobExecutor;
+import io.onedev.server.model.support.administration.sso.SsoConnector;
 import io.onedev.server.persistence.annotation.Sessional;
 import io.onedev.server.persistence.annotation.Transactional;
 import io.onedev.server.persistence.dao.AbstractEntityManager;
@@ -57,6 +59,10 @@ public class DefaultSettingManager extends AbstractEntityManager<Setting> implem
 	private volatile Long buildSettingId;
 	
 	private volatile Long projectSettingId;
+
+    private volatile Long sshSettingId;
+    
+    private volatile Long ssoConnectorsId;
 	
 	@Inject
 	public DefaultSettingManager(Dao dao, DataManager dataManager) {
@@ -264,7 +270,7 @@ public class DefaultSettingManager extends AbstractEntityManager<Setting> implem
 	public List<GroovyScript> getGroovyScripts() {
         Setting setting;
         if (jobScriptsId == null) {
-    		setting = getSetting(Key.JOB_SCRIPTS);
+    		setting = getSetting(Key.GROOVY_SCRIPTS);
     		Preconditions.checkNotNull(setting);
     		jobScriptsId = setting.getId();
         } else {
@@ -276,10 +282,10 @@ public class DefaultSettingManager extends AbstractEntityManager<Setting> implem
 	@Transactional
 	@Override
 	public void saveGroovyScripts(List<GroovyScript> jobScripts) {
-		Setting setting = getSetting(Key.JOB_SCRIPTS);
+		Setting setting = getSetting(Key.GROOVY_SCRIPTS);
 		if (setting == null) {
 			setting = new Setting();
-			setting.setKey(Key.JOB_SCRIPTS);
+			setting.setKey(Key.GROOVY_SCRIPTS);
 		}
 		setting.setValue((Serializable) jobScripts);
 		dao.persist(setting);
@@ -362,5 +368,58 @@ public class DefaultSettingManager extends AbstractEntityManager<Setting> implem
 		setting.setValue(projectSetting);
 		dao.persist(setting);
 	}
+	
+	@Sessional
+    @Override
+    public SshSetting getSshSetting() {
+        Setting setting;
+        if (sshSettingId == null) {
+            setting = getSetting(Key.SSH);
+            Preconditions.checkNotNull(setting);
+            sshSettingId = setting.getId();
+        } else {
+            setting = load(sshSettingId);
+        }
+        return (SshSetting)setting.getValue();
+    }
 
+    @Transactional
+    @Override
+    public void saveSshSetting(SshSetting sshSetting) {
+        Setting setting = getSetting(Key.SSH);
+        if (setting == null) {
+            setting = new Setting();
+            setting.setKey(Key.SSH);
+        }
+        setting.setValue(sshSetting);
+        dao.persist(setting);
+    }
+
+	@Sessional
+	@SuppressWarnings("unchecked")
+	@Override
+	public List<SsoConnector> getSsoConnectors() {
+        Setting setting;
+        if (ssoConnectorsId == null) {
+    		setting = getSetting(Key.SSO_CONNECTORS);
+    		Preconditions.checkNotNull(setting);
+    		ssoConnectorsId = setting.getId();
+        } else {
+            setting = load(ssoConnectorsId);
+        }
+        return (List<SsoConnector>) setting.getValue();
+	}
+
+	@Transactional
+	@Override
+	public void saveSsoConnectors(List<SsoConnector> ssoProviders) {
+		Setting setting = getSetting(Key.SSO_CONNECTORS);
+		if (setting == null) {
+			setting = new Setting();
+			setting.setKey(Key.SSO_CONNECTORS);
+		}
+		setting.setValue((Serializable) ssoProviders);
+		dao.persist(setting);
+	}
+	
 }

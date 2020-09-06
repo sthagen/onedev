@@ -131,14 +131,14 @@ public class MarkdownEditor extends FormComponentPanel<String> {
 	}
 	
 	protected String renderMarkdown(String markdown) {
-		MarkdownManager markdownManager = OneDev.getInstance(MarkdownManager.class);
-		String rendered = markdownManager.render(markdown);
 		Project project ;
 		if (getPage() instanceof ProjectPage)
 			project = ((ProjectPage) getPage()).getProject();
 		else
 			project = null;
-		return markdownManager.process(project, rendered, blobRenderContext);
+		
+		MarkdownManager manager = OneDev.getInstance(MarkdownManager.class);
+		return manager.process(manager.render(markdown), project, blobRenderContext);
 	}
 	
 	@Override
@@ -159,15 +159,11 @@ public class MarkdownEditor extends FormComponentPanel<String> {
 		container.add(preview);
 		container.add(edit);
 		
-		WebMarkupContainer splitIcon = new WebMarkupContainer("icon");
-		splitLink.add(splitIcon);
-
 		container.add(AttributeAppender.append("class", compactMode?"compact-mode":"normal-mode"));
 			
 		edit.add(input = new TextArea<String>("input", Model.of(getModelObject())));
-		for (AttributeModifier modifier: getInputModifiers()) {
+		for (AttributeModifier modifier: getInputModifiers()) 
 			input.add(modifier);
-		}
 
 		if (initialSplit) {
 			container.add(AttributeAppender.append("class", "split-mode"));
@@ -260,11 +256,13 @@ public class MarkdownEditor extends FormComponentPanel<String> {
 					break;
 				case "loadEmojis":
 					emojis = new ArrayList<>();
+					String urlPattern =  RequestCycle.get().urlFor(new PackageResourceReference(EmojiOnes.class,
+					        "icon/FILENAME.png"), new PageParameters()).toString();
+					
 					for (Map.Entry<String, String> entry: EmojiOnes.getInstance().all().entrySet()) {
 						Map<String, String> emoji = new HashMap<>();
 						emoji.put("name", entry.getKey());
-						emoji.put("url", RequestCycle.get().urlFor(new PackageResourceReference(
-								EmojiOnes.class, "icon/" + entry.getValue() + ".png"), new PageParameters()).toString());
+						emoji.put("url", urlPattern.replace("FILENAME", entry.getValue()));
 						emojis.add(emoji);
 					}
 

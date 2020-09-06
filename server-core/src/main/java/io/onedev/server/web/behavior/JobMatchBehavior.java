@@ -16,7 +16,7 @@ import io.onedev.commons.codeassist.grammar.LexerRuleRefElementSpec;
 import io.onedev.commons.codeassist.parser.Element;
 import io.onedev.commons.codeassist.parser.ParseExpect;
 import io.onedev.commons.codeassist.parser.TerminalExpect;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.model.Build;
 import io.onedev.server.util.jobmatch.JobMatch;
 import io.onedev.server.util.jobmatch.JobMatchLexer;
@@ -42,10 +42,9 @@ public class JobMatchBehavior extends ANTLRAssistBehavior {
 					protected List<InputSuggestion> match(String matchWith) {
 						if ("criteriaField".equals(spec.getLabel())) {
 							List<String> fields = Lists.newArrayList(
-									Build.FIELD_PROJECT, 
-									Build.FIELD_PROJECT_OWNER, 
-									Build.FIELD_JOB, 
-									Build.FIELD_IMAGE);
+									Build.NAME_PROJECT, 
+									Build.NAME_JOB, 
+									Build.NAME_IMAGE);
 							return SuggestionUtils.suggest(fields, matchWith);
 						} else if ("criteriaValue".equals(spec.getLabel())) {
 							List<Element> operatorElements = terminalExpect.getState().findMatchedElementsByLabel("operator", true);
@@ -56,10 +55,12 @@ public class JobMatchBehavior extends ANTLRAssistBehavior {
 								List<Element> fieldElements = terminalExpect.getState().findMatchedElementsByLabel("criteriaField", true);
 								Preconditions.checkState(fieldElements.size() == 1);
 								String fieldName = JobMatch.getValue(fieldElements.get(0).getMatchedText());
-								if (fieldName.equals(Build.FIELD_PROJECT))
-									return SuggestionUtils.suggestProjects(matchWith);
-								else if (fieldName.equals(Build.FIELD_PROJECT_OWNER))
-									return SuggestionUtils.suggestUsers(matchWith);
+								if (fieldName.equals(Build.NAME_PROJECT)) {
+									if (!matchWith.contains("*"))
+										return SuggestionUtils.suggestProjects(matchWith);
+									else
+										return null;
+								}
 							}
 						} 
 						return null;
@@ -85,7 +86,7 @@ public class JobMatchBehavior extends ANTLRAssistBehavior {
 				String fieldName = JobMatch.getValue(fieldElements.iterator().next().getMatchedText());
 				try {
 					JobMatch.checkField(fieldName, AntlrUtils.getLexerRule(JobMatchLexer.ruleNames, suggestedLiteral));
-				} catch (OneException e) {
+				} catch (GeneralException e) {
 					return null;
 				}
 			}
@@ -101,7 +102,7 @@ public class JobMatchBehavior extends ANTLRAssistBehavior {
 			if ("criteriaValue".equals(spec.getLabel())) {
 				String unmatched = terminalExpect.getUnmatchedText();
 				if (unmatched.indexOf('"') == unmatched.lastIndexOf('"')) // only when we input criteria value
-					hints.add("Use * for wildcard match");
+					hints.add("Use '*' for wildcard match");
 			}
 		} 
 		return hints;

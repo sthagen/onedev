@@ -14,7 +14,7 @@ import org.antlr.v4.runtime.Recognizer;
 import io.onedev.commons.codeassist.AntlrUtils;
 import io.onedev.commons.codeassist.FenceAware;
 import io.onedev.commons.utils.StringUtils;
-import io.onedev.server.OneException;
+import io.onedev.server.GeneralException;
 import io.onedev.server.model.Build;
 import io.onedev.server.util.criteria.AndCriteria;
 import io.onedev.server.util.criteria.Criteria;
@@ -82,11 +82,9 @@ public class JobMatch extends Criteria<Build> {
 					checkField(fieldName, operator);
 					
 					switch (fieldName) {
-					case Build.FIELD_PROJECT:
+					case Build.NAME_PROJECT:
 						return new ProjectCriteria(fieldValue);
-					case Build.FIELD_PROJECT_OWNER:
-						return new ProjectOwnerCriteria(fieldValue);
-					case Build.FIELD_JOB:
+					case Build.NAME_JOB:
 						return new NameCriteria(fieldValue);
 					default:
 						return new ImageCriteria(fieldValue);
@@ -126,19 +124,18 @@ public class JobMatch extends Criteria<Build> {
 	}
 	
 	public static void checkField(String fieldName, int operator) {
-		if (fieldName.equals(Build.FIELD_PROJECT) 
-				|| fieldName.equals(Build.FIELD_PROJECT_OWNER)
-				|| fieldName.equals(Build.FIELD_JOB)
-				|| fieldName.equals(Build.FIELD_IMAGE)) {
+		if (fieldName.equals(Build.NAME_PROJECT) 
+				|| fieldName.equals(Build.NAME_JOB)
+				|| fieldName.equals(Build.NAME_IMAGE)) {
 			if (operator != JobMatchLexer.Is)
 				throw newOperatorException(fieldName, operator);
 		} else {
-			throw new OneException("Invalid field: " + fieldName);
+			throw new GeneralException("Invalid field: " + fieldName);
 		}
 	}
 	
-	private static OneException newOperatorException(String fieldName, int operator) {
-		return new OneException("Field '" + fieldName + "' is not applicable for operator '" 
+	private static GeneralException newOperatorException(String fieldName, int operator) {
+		return new GeneralException("Field '" + fieldName + "' is not applicable for operator '" 
 				+ AntlrUtils.getLexerRuleName(JobMatchLexer.ruleNames, operator) + "'");
 	}
 
@@ -172,7 +169,7 @@ public class JobMatch extends Criteria<Build> {
 	}
 	
 	@Override
-	public String asString() {
+	public String toStringWithoutParens() {
 		return criteria.toString();
 	}
 
