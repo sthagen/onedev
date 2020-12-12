@@ -53,7 +53,7 @@ onedev.server.symboltooltip = {
 						onedev.server.symboltooltip.removeTooltip(container);
 				}
 
-				var $tooltip = $("<div class='symbol-tooltip' id='" + containerId 
+				var $tooltip = $("<div class='symbol-tooltip overflow-auto' id='" + containerId 
 						+ "-symbol-tooltip'><img src=" + ajaxIndicatorUrl + "></img></div>");
 				container.tooltip = $tooltip[0];
 				container.tooltip.symbolEl = symbolEl;
@@ -82,10 +82,8 @@ onedev.server.symboltooltip = {
 		var $content = $("#" + contentId);
 		var $container = $content.parent();
 		var $tooltip = $("#" + $container.attr("id") + "-symbol-tooltip");
-		if ($tooltip.length != 0) {
-			$tooltip.empty().append($content.children());
-			$tooltip.align($tooltip.data("alignment"));
-		}
+		if ($tooltip.length != 0) 
+			$tooltip.html($content.children()).align($tooltip.data("alignment"));
 	},
 	
 	// this is public API which can be called from other components using this component

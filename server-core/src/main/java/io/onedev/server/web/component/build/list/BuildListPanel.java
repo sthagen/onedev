@@ -25,12 +25,11 @@ import org.apache.wicket.extensions.markup.html.repeater.data.table.IColumn;
 import org.apache.wicket.extensions.markup.html.repeater.util.SortableDataProvider;
 import org.apache.wicket.feedback.FencedFeedbackPanel;
 import org.apache.wicket.markup.ComponentTag;
-import org.apache.wicket.markup.head.CssHeaderItem;
-import org.apache.wicket.markup.head.IHeaderResponse;
 import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.markup.html.form.Form;
 import org.apache.wicket.markup.html.form.TextField;
+import org.apache.wicket.markup.html.link.BookmarkablePageLink;
 import org.apache.wicket.markup.html.link.Link;
 import org.apache.wicket.markup.html.panel.Fragment;
 import org.apache.wicket.markup.html.panel.Panel;
@@ -45,8 +44,8 @@ import org.apache.wicket.request.mapper.parameter.PageParameters;
 
 import com.google.common.collect.Sets;
 
-import io.onedev.server.OneDev;
 import io.onedev.server.GeneralException;
+import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.entitymanager.BuildParamManager;
 import io.onedev.server.entitymanager.ProjectManager;
@@ -89,6 +88,7 @@ import io.onedev.server.web.component.savedquery.SavedQueriesOpened;
 import io.onedev.server.web.component.stringchoice.StringMultiChoice;
 import io.onedev.server.web.page.project.builds.detail.dashboard.BuildDashboardPage;
 import io.onedev.server.web.page.project.commits.CommitDetailPage;
+import io.onedev.server.web.page.project.pullrequests.detail.activities.PullRequestActivitiesPage;
 import io.onedev.server.web.util.Cursor;
 import io.onedev.server.web.util.LoadableDetachableDataProvider;
 import io.onedev.server.web.util.PagingHistorySupport;
@@ -230,7 +230,7 @@ public abstract class BuildListPanel extends Panel {
 				super.onComponentTag(tag);
 				configure();
 				if (!isEnabled()) 
-					tag.put("disabled", "disabled");
+					tag.append("class", "disabled", " ");
 				if (!querySubmitted)
 					tag.put("title", "Query not submitted");
 				else if (queryModel.getObject() == null)
@@ -375,11 +375,7 @@ public abstract class BuildListPanel extends Panel {
 							query = new BuildQuery();
 						query.getSorts().clear();
 						query.getSorts().addAll(object);
-						String queryString = query.toString();
-						if (queryString.length() != 0)
-							queryStringModel.setObject(queryString);
-						else
-							queryStringModel.setObject(null);
+						queryStringModel.setObject(query.toString());
 						AjaxRequestTarget target = RequestCycle.get().find(AjaxRequestTarget.class); 
 						target.add(queryInput);
 						doQuery(target);
@@ -573,11 +569,31 @@ public abstract class BuildListPanel extends Panel {
 			}
 		});
 		
+		columns.add(new AbstractColumn<Build, Void>(Model.of("Branch/Tag")) {
+
+			@Override
+			public String getCssClass() {
+				return "branch-tag d-none d-lg-table-cell";
+			}
+
+			@Override
+			public void populateItem(Item<ICellPopulator<Build>> cellItem, String componentId,
+					IModel<Build> rowModel) {
+				Build build = rowModel.getObject();
+				if (build.getBranch() != null) 
+					cellItem.add(new Label(componentId, build.getBranch()));
+				else if (build.getTag() != null)
+					cellItem.add(new Label(componentId, build.getTag()));
+				else 
+					cellItem.add(new Label(componentId, "<i>n/a</i>").setEscapeModelStrings(false));
+			}
+		});
+
 		columns.add(new AbstractColumn<Build, Void>(Model.of(Build.NAME_COMMIT)) {
 
 			@Override
 			public String getCssClass() {
-				return "commit expanded";
+				return "commit d-none d-lg-table-cell";
 			}
 
 			@Override
@@ -600,12 +616,40 @@ public abstract class BuildListPanel extends Panel {
 			}
 		});
 
+		columns.add(new AbstractColumn<Build, Void>(Model.of(Build.NAME_PULL_REQUEST)) {
+
+			@Override
+			public String getCssClass() {
+				return "pull-request d-none d-xl-table-cell";
+			}
+
+			@Override
+			public void populateItem(Item<ICellPopulator<Build>> cellItem, String componentId,
+					IModel<Build> rowModel) {
+				Build build = rowModel.getObject();
+				if (build.getRequest() != null) {
+					if (SecurityUtils.canReadCode(build.getProject())) {
+						Fragment fragment = new Fragment(componentId, "pullRequestFrag", BuildListPanel.this);
+						Link<Void> link = new BookmarkablePageLink<Void>("link", PullRequestActivitiesPage.class, 
+								PullRequestActivitiesPage.paramsOf(build.getRequest()));
+						link.add(new Label("label", "#" + build.getRequest().getNumber()));
+						fragment.add(link);
+						cellItem.add(fragment);
+					} else {
+						cellItem.add(new Label(componentId, "#" + build.getRequest().getNumber()));
+					}
+				} else {
+					cellItem.add(new Label(componentId, "<i>n/a</i>").setEscapeModelStrings(false));
+				}
+			}
+		});
+		
 		for (String paramName: getListParams()) {
 			columns.add(new AbstractColumn<Build, Void>(Model.of(paramName)) {
 
 				@Override
 				public String getCssClass() {
-					return "param expanded";
+					return "param d-none d-xl-table-cell";
 				}
 
 				@Override
@@ -625,7 +669,7 @@ public abstract class BuildListPanel extends Panel {
 
 			@Override
 			public String getCssClass() {
-				return "date expanded";
+				return "date d-none d-xl-table-cell";
 			}
 
 			@Override
@@ -692,12 +736,6 @@ public abstract class BuildListPanel extends Panel {
 			}
 			
 		};
-	}
-	
-	@Override
-	public void renderHead(IHeaderResponse response) {
-		super.renderHead(response);
-		response.render(CssHeaderItem.forReference(new BuildListResourceReference()));
 	}
 	
 }

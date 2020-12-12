@@ -1,40 +1,13 @@
-table.reviews>tbody>tr>td {
-	padding: 6px 12px;
+.reviews>li+li {
+	margin-top: 1rem;
 }
-table.reviews>tbody>tr>td.status {
-	width: 16px;
-	padding-right: 0;
-}
-table.reviews>tbody>tr>td.status .icon {
-	margin: 0;
-}
-table.reviews>tbody>tr>td:first-child {
-	padding-left: 0;
-}
-table.reviews>tbody>tr>td:last-child {
-	padding-right: 0;
-}
-table.reviews>tbody>tr:first-child>td {
-	padding-top: 0;
-}
-table.reviews>tbody>tr:last-child>td {
-	padding-bottom: 0;
-}
-table.reviews>tbody>tr>td.actions {
-	font-size: 16px;
-	text-align: right;
-}
-table.reviews>tbody>tr>td.status span {
-	cursor: default;
-}
-
 .reviewer-avatar {
 	position: relative;
 }
 .reviewer-avatar .review-status {
 	position: absolute;
-	left: 12px;
-	top: 16px;
+	left: 14px;
+	top: 12px;
 }
 .reviewer-avatar .review-status.icon {
 	width: 10px;
@@ -42,11 +15,11 @@ table.reviews>tbody>tr>td.status span {
 }
 
 .review-status-approved.icon {
-	fill: limegreen;
+	fill: var(--success);
 }
 .review-status-request-for-changes.icon {
-	fill: tomato;
+	fill: var(--danger);
 }
 .review-status-pending.icon {
-	fill: orange;
+	fill: var(--warning);
 }

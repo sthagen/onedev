@@ -52,6 +52,7 @@ import io.onedev.server.git.BlobIdent;
 import io.onedev.server.git.GitUtils;
 import io.onedev.server.git.RefInfo;
 import io.onedev.server.model.Project;
+import io.onedev.server.model.PullRequest;
 import io.onedev.server.model.User;
 import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.Path;
@@ -75,6 +76,7 @@ import io.onedev.server.web.page.project.blob.ProjectBlobPage;
 import io.onedev.server.web.page.project.commits.CommitDetailPage;
 import io.onedev.server.web.util.LoadableDetachableDataProvider;
 import io.onedev.server.web.util.PagingHistorySupport;
+import io.onedev.server.web.util.ReferenceTransformer;
 
 @SuppressWarnings("serial")
 public class ProjectTagsPage extends ProjectPage {
@@ -297,11 +299,16 @@ public class ProjectTagsPage extends ProjectPage {
 				link.add(new Label("name", tagName));
 				fragment.add(link);
 				
-				fragment.add(new CommitStatusPanel("buildStatus", ref.getPeeledObj().copy()) {
+				fragment.add(new CommitStatusPanel("buildStatus", ref.getPeeledObj().copy(), ref.getRef().getName()) {
 
 					@Override
 					protected Project getProject() {
 						return ProjectTagsPage.this.getProject();
+					}
+
+					@Override
+					protected PullRequest getPullRequest() {
+						return null;
 					}
 					
 				});
@@ -327,12 +334,20 @@ public class ProjectTagsPage extends ProjectPage {
 					fragment.add(new WebMarkupContainer("annotated").setVisible(false));
 				}
 
-				RevCommit commit = (RevCommit) ref.getPeeledObj();
-				PageParameters params = CommitDetailPage.paramsOf(getProject(), commit.name());
+				fragment.add(new Label("message", new LoadableDetachableModel<String>() {
+
+					@Override
+					protected String load() {
+						RevCommit commit = (RevCommit) rowModel.getObject().getPeeledObj();
+						PageParameters params = CommitDetailPage.paramsOf(getProject(), commit.name());
+						String commitUrl = RequestCycle.get().urlFor(CommitDetailPage.class, params).toString();
+						ReferenceTransformer transformer = new ReferenceTransformer(getProject(), commitUrl);
+						return transformer.apply(commit.getShortMessage());
+					}
+					
+				}).setEscapeModelStrings(false));
 				
-				link = new ViewStateAwarePageLink<Void>("messageLink", CommitDetailPage.class, params);
-				link.add(new Label("message", commit.getShortMessage()));
-				fragment.add(link);
+				RevCommit commit = (RevCommit) ref.getPeeledObj();
 				
 				fragment.add(new ContributorPanel("contributor", commit.getAuthorIdent(), commit.getCommitterIdent()));
 				
@@ -458,6 +473,11 @@ public class ProjectTagsPage extends ProjectPage {
 	@Override
 	protected boolean isPermitted() {
 		return SecurityUtils.canReadCode(getProject());
+	}
+
+	@Override
+	protected Component newProjectTitle(String componentId) {
+		return new Label(componentId, "Tags");
 	}
 
 }

@@ -6,7 +6,6 @@ import java.util.stream.Collectors;
 import org.apache.commons.text.StringEscapeUtils;
 import org.apache.wicket.Component;
 import org.apache.wicket.ajax.AjaxRequestTarget;
-import org.apache.wicket.ajax.markup.html.AjaxLink;
 import org.apache.wicket.behavior.AttributeAppender;
 import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.markup.html.basic.Label;
@@ -56,7 +55,7 @@ abstract class AssistPanel extends Panel {
 
 			@Override
 			protected String getItemSelector() {
-				return ">table>tbody>tr";
+				return ">li";
 			}
 
 			@Override
@@ -66,7 +65,7 @@ abstract class AssistPanel extends Panel {
 						InputCompletion suggestion = suggestions.get(i);
 						Component suggestionItem = newSuggestionItem(suggestionsView.newChildId(), suggestion);
 						suggestionsView.add(suggestionItem);
-						String script = String.format("$('#%s .suggestions>table>tbody').append('<tr id=\"%s\"></tr>');", 
+						String script = String.format("$('#%s .suggestions').append('<li id=\"%s\"></li>');", 
 								AssistPanel.this.getMarkupId(), suggestionItem.getMarkupId());
 						target.prependJavaScript(script);
 						target.add(suggestionItem);
@@ -86,14 +85,6 @@ abstract class AssistPanel extends Panel {
 		for (String hint: hints) 
 			hintsView.add(new Label(hintsView.newChildId(), hint).setEscapeModelStrings(false));
 		
-		add(new AjaxLink<Void>("close") {
-
-			@Override
-			public void onClick(AjaxRequestTarget target) {
-				onClose(target);
-			}
-			
-		});
 		setOutputMarkupId(true);
 	}
 	

@@ -116,7 +116,6 @@ import io.onedev.server.entitymanager.PullRequestManager;
 import io.onedev.server.entitymanager.PullRequestQuerySettingManager;
 import io.onedev.server.entitymanager.PullRequestReviewManager;
 import io.onedev.server.entitymanager.PullRequestUpdateManager;
-import io.onedev.server.entitymanager.PullRequestVerificationManager;
 import io.onedev.server.entitymanager.PullRequestWatchManager;
 import io.onedev.server.entitymanager.RoleManager;
 import io.onedev.server.entitymanager.SettingManager;
@@ -151,7 +150,6 @@ import io.onedev.server.entitymanager.impl.DefaultPullRequestManager;
 import io.onedev.server.entitymanager.impl.DefaultPullRequestQuerySettingManager;
 import io.onedev.server.entitymanager.impl.DefaultPullRequestReviewManager;
 import io.onedev.server.entitymanager.impl.DefaultPullRequestUpdateManager;
-import io.onedev.server.entitymanager.impl.DefaultPullRequestVerificationManager;
 import io.onedev.server.entitymanager.impl.DefaultPullRequestWatchManager;
 import io.onedev.server.entitymanager.impl.DefaultRoleManager;
 import io.onedev.server.entitymanager.impl.DefaultSettingManager;
@@ -220,11 +218,11 @@ import io.onedev.server.search.code.SearchManager;
 import io.onedev.server.security.BasicAuthenticationFilter;
 import io.onedev.server.security.BearerAuthenticationFilter;
 import io.onedev.server.security.CodePullAuthorizationSource;
-import io.onedev.server.security.FilterChainConfigurator;
 import io.onedev.server.security.DefaultFilterChainResolver;
 import io.onedev.server.security.DefaultPasswordService;
 import io.onedev.server.security.DefaultRememberMeManager;
 import io.onedev.server.security.DefaultWebSecurityManager;
+import io.onedev.server.security.FilterChainConfigurator;
 import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.security.realm.AbstractAuthorizingRealm;
 import io.onedev.server.ssh.DefaultKeyPairProvider;
@@ -266,13 +264,12 @@ import io.onedev.server.web.DefaultUrlManager;
 import io.onedev.server.web.DefaultWicketFilter;
 import io.onedev.server.web.DefaultWicketServlet;
 import io.onedev.server.web.ExpectedExceptionContribution;
-import io.onedev.server.web.WebApplication;
 import io.onedev.server.web.ResourcePackScopeContribution;
+import io.onedev.server.web.WebApplication;
 import io.onedev.server.web.WebApplicationConfigurator;
 import io.onedev.server.web.avatar.AvatarManager;
 import io.onedev.server.web.avatar.DefaultAvatarManager;
 import io.onedev.server.web.component.diff.DiffRenderer;
-import io.onedev.server.web.component.markdown.AttachmentUploadServlet;
 import io.onedev.server.web.component.markdown.SourcePositionTrackExtension;
 import io.onedev.server.web.component.markdown.emoji.EmojiExtension;
 import io.onedev.server.web.component.taskbutton.TaskButton;
@@ -281,13 +278,7 @@ import io.onedev.server.web.editable.EditSupport;
 import io.onedev.server.web.editable.EditSupportLocator;
 import io.onedev.server.web.editable.EditSupportRegistry;
 import io.onedev.server.web.mapper.DynamicPathPageMapper;
-import io.onedev.server.web.page.DashboardPage;
-import io.onedev.server.web.page.base.BasePage;
-import io.onedev.server.web.page.layout.BuildListTab;
-import io.onedev.server.web.page.layout.IssueListTab;
-import io.onedev.server.web.page.layout.MainTab;
-import io.onedev.server.web.page.layout.ProjectListTab;
-import io.onedev.server.web.page.layout.PullRequestListTab;
+import io.onedev.server.web.page.layout.DefaultUICustomization;
 import io.onedev.server.web.page.layout.UICustomization;
 import io.onedev.server.web.page.project.blob.render.BlobRendererContribution;
 import io.onedev.server.web.page.test.TestPage;
@@ -358,7 +349,6 @@ public class CoreModule extends AbstractPluginModule {
 		bind(BuildDependenceManager.class).to(DefaultBuildDependenceManager.class);
 		bind(JobManager.class).to(DefaultJobManager.class);
 		bind(LogManager.class).to(DefaultLogManager.class);
-		bind(PullRequestVerificationManager.class).to(DefaultPullRequestVerificationManager.class);
 		bind(MailManager.class).to(DefaultMailManager.class);
 		bind(IssueManager.class).to(DefaultIssueManager.class);
 		bind(IssueFieldManager.class).to(DefaultIssueFieldManager.class);
@@ -563,8 +553,6 @@ public class CoreModule extends AbstractPluginModule {
 		bind(EditSupportRegistry.class).to(DefaultEditSupportRegistry.class);
 		bind(WebSocketManager.class).to(DefaultWebSocketManager.class);
 
-		bind(AttachmentUploadServlet.class);
-		
 		contributeFromPackage(EditSupport.class, EditSupport.class);
 		
 		bind(org.apache.wicket.protocol.http.WebApplication.class).to(WebApplication.class);
@@ -621,21 +609,7 @@ public class CoreModule extends AbstractPluginModule {
 		
 		bind(TaskButton.TaskFutureManager.class);
 		
-		bind(UICustomization.class).toInstance(new UICustomization() {
-			
-			@Override
-			public Class<? extends BasePage> getHomePage() {
-				return DashboardPage.class;
-			}
-			
-			@Override
-			public List<MainTab> getMainTabs() {
-				return Lists.newArrayList(
-						new ProjectListTab(), new IssueListTab(), 
-						new PullRequestListTab(), new BuildListTab());
-			}
-
-		});
+		bind(UICustomization.class).toInstance(new DefaultUICustomization());
 	}
 	
 	private void configureBuild() {

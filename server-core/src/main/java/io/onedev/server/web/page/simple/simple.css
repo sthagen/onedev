@@ -1,0 +1,76 @@
+.SimplePage {
+	background: url(/img/mesh.jpg) no-repeat left top fixed;
+	background-size: cover;
+}
+.SimplePage>body {
+	background: transparent;
+	display: flex;
+}
+.SimplePage .main {
+	padding: 1.75rem;
+	width: 450px;
+	margin: auto;
+}
+.SimplePage.GeneralErrorPage .main {
+	width: 900px;
+}
+
+.SimplePage .main .logo.icon {
+	color: var(--primary);
+	margin-bottom: 3rem;
+}
+.SimplePage .main .title {
+	margin-bottom: 5rem;
+}
+.SimplePage .main .btn:not(.btn-block) {
+	padding: 1rem 2.25rem;
+	margin: 0.75rem 1rem;
+}
+.SimplePage .main .signup {
+	margin-top: 2.5rem;
+}
+.SimplePage .main .sso {
+	margin-top: 6rem;
+}
+.SimplePage .main .sso img {
+	width: 24px;
+	height: 24px;
+}
+.SimplePage .main .feedbackPanel {
+	text-align: left;
+	margin-bottom: 1.5rem;
+}
+.SimplePage .main .form-group {
+	margin-bottom: 1.5rem;
+	text-align: left;
+}
+.SimplePage .main .form-control {
+	padding: 1rem 2rem;
+	background-color: var(--light);
+    border-color: var(--light);
+    color: var(--gray-dark);
+	height: auto;
+}
+.SimplePage .main .form-control:focus {
+    background-color: var(--light-gray);
+    border-color: var(--light-gray);
+}
+.SimplePage .main .wizard .title {
+	margin-top: -6rem;
+	color: var(--muted);
+}
+
+.SimplePage .main .error-detail {
+	margin-top: 2rem;
+	text-align: left;
+	white-space: pre-wrap;
+	word-wrap: break-word;
+	font-family: Consolas, "Liberation Mono", Menlo, Courier, monospace;
+}
+
+.PageNotFoundErrorPage h3 {
+	font-size: 3rem;
+}
+.PageNotFoundErrorPage .sub-title {
+	font-size: 1.5rem !important;
+}

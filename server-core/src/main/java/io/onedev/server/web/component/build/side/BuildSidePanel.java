@@ -4,9 +4,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
-
-import javax.annotation.Nullable;
 
 import org.apache.wicket.Component;
 import org.apache.wicket.core.request.handler.IPartialPageRequestHandler;
@@ -20,27 +17,25 @@ import org.apache.wicket.markup.html.link.Link;
 import org.apache.wicket.markup.html.list.ListItem;
 import org.apache.wicket.markup.html.list.ListView;
 import org.apache.wicket.markup.html.panel.Panel;
+import org.apache.wicket.model.AbstractReadOnlyModel;
 import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 
 import com.google.common.collect.Sets;
 
-import io.onedev.server.OneDev;
-import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.git.GitUtils;
 import io.onedev.server.model.Build;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.PullRequest;
 import io.onedev.server.model.User;
-import io.onedev.server.search.entity.EntityQuery;
-import io.onedev.server.search.entity.build.BuildQuery;
 import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.DateUtils;
 import io.onedev.server.util.Input;
+import io.onedev.server.util.Referenceable;
 import io.onedev.server.util.criteria.Criteria;
 import io.onedev.server.web.behavior.WebSocketObserver;
 import io.onedev.server.web.component.build.ParamValuesLabel;
-import io.onedev.server.web.component.entity.nav.EntityNavPanel;
+import io.onedev.server.web.component.entity.reference.ReferencePanel;
 import io.onedev.server.web.component.job.JobDefLink;
 import io.onedev.server.web.component.link.ViewStateAwarePageLink;
 import io.onedev.server.web.component.pullrequest.RequestStatusLabel;
@@ -49,7 +44,6 @@ import io.onedev.server.web.component.user.ident.UserIdentPanel;
 import io.onedev.server.web.page.builds.BuildListPage;
 import io.onedev.server.web.page.project.commits.CommitDetailPage;
 import io.onedev.server.web.page.project.pullrequests.detail.activities.PullRequestActivitiesPage;
-import io.onedev.server.web.util.CursorSupport;
 
 @SuppressWarnings("serial")
 public abstract class BuildSidePanel extends Panel {
@@ -61,30 +55,6 @@ public abstract class BuildSidePanel extends Panel {
 	@Override
 	protected void onInitialize() {
 		super.onInitialize();
-		
-		add(new EntityNavPanel<Build>("buildNav") {
-
-			@Override
-			protected EntityQuery<Build> parse(String queryString, boolean inProject) {
-				return BuildQuery.parse(inProject?getProject():null, queryString, true, true);
-			}
-
-			@Override
-			protected Build getEntity() {
-				return getBuild();
-			}
-
-			@Override
-			protected List<Build> query(EntityQuery<Build> query, int offset, int count, boolean inProject) {
-				return getBuildManager().query(inProject?getProject():null, query, offset, count);
-			}
-
-			@Override
-			protected CursorSupport<Build> getCursorSupport() {
-				return BuildSidePanel.this.getCursorSupport();
-			}
-			
-		});
 		
 		WebMarkupContainer general = new WebMarkupContainer("general") {
 
@@ -103,7 +73,22 @@ public abstract class BuildSidePanel extends Panel {
 		};
 		
 		general.setOutputMarkupId(true);
+		
 		add(general);
+
+		if (getBuild().getRefName() != null) {
+			String branch = GitUtils.ref2branch(getBuild().getRefName());
+			general.add(new Label("branch", branch).setVisible(branch != null));
+		} else {
+			general.add(new WebMarkupContainer("branch").setVisible(false));
+		}
+
+		if (getBuild().getRefName() != null) {
+			String tag = GitUtils.ref2tag(getBuild().getRefName());
+			general.add(new Label("tag", tag).setVisible(tag != null));
+		} else {
+			general.add(new WebMarkupContainer("tag").setVisible(false));
+		}
 		
 		CommitDetailPage.State commitState = new CommitDetailPage.State();
 		commitState.revision = getBuild().getCommitHash();
@@ -276,48 +261,60 @@ public abstract class BuildSidePanel extends Panel {
 		
 		dependencesContainer.setVisible(dependentsLink.isVisible() || dependenciesLink.isVisible());
 		
-		add(new ListView<PullRequest>("pullRequests", new LoadableDetachableModel<List<PullRequest>>() {
+		add(new WebMarkupContainer("pullRequest") {
 
 			@Override
-			protected List<PullRequest> load() {
-				return getBuild().getVerifications()
-						.stream()
-						.map(it->it.getRequest())
-						.collect(Collectors.toList());
-			}
-			
-		}) {
+			protected void onInitialize() {
+				super.onInitialize();
 
-			@Override
-			protected void populateItem(ListItem<PullRequest> item) {
-				PullRequest request = item.getModelObject();
+				PullRequest request = getBuild().getRequest();
 
-				Link<Void> link = new ViewStateAwarePageLink<Void>("title", 
-						PullRequestActivitiesPage.class, 
-						PullRequestActivitiesPage.paramsOf(request));
-				link.add(new Label("label", "#" + request.getNumber() + " " + request.getTitle()));
-				item.add(link);
-				item.add(new RequestStatusLabel("status", item.getModel()));
+				if (request != null) {
+					Link<Void> link = new ViewStateAwarePageLink<Void>("title", 
+							PullRequestActivitiesPage.class, 
+							PullRequestActivitiesPage.paramsOf(request));
+					link.add(new Label("label", "#" + request.getNumber() + " " + request.getTitle()));
+					add(link);
+					add(new RequestStatusLabel("status", new AbstractReadOnlyModel<PullRequest>() {
+	
+						@Override
+						public PullRequest getObject() {
+							return getBuild().getRequest();
+						}
+						
+					}));
+				} else {
+					add(new WebMarkupContainer("title").add(new WebMarkupContainer("label")));
+					add(new WebMarkupContainer("status"));
+				}
 			}
 			
 			@Override
 			protected void onConfigure() {
-				setVisible(!getModelObject().isEmpty() && SecurityUtils.canReadCode(getProject()));
+				setVisible(getBuild().getRequest() != null && SecurityUtils.canReadCode(getProject()));
 			}
 			
-		});		
+		});
 
-		add(newDeleteLink("delete"));
+		add(new ReferencePanel("reference") {
+
+			@Override
+			protected Referenceable getReferenceable() {
+				return getBuild();
+			}
+			
+		});
+		
+		if (SecurityUtils.canManage(getBuild()))
+			add(newDeleteLink("delete"));
+		else
+			add(new WebMarkupContainer("delete").setVisible(false));
 		
 		setOutputMarkupId(true);
 	}
 
 	private Project getProject() {
 		return getBuild().getProject();
-	}
-	
-	private BuildManager getBuildManager() {
-		return OneDev.getInstance(BuildManager.class);
 	}
 	
 	@Override
@@ -328,9 +325,6 @@ public abstract class BuildSidePanel extends Panel {
 
 	protected abstract Build getBuild();
 
-	@Nullable
-	protected abstract CursorSupport<Build> getCursorSupport();
-	
 	protected abstract Component newDeleteLink(String componentId);
 	
 }

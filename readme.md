@@ -3,10 +3,10 @@
 With Issue Tracking, Git Management, Pull Request, and Build Farm. Simple yet Powerful.
 
 <div style="font-size: 18px;">
-| <a href="https://code.onedev.io/projects/onedev-manual/blob/master/pages/5min-tutorial.md">A Five Minutes Tutorial</a> 
-| <a href="https://code.onedev.io/projects/onedev-manual/blob/master/pages/installation-guide.md">Installation Guide</a> 
-| <a href="https://code.onedev.io/projects/onedev-manual/blob/master/pages/usage-scenarios.md">Usage Scenarios</a>
-| <a href="https://code.onedev.io/projects/onedev-manual/blob/master/pages/development-guide.md">Development Guide</a>
+| <a href="https://code.onedev.io/projects/onedev-manual/blob/main/pages/5min-tutorial.md">A Five Minutes Tutorial</a> 
+| <a href="https://code.onedev.io/projects/onedev-manual/blob/main/pages/installation-guide.md">Installation Guide</a> 
+| <a href="https://code.onedev.io/projects/onedev-manual/blob/main/pages/usage-scenarios.md">Usage Scenarios</a>
+| <a href="https://code.onedev.io/projects/onedev-manual/blob/main/pages/development-guide.md">Development Guide</a>
 | <a href="https://code.onedev.io/projects/onedev-manual/blob">All Documentations</a> |
 </div>
 <p style="margin-bottom: 20px;">
@@ -19,7 +19,7 @@ Trivial to set up a build farm to run massive CI builds as pods in Kubernetes. N
 
 ### Create Build Spec in a Breeze
 
-No complex yaml grammars to remember. Create build spec for your projects with GUI and auto-completion instantly without learning.
+Build spec is defined in a yaml file together with your code, and OneDev provides a GUI to create the build spec without any learning curve.
 
 ![Cispec](doc/images/cispec.gif)
 
@@ -75,7 +75,7 @@ Perform sophisticated queries against projects, commits, builds, issues, pull re
 
 Configure issues to transit to desired state upon commit, build or pull request events. See commit and pull request events in issue activities. Query fixed issues between builds. Find builds or pull requests fixing particular issues or commits
 
-![Issue Query](doc/images/issue-query.gif)
+![Issue Query](doc/images/issue-code-build-integration.gif)
 
 ### Fine Grained Permission Control
 

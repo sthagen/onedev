@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import javax.annotation.Nullable;
 import javax.validation.ValidationException;
 
 import com.google.common.collect.Lists;
@@ -14,7 +15,9 @@ import io.onedev.server.model.support.inputspec.textinput.defaultvalueprovider.D
 public class TextInput {
 
 	public static String getPropertyDef(InputSpec inputSpec, Map<String, Integer> indexes, 
-			String pattern, DefaultValueProvider defaultValueProvider) {
+			@Nullable String pattern, DefaultValueProvider defaultValueProvider) {
+		if (pattern != null)
+			pattern = InputSpec.escape(pattern);
 		int index = indexes.get(inputSpec.getName());
 		StringBuffer buffer = new StringBuffer();
 		inputSpec.appendField(buffer, index, "String");
@@ -24,7 +27,7 @@ public class TextInput {
 		if (pattern != null)
 			buffer.append("    @Pattern(regexp=\"" + pattern + "\", message=\"Should match regular expression: " + pattern + "\")\n");
 		inputSpec.appendMethods(buffer, index, "String", null, defaultValueProvider);
-		
+
 		return buffer.toString();
 	}
 

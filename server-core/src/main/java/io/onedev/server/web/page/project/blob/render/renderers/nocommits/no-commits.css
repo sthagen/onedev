@@ -1,16 +1,4 @@
-.no-commits {
-	margin: 20px;
-}
-.no-commits>.title {
-	font-size: 18px;
-	font-weight: bold;
-	margin-bottom: 20px;
-}
-.push-instructions {
-	padding: 12px;
-}
-.push-instructions .title {
-	font-weight: bold;
-	font-size: 16px;
-	margin-bottom: 12px;
+.no-commits img {
+	width: 240px;
+	height: 240px;
 }

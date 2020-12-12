@@ -90,7 +90,7 @@ class PullRequestUpdatedPanel extends GenericPanel<PullRequestUpdate> {
 					
 				});
 
-				CommitStatusPanel commitStatus = new CommitStatusPanel("buildStatus", commit.copy()) {
+				CommitStatusPanel commitStatus = new CommitStatusPanel("buildStatus", commit.copy(), null) {
 					
 					@Override
 					protected String getCssClasses() {
@@ -100,6 +100,11 @@ class PullRequestUpdatedPanel extends GenericPanel<PullRequestUpdate> {
 					@Override
 					protected Project getProject() {
 						return getUpdate().getRequest().getTarget().getProject();
+					}
+
+					@Override
+					protected PullRequest getPullRequest() {
+						return getUpdate().getRequest();
 					}
 					
 				};
@@ -119,20 +124,6 @@ class PullRequestUpdatedPanel extends GenericPanel<PullRequestUpdate> {
 				browseState.requestId = getUpdate().getRequest().getId();
 				params = ProjectBlobPage.paramsOf(project, browseState);
 				item.add(new ViewStateAwarePageLink<Void>("browseCode", ProjectBlobPage.class, params));
-				
-				item.add(AttributeAppender.append("class", new LoadableDetachableModel<String>() {
-
-					@Override
-					protected String load() {
-						commitStatus.configure();
-						if (commitStatus.isVisible())
-							return "commit with-status";
-						else
-							return "commit";
-					}
-					
-				}));
-				
 			}
 			
 		});

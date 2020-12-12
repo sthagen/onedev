@@ -143,14 +143,8 @@ public abstract class CodeCommentPanel extends Panel {
 
 					@Override
 					protected AttachmentSupport getAttachmentSupport() {
-						return new ProjectAttachmentSupport(getComment().getProject(), getComment().getUUID()) {
-
-							@Override
-							public boolean canDeleteAttachment() {
-								return SecurityUtils.canManageCodeComments(getProject());
-							}
-							
-						};
+						return new ProjectAttachmentSupport(getComment().getProject(), getComment().getUUID(), 
+								SecurityUtils.canManageCodeComments(getProject()));
 					}
 
 					@Override
@@ -298,14 +292,8 @@ public abstract class CodeCommentPanel extends Panel {
 
 					@Override
 					protected AttachmentSupport getAttachmentSupport() {
-						return new ProjectAttachmentSupport(getProject(), getComment().getUUID()) {
-
-							@Override
-							public boolean canDeleteAttachment() {
-								return SecurityUtils.canManageCodeComments(getProject());
-							}
-							
-						};
+						return new ProjectAttachmentSupport(getProject(), getComment().getUUID(), 
+								SecurityUtils.canManageCodeComments(getProject()));
 					}
 
 					@Override
@@ -385,8 +373,7 @@ public abstract class CodeCommentPanel extends Panel {
 			public void onClick(AjaxRequestTarget target) {
 				replyContainer.remove();
 				OneDev.getInstance(CodeCommentReplyManager.class).delete(getReply(replyId));
-				String script = String.format("$('#%s').remove();", replyContainer.getMarkupId());
-				target.appendJavaScript(script);
+				target.appendJavaScript(String.format("$('#%s').remove();", replyContainer.getMarkupId()));
 			}
 			
 		});
@@ -421,16 +408,13 @@ public abstract class CodeCommentPanel extends Panel {
 	protected void onInitialize() {
 		super.onInitialize();
 
-		Component outdatedLink;
-		if (getPullRequest() != null) {
-			PageParameters params = PullRequestChangesPage.paramsOf(getPullRequest(), getComment());
-
-			add(outdatedLink = new BookmarkablePageLink<Void>("outdatedContext", PullRequestChangesPage.class, params) {
-
-				@Override
-				protected void onConfigure() {
-					super.onConfigure();
-					
+		WebMarkupContainer outdatedContext = new WebMarkupContainer("outdatedContext") {
+			
+			@Override
+			protected void onConfigure() {
+				super.onConfigure();
+				
+				if (getPullRequest() != null) {
 					CodeComment comment = getComment();
 					if (getPage() instanceof ProjectBlobPage) {
 						setVisible(comment.isContextChanged(getPullRequest()));
@@ -445,12 +429,19 @@ public abstract class CodeCommentPanel extends Panel {
 					} else {
 						setVisible(false);
 					}
+				} else {
+					setVisible(false);
 				}
-				
-			}.setOutputMarkupPlaceholderTag(true));
+			}
+			
+		};
+		add(outdatedContext.setOutputMarkupPlaceholderTag(true));
+		
+		if (getPullRequest() != null) {
+			PageParameters params = PullRequestChangesPage.paramsOf(getPullRequest(), getComment());
+			outdatedContext.add(new BookmarkablePageLink<Void>("link", PullRequestChangesPage.class, params));
 		} else {
-			add(new WebMarkupContainer("outdatedContext").setVisible(false));
-			outdatedLink = null;
+			outdatedContext.add(new WebMarkupContainer("link"));
 		}
 		
 		add(newCommentContainer());
@@ -509,8 +500,7 @@ public abstract class CodeCommentPanel extends Panel {
 					prevReplyMarkupId = newReplyContainer.getMarkupId();
 				}
 				
-				if (outdatedLink != null)
-					handler.add(outdatedLink);
+				handler.add(outdatedContext);
 			}
 			
 			@Override
@@ -610,14 +600,8 @@ public abstract class CodeCommentPanel extends Panel {
 
 			@Override
 			protected AttachmentSupport getAttachmentSupport() {
-				return new ProjectAttachmentSupport(getProject(), getComment().getUUID()) {
-
-					@Override
-					public boolean canDeleteAttachment() {
-						return SecurityUtils.canManageCodeComments(getProject());
-					}
-					
-				};
+				return new ProjectAttachmentSupport(getProject(), getComment().getUUID(),
+						SecurityUtils.canManageCodeComments(getProject()));
 			}
 
 			@Override

@@ -1,5 +1,6 @@
 package io.onedev.server.web.page.my.password;
 
+import org.apache.wicket.Component;
 import org.apache.wicket.behavior.AttributeAppender;
 import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.model.AbstractReadOnlyModel;
@@ -30,7 +31,7 @@ public class MyPasswordPage extends MyPage {
 				message = "You are currently authenticated via external system, "
 						+ "please change password there instead";
 			}
-			add(new Label("content", message).add(AttributeAppender.append("class", "alert alert-warning")));
+			add(new Label("content", message).add(AttributeAppender.append("class", "alert alert-light-warning alert-notice mb-0")));
 		} else {
 			add(new PasswordEditPanel("content", new AbstractReadOnlyModel<User>() {
 
@@ -42,5 +43,10 @@ public class MyPasswordPage extends MyPage {
 			}));
 		}
 	}
-	
+
+	@Override
+	protected Component newTopbarTitle(String componentId) {
+		return new Label(componentId, "Change My Password");
+	}
+
 }

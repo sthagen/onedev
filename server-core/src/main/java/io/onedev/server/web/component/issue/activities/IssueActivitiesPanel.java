@@ -58,7 +58,7 @@ import io.onedev.server.web.component.markdown.AttachmentSupport;
 import io.onedev.server.web.component.project.comment.CommentInput;
 import io.onedev.server.web.component.user.ident.Mode;
 import io.onedev.server.web.component.user.ident.UserIdentPanel;
-import io.onedev.server.web.page.security.LoginPage;
+import io.onedev.server.web.page.simple.security.LoginPage;
 import io.onedev.server.web.util.DeleteCallback;
 import io.onedev.server.web.util.ProjectAttachmentSupport;
 
@@ -231,14 +231,8 @@ public abstract class IssueActivitiesPanel extends Panel {
 
 				@Override
 				protected AttachmentSupport getAttachmentSupport() {
-					return new ProjectAttachmentSupport(getProject(), getIssue().getUUID()) {
-
-						@Override
-						public boolean canDeleteAttachment() {
-							return SecurityUtils.canManageIssues(getProject());
-						}
-						
-					};
+					return new ProjectAttachmentSupport(getProject(), getIssue().getUUID(), 
+							SecurityUtils.canManageIssues(getProject()));
 				}
 
 				@Override
@@ -374,5 +368,5 @@ public abstract class IssueActivitiesPanel extends Panel {
 				
 		return fragment;
 	}
-	
+
 }

@@ -20,6 +20,7 @@ import io.onedev.server.buildspec.BuildSpec;
 import io.onedev.server.buildspec.job.Job;
 import io.onedev.server.git.Blob;
 import io.onedev.server.model.Project;
+import io.onedev.server.model.PullRequest;
 import io.onedev.server.web.behavior.AbstractPostAjaxBehavior;
 import io.onedev.server.web.component.MultilineLabel;
 import io.onedev.server.web.component.job.RunJobLink;
@@ -49,18 +50,23 @@ public class BuildSpecBlobViewPanel extends BlobViewPanel {
 				Fragment validFrag = new Fragment("content", "validFrag", this);			
 				if (!buildSpec.getJobs().isEmpty()) {
 					Fragment hasJobsFrag = new Fragment("jobs", "hasJobsFrag", this);
-					
+					hasJobsFrag.add(AttributeAppender.append("class", "d-flex d-none"));
 					RepeatingView navsView = new RepeatingView("navs");
 					RepeatingView jobsView = new RepeatingView("contents");
 					for (Job job: buildSpec.getJobs()) {
 						WebMarkupContainer nav = new WebMarkupContainer(navsView.newChildId());
 						nav.add(new Label("jobName", job.getName()));
 						nav.add(AttributeAppender.append("data-name", job.getName()));
-						nav.add(new RunJobLink("run", context.getCommit().copy(), job.getName()) {
+						nav.add(new RunJobLink("run", context.getCommit().copy(), job.getName(), getContext().getRefName()) {
 
 							@Override
 							protected Project getProject() {
 								return context.getProject();
+							}
+
+							@Override
+							protected PullRequest getPullRequest() {
+								return context.getPullRequest();
 							}
 
 						});
@@ -72,17 +78,17 @@ public class BuildSpecBlobViewPanel extends BlobViewPanel {
 					
 					validFrag.add(hasJobsFrag);
 				} else {
-					validFrag.add(new Label("jobs", "No jobs defined").add(AttributeAppender.append("class", "not-defined")));
+					validFrag.add(new Label("jobs", "No jobs defined").add(AttributeAppender.append("class", "not-defined alert alert-notice alert-light-warning d-flex d-none")));
 				}
 				
 				if (!buildSpec.getProperties().isEmpty())
 					validFrag.add(PropertyContext.view("properties", buildSpec, "properties"));
 				else
-					validFrag.add(new Label("properties", "No properties defined").add(AttributeAppender.append("class", "not-defined")));
+					validFrag.add(new Label("properties", "No properties defined").add(AttributeAppender.append("class", "not-defined alert alert-notice alert-light-warning d-flex d-none")));
 					
 				add(validFrag);
 			} else {
-				add(new Label("content", "Build spec not defined").add(AttributeAppender.append("class", "not-defined")));
+				add(new Label("content", "Build spec not defined").add(AttributeAppender.append("class", "not-defined m-4 alert alert-notice alert-light-warning")));
 			}
 		} catch (Exception e) {
 			Fragment invalidFrag = new Fragment("content", "invalidFrag", this);

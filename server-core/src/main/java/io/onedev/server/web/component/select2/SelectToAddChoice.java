@@ -40,8 +40,6 @@ public abstract class SelectToAddChoice<T> extends Select2Choice<T> {
 	protected void onInitialize() {
 		super.onInitialize();
 		
-		setOutputMarkupId(true);
-		
 		add(new AjaxFormComponentUpdatingBehavior("change") {
 
 			@Override
@@ -54,7 +52,8 @@ public abstract class SelectToAddChoice<T> extends Select2Choice<T> {
 				target.appendJavaScript(script);
 			}
 					
-		});
+		});		
+		setOutputMarkupId(true);
 	}
 
 	protected abstract void onSelect(AjaxRequestTarget target, T selection);

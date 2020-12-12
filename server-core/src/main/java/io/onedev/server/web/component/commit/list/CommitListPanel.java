@@ -52,14 +52,15 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Lists;
 
-import io.onedev.server.OneDev;
 import io.onedev.server.GeneralException;
+import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.git.BlobIdent;
 import io.onedev.server.git.GitUtils;
 import io.onedev.server.git.RefInfo;
 import io.onedev.server.git.command.RevListCommand;
 import io.onedev.server.model.Project;
+import io.onedev.server.model.PullRequest;
 import io.onedev.server.search.commit.CommitCriteria;
 import io.onedev.server.search.commit.CommitQuery;
 import io.onedev.server.search.commit.MessageCriteria;
@@ -71,6 +72,7 @@ import io.onedev.server.util.Constants;
 import io.onedev.server.util.ProjectAndRevision;
 import io.onedev.server.util.patternset.PatternSet;
 import io.onedev.server.web.behavior.CommitQueryBehavior;
+import io.onedev.server.web.behavior.RunTaskBehavior;
 import io.onedev.server.web.component.commit.message.CommitMessagePanel;
 import io.onedev.server.web.component.commit.status.CommitStatusPanel;
 import io.onedev.server.web.component.contributorpanel.ContributorPanel;
@@ -318,7 +320,7 @@ public abstract class CommitListPanel extends Panel {
 				super.onComponentTag(tag);
 				configure();
 				if (!isEnabled()) 
-					tag.put("disabled", "disabled");
+					tag.append("class", "disabled", " ");
 				if (!querySubmitted)
 					tag.put("title", "Query not submitted");
 				else if (queryModel.getObject() == null)
@@ -407,52 +409,68 @@ public abstract class CommitListPanel extends Panel {
 		
 		foot.add(new AjaxLink<Void>("more") {
 
+			private RunTaskBehavior taskBehavior;
+			
+			@Override
+			protected void onInitialize() {
+				super.onInitialize();
+				
+				add(taskBehavior = new RunTaskBehavior() {
+
+					@Override
+					protected void runTask(AjaxRequestTarget target) {
+						page++;
+						
+						Commits commits = commitsModel.getObject();
+						int commitIndex = 0;
+						int lastCommitIndex = 0;
+						for (int i=0; i<commits.last.size(); i++) {
+							RevCommit lastCommit = commits.last.get(i);
+							RevCommit currentCommit = commits.current.get(i);
+							if (lastCommit == null) {
+								if (currentCommit == null) {
+									if (!commits.last.get(i+1).name().equals(commits.current.get(i+1).name())) 
+										replaceItem(target, i);
+								} else {
+									addCommitClass(replaceItem(target, i), commitIndex);
+								}
+							} else {
+								if (currentCommit == null) {
+									replaceItem(target, i);
+								} else if (commitIndex != lastCommitIndex 
+										|| !lastCommit.name().equals(currentCommit.name())){
+									addCommitClass(replaceItem(target, i), commitIndex);
+								}						
+							}
+							if (lastCommit != null)
+								lastCommitIndex++;
+							if (currentCommit != null)
+								commitIndex++;
+						}
+
+						StringBuilder builder = new StringBuilder();
+						for (int i=commits.last.size(); i<commits.current.size(); i++) {
+							Component item = newCommitItem(commitsView.newChildId(), i);
+							if (commits.current.get(i) != null)
+								addCommitClass(item, commitIndex++);
+							commitsView.add(item);
+							target.add(item);
+							builder.append(String.format("$('#%s>.list').append(\"<li id='%s'></li>\");", 
+									body.getMarkupId(), item.getMarkupId()));
+						}
+						target.prependJavaScript(builder);
+						target.add(foot);
+						target.appendJavaScript(renderCommitGraph());
+						
+						getProject().cacheCommitStatus(getBuildManager().queryStatus(getProject(), getCommitIdsToQueryStatus()));						
+					}
+					
+				});
+			}
+
 			@Override
 			public void onClick(AjaxRequestTarget target) {
-				page++;
-				
-				Commits commits = commitsModel.getObject();
-				int commitIndex = 0;
-				int lastCommitIndex = 0;
-				for (int i=0; i<commits.last.size(); i++) {
-					RevCommit lastCommit = commits.last.get(i);
-					RevCommit currentCommit = commits.current.get(i);
-					if (lastCommit == null) {
-						if (currentCommit == null) {
-							if (!commits.last.get(i+1).name().equals(commits.current.get(i+1).name())) 
-								replaceItem(target, i);
-						} else {
-							addCommitClass(replaceItem(target, i), commitIndex);
-						}
-					} else {
-						if (currentCommit == null) {
-							replaceItem(target, i);
-						} else if (commitIndex != lastCommitIndex 
-								|| !lastCommit.name().equals(currentCommit.name())){
-							addCommitClass(replaceItem(target, i), commitIndex);
-						}						
-					}
-					if (lastCommit != null)
-						lastCommitIndex++;
-					if (currentCommit != null)
-						commitIndex++;
-				}
-
-				StringBuilder builder = new StringBuilder();
-				for (int i=commits.last.size(); i<commits.current.size(); i++) {
-					Component item = newCommitItem(commitsView.newChildId(), i);
-					if (commits.current.get(i) != null)
-						addCommitClass(item, commitIndex++);
-					commitsView.add(item);
-					target.add(item);
-					builder.append(String.format("$('#%s>.list').append(\"<li id='%s'></li>\");", 
-							body.getMarkupId(), item.getMarkupId()));
-				}
-				target.prependJavaScript(builder);
-				target.add(foot);
-				target.appendJavaScript(renderCommitGraph());
-				
-				getProject().cacheCommitStatus(getBuildManager().queryStatus(getProject(), getCommitIdsToQueryStatus()));
+				taskBehavior.requestRun(target);
 			}
 
 			@Override
@@ -620,7 +638,7 @@ public abstract class CommitListPanel extends Panel {
 			item.add(new CopyToClipboardLink("copyHash", Model.of(commit.name())));
 			
 			getCommitIdsToQueryStatus().add(commit.copy());
-			CommitStatusPanel commitStatus = new CommitStatusPanel("buildStatus", commit.copy()) {
+			CommitStatusPanel commitStatus = new CommitStatusPanel("buildStatus", commit.copy(), null) {
 
 				@Override
 				protected String getCssClasses() {
@@ -630,6 +648,11 @@ public abstract class CommitListPanel extends Panel {
 				@Override
 				protected Project getProject() {
 					return CommitListPanel.this.getProject();
+				}
+
+				@Override
+				protected PullRequest getPullRequest() {
+					return null;
 				}
 				
 			};
@@ -740,7 +763,10 @@ public abstract class CommitListPanel extends Panel {
 	public void renderHead(IHeaderResponse response) {
 		super.renderHead(response);
 		response.render(JavaScriptHeaderItem.forReference(new CommitListResourceReference()));
-		response.render(OnDomReadyHeaderItem.forScript(renderCommitGraph()));
+		
+		String jsonOfCommits = asJSON(commitsModel.getObject().current);
+		String script = String.format("onedev.server.commitList.onDomReady('%s', %s);", body.getMarkupId(), jsonOfCommits);		
+		response.render(OnDomReadyHeaderItem.forScript(script));
 	}
 	
 	/*

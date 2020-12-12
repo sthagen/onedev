@@ -115,6 +115,42 @@ public class NoCommitsPanel extends Panel {
 				}
 				
 			});		
+			
+			add(new DropdownLink("pushInstructions") {
+
+				@Override
+				protected void onInitialize(FloatingPanel dropdown) {
+					super.onInitialize(dropdown);
+					dropdown.add(AttributeAppender.append("style", "max-width:480px;"));
+				}
+
+				@Override
+				protected Component newContent(String id, FloatingPanel dropdown) {
+					return new GitProtocolPanel(id) {
+						
+						@Override
+						protected Component newContent(String componentId) {
+							Fragment fragment = new Fragment(id, "pushInstructionsFrag", NoCommitsPanel.this);
+							fragment.add(new Label("url", new LoadableDetachableModel<String>() {
+
+								@Override
+								protected String load() {
+									return getProtocolUrl();
+								}
+								
+							}));
+							return fragment;
+						}
+						
+						@Override
+						protected Project getProject() {
+							return context.getProject();
+						}
+						
+					};
+				}
+				
+			});
 		} else {
 			add(new WebMarkupContainer("addFiles") {
 
@@ -125,43 +161,17 @@ public class NoCommitsPanel extends Panel {
 				}
 				
 			});
+			add(new WebMarkupContainer("pushInstructions") {
+				
+				@Override
+				protected void onComponentTag(ComponentTag tag) {
+					super.onComponentTag(tag);
+					tag.setName("span");
+				}
+				
+			});
 		}
 
-		add(new DropdownLink("pushInstructions") {
-
-			@Override
-			protected void onInitialize(FloatingPanel dropdown) {
-				super.onInitialize(dropdown);
-				dropdown.add(AttributeAppender.append("class", "push-instructions"));
-			}
-
-			@Override
-			protected Component newContent(String id, FloatingPanel dropdown) {
-				return new GitProtocolPanel(id) {
-					
-					@Override
-					protected Component newContent(String componentId) {
-						Fragment fragment = new Fragment(id, "pushInstructionsFrag", NoCommitsPanel.this);
-						fragment.add(new Label("url", new LoadableDetachableModel<String>() {
-
-							@Override
-							protected String load() {
-								return getProtocolUrl();
-							}
-							
-						}));
-						return fragment;
-					}
-					
-					@Override
-					protected Project getProject() {
-						return context.getProject();
-					}
-					
-				};
-			}
-			
-		});
 		setOutputMarkupId(true);
 	}
 

@@ -20,6 +20,7 @@ import org.apache.wicket.markup.head.IHeaderResponse;
 import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.markup.html.form.Form;
+import org.apache.wicket.markup.html.link.BookmarkablePageLink;
 import org.apache.wicket.markup.html.panel.Fragment;
 import org.apache.wicket.markup.html.panel.Panel;
 import org.apache.wicket.markup.repeater.RepeatingView;
@@ -45,9 +46,9 @@ import io.onedev.server.web.behavior.WebSocketObserver;
 import io.onedev.server.web.component.issue.IssueStateLabel;
 import io.onedev.server.web.component.markdown.AttachmentSupport;
 import io.onedev.server.web.component.project.comment.CommentInput;
-import io.onedev.server.web.component.sideinfo.SideInfoLink;
 import io.onedev.server.web.editable.BeanContext;
 import io.onedev.server.web.editable.BeanEditor;
+import io.onedev.server.web.page.project.issues.create.NewIssuePage;
 import io.onedev.server.web.util.ProjectAttachmentSupport;
 
 @SuppressWarnings("serial")
@@ -136,14 +137,8 @@ public abstract class IssueOperationsPanel extends Panel {
 
 							@Override
 							protected AttachmentSupport getAttachmentSupport() {
-								return new ProjectAttachmentSupport(getProject(), getIssue().getUUID()) {
-									
-									@Override
-									public boolean canDeleteAttachment() {
-										return SecurityUtils.canManageIssues(getProject());
-									}
-									
-								};
+								return new ProjectAttachmentSupport(getProject(), getIssue().getUUID(), 
+										SecurityUtils.canManageIssues(getProject()));
 							}
 
 							@Override
@@ -219,7 +214,8 @@ public abstract class IssueOperationsPanel extends Panel {
 			
 		}));
 		
-		addOrReplace(new SideInfoLink("moreInfo"));
+		addOrReplace(new BookmarkablePageLink<Void>("newIssue", NewIssuePage.class, 
+				NewIssuePage.paramsOf(getIssue().getProject())));
 		
 		newEmptyActionOptions(null);
 		

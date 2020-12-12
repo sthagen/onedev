@@ -1,29 +1,17 @@
 .text-diff {
-	border: 1px solid #E0E0E0;
-	position: relative;
-}
-.text-diff>.head {
-	padding: 8px;
-	border-bottom: 1px solid #E0E0E0;
-}
-.text-diff>.head .diff-title span {
-	word-break: break-all;
-}
-.text-diff>.head .actions>a {
-	margin-right: 0;
-}
-.text-diff>.head>div {
-	margin-right: 8px;
-}
-.text-diff>.head>div:last-child {
-	margin-right: 0;
-}
-
-.text-diff>.body {
-	font-family: Consolas, "Liberation Mono", Menlo, Courier, monospace;
-	font-size: 12px;
 	table-layout: fixed;
-	border-collapse: separate;
+	width: 100%;
+	border-collapse: separate;	
+}
+.text-diff>caption {
+	caption-side: top;
+}
+.text-diff>caption>div {
+	border-radius: 0.42rem 0.42rem 0 0;
+}
+.text-diff>tbody {
+	font-family: Consolas, "Liberation Mono", Menlo, Courier, monospace;
+	font-size: 0.9rem;
 }
 
 /* 
@@ -31,109 +19,109 @@
  * focusing on expander link. This relates to negative margin top 
  * specified for change class in revision diff panel
  */
-.text-diff>.body>tbody>tr>td {
+.text-diff>tbody>tr>td {
 	position: relative;
 }
-.text-diff>.body>tbody>tr>td.number {
-	padding: 0 4px;
-	border-left: 1px solid #E0E0E0;
+.text-diff>tbody>tr>td.number {
+	padding: 0 0.3rem;
+	border-left: 1px solid var(--light-gray);
 	text-align: right;
-	font-size: 12px;
-	color: #9E9E9E;
+	color: var(--gray);
 }
-.text-diff>.body>tbody>tr>td.operation {
-	border-left: 1px solid #E0E0E0;
+.text-diff>tbody>tr>td:last-child {
+	border-right: 1px solid var(--light-gray);
 }
-.text-diff>.body>tbody>tr>td:FIRST-CHILD {
-	border-left: none !important;
+.text-diff>tbody>tr:last-child>td:first-child {
+	border-radius: 0 0 0 0.42rem;
 }
-.text-diff>.body>tbody>tr:FIRST-CHILD>td {
-	border-top: none !important;
+.text-diff>tbody>tr:last-child>td:last-child {
+	border-radius: 0 0 0.42rem 0;
 }
-.text-diff>.body>tbody>tr:LAST-CHILD>td {
-	border-bottom: none !important;
+.text-diff>tbody>tr>td.operation {
+	border-left: 1px solid var(--light-gray);
 }
-.text-diff>.body>tbody>tr.expander>td.skipped {
-	padding: 6px 16px;
-	border-left: 1px solid #D8E2F2;
-	background: #f4f7fb;
-	color: #999;
+.text-diff>tbody>tr>td:FIRST-CHILD {
+	border-left: 1px solid var(--light-gray);
 }
-.text-diff>.body>tbody>tr.expander>td.expander {
-	border-left: 1px solid #D8E2F2;
+.text-diff>tbody>tr:LAST-CHILD>td {
+	border-bottom: 1px solid var(--light-gray);
+}
+.text-diff>tbody>tr.expander>td.skipped {
+	padding: 0.5rem 1.2rem;
+	border-left: 1px solid var(--light-gray);
+	background: var(--light);
+	color: var(--gray);
+}
+.text-diff>tbody>tr.expander>td.expander {
 	text-align: center;
+	overflow: hidden;
+	vertical-align: middle;
 }
-.text-diff>.body>tbody>tr.expander>td.expander a {
+.text-diff>tbody>tr.expander>td.expander a {
 	display: block;
-	background: #edf2f9;
-	padding: 6px 0;
-	color: #888;
+	background: var(--light);
+	color: var(--gray);
+	padding: 2rem 0;
+	margin: -2rem -1px;
 }
-.text-diff>.body>tbody>tr.expander>td.expander>a:hover {
-	background: #4078c0;
+
+.text-diff>tbody>tr.expander>td.expander>a:hover, 
+.text-diff>tbody>tr.expander>td.expander>a:focus {
+	background: var(--primary);
 	color: white;
 }
-.text-diff>.body>tbody>tr>td.old.number {
+.text-diff>tbody>tr>td.old.number {
 	background: #ffdddd;
 	border-left: 1px solid #f1c0c0;
 }
-.text-diff>.body>tbody>tr>td.old.content {
+.text-diff>tbody>tr>td.old.content {
 	background: #ffecec;
 }
-.text-diff>.body>tbody>tr>td.old.operation {
+.text-diff>tbody>tr>td.old.operation {
 	border-left: 1px solid #f1c0c0;
 	background: #ffecec;
 }
-.text-diff>.body>tbody>tr>td.old .delete {
+.text-diff>tbody>tr>td.old .delete {
 	background-color: #F8B8B8;
 	text-decoration: line-through;
 }
-.text-diff>.body>tbody>tr>td.new.number {
+.text-diff>tbody>tr>td.new.number {
 	background: #dbffdb;
 	border-left: 1px solid #c1e9c1;
 }
-.text-diff>.body>tbody>tr>td.new.content {
+.text-diff>tbody>tr>td.new.content {
 	background: #eaffea;
 }
-.text-diff>.body>tbody>tr>td.new.operation {
+.text-diff>tbody>tr>td.new.operation {
 	border-left: 1px solid #c1e9c1;
 	background: #eaffea;
 }
-.text-diff>.body>tbody>tr>td.new .insert {
+.text-diff>tbody>tr>td.new .insert {
 	background-color: #94F094;
 }
-.text-diff>.body>tbody>tr>td.old.new.number {
+.text-diff>tbody>tr>td.old.new.number {
 	background: #FAF3D0;
 	border-left: 1px solid #EBD049;
 }
-.text-diff>.body>tbody>tr>td.old.new.content {
+.text-diff>tbody>tr>td.old.new.content {
 	background: #FCF8E4;
 }
-.text-diff>.body>tbody>tr>td.old.new.operation {
+.text-diff>tbody>tr>td.old.new.operation {
 	border-left: 1px solid #EBD049;
 	background: #FCF8E4;
 }
-.text-diff>.body>tbody>tr>td.content {
+.text-diff>tbody>tr>td.content {
 	white-space: pre-wrap;
 	word-wrap: break-word;
 }
-.text-diff>.body>tbody>tr>td.operation {
+.text-diff>tbody>tr>td.operation {
 	font-weight: bold;
-	padding: 0 4px 0 4px;
+	padding: 0 0.3rem 0 0.3rem;
 }
-.text-diff>.body>tbody>tr.original+.expanded>td {
-	border-top: 1px solid #E8E8E8;
+.text-diff>tbody>tr:hover>td {
+	background: var(--light-primary) !important;
 }
-.text-diff>.body>tbody>tr.expanded+.original>td {
-	border-top: 1px solid #E8E8E8;
-}
-.text-diff>.body>tbody>tr.expanded>td {
-	background: #F9F9F9;
-}
-.text-diff>.body>tbody>tr:hover>td {
-	background: #E8F2FE !important;
-}
-.text-diff>.body>tbody>tr.code {
+.text-diff>tbody>tr.code {
 	background: inherit;
 	border: inherit;
 	border-radius: inherit;
@@ -142,79 +130,63 @@
 	font-family: inherit;
 	font-size: inherit;
 }
-.text-diff>.body>tbody>tr>td.content>span.content-mark {
+.text-diff>tbody>tr>td.content>span.content-mark {
 	background: #CCCCFF;
 }
-.text-diff>.body>tbody>tr>td.content>span.content-mark.insert {
+.text-diff>tbody>tr>td.content>span.content-mark.insert {
 	background: #88FFFF;
 }
-.text-diff>.body>tbody>tr>td.content>span.content-mark.delete {
+.text-diff>tbody>tr>td.content>span.content-mark.delete {
 	background: #FF88FF;
 }
 
-.text-diff>.body>tbody>tr>td.number>.comment-indicator {
-	margin: 0 4px;
-	color: #999;
-	font-size: 13px;
+.text-diff>tbody>tr>td.number>.comment-indicator {
+	margin: 0 0.3rem;
+	color: var(--gray);
+	font-size: 1rem;
 }
-.text-diff>.body>tbody>tr>td.number>.comment-indicator:hover {
-	color: #555;
+.text-diff>tbody>tr>td.number>.comment-indicator:hover {
+	color: var(--dark);
 }
-.text-diff>.body>tbody>tr>td.number>.comment-indicator svg {
+.text-diff>tbody>tr>td.number>.comment-indicator svg {
 	margin-top: 0;
 }
 .comment-popover a {
 	display: block;
-	color: #999;
+	color: var(--gray);
 	text-decoration: none;
 	white-space: nowrap;
 }
 .comment-popover a:hover {
-	color: #555;
+	color: var(--dark);
 }
-.text-diff>.body>tbody>tr>td.number>.comment-trigger.active, 
+.text-diff>tbody>tr>td.number>.comment-trigger.active, 
 .comment-popover .comment-trigger.active {
-	color: black;	
+	color: var(--dark);	
 }
-.text-diff>.body>tbody>tr>td.number>.comment-trigger.active {
-	line-height: 14px;
-}
-.text-diff>.body>tbody>tr>td.blame {
+.text-diff>tbody>tr>td.blame {
 	font-family: Consolas, "Liberation Mono", Menlo, Courier, monospace;
 	text-overflow: ellipsis;
 	overflow: hidden;
 	white-space: nowrap;
-	padding: 0 4px;
-	border-left: 1px solid #E0E0E0;
+	padding: 0 0.3rem;
+	border-left: 1px solid var(--secondary);
 }
-.text-diff>.body>tbody>tr>td.blame.abbr {
+.text-diff>tbody>tr>td.blame.abbr {
 	text-overflow: inherit;
 }
-.text-diff>.body>tbody>tr>td.blame .hash, .text-diff>.body>tbody>tr>td.blame .date {
-	margin-right: 8px;
+.text-diff>tbody>tr>td.blame .hash, .text-diff>tbody>tr>td.blame .date {
+	margin-right: 0.6rem;
 }
-.text-diff>.body>tbody>tr>td.blame.abbr .hash {
+.text-diff>tbody>tr>td.blame.abbr .hash {
 	margin-right: 0;
 }
-.text-diff>.body>tbody>tr>td.blame .same-as-above {
+.text-diff>tbody>tr>td.blame .same-as-above {
 	margin-left: 90px;
-	margin-top: -8px;
-	color: #666;
-	font-size: 16px;
+	margin-top: -0.6rem;
+	color: var(--gray);
+	font-size: 1.2rem;
 }
-.text-diff>.body>tbody>tr>td.blame.abbr .same-as-above {
-	margin-left: 14px;
-}
-.diff-tokentooltip {
-	background-color: #FBFCC5; 
-	border: 1px solid black;
-	border-radius: 4px; 
-	color: black; 
-	font-family: Consolas, "Liberation Mono", Menlo, Courier, monospace; 
-	font-size: 10pt; 
-	overflow: auto; 
-	padding: 4px 8px; 
-	z-index: 100; 
-	max-width: 900px; 
-	max-height: 600px;
+.text-diff>tbody>tr>td.blame.abbr .same-as-above {
+	margin-left: 1rem;
 }

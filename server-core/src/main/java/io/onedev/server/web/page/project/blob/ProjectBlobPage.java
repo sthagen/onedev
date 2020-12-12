@@ -40,7 +40,6 @@ import org.apache.wicket.request.cycle.RequestCycle;
 import org.apache.wicket.request.flow.RedirectToUrlException;
 import org.apache.wicket.request.handler.resource.ResourceReferenceRequestHandler;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
-import org.apache.wicket.request.resource.PackageResourceReference;
 import org.apache.wicket.util.visit.IVisit;
 import org.apache.wicket.util.visit.IVisitor;
 import org.eclipse.jgit.lib.FileMode;
@@ -56,7 +55,6 @@ import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 
-import io.onedev.commons.jsymbol.util.NoAntiCacheImage;
 import io.onedev.commons.launcher.loader.ListenerRegistry;
 import io.onedev.commons.utils.PlanarRange;
 import io.onedev.server.OneDev;
@@ -87,6 +85,7 @@ import io.onedev.server.search.code.hit.QueryHit;
 import io.onedev.server.search.code.query.BlobQuery;
 import io.onedev.server.search.code.query.TextQuery;
 import io.onedev.server.security.SecurityUtils;
+import io.onedev.server.util.FilenameUtils;
 import io.onedev.server.util.script.identity.JobIdentity;
 import io.onedev.server.util.script.identity.ScriptIdentity;
 import io.onedev.server.util.script.identity.ScriptIdentityAware;
@@ -235,13 +234,6 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 		add(revisionIndexing = new WebMarkupContainer("revisionIndexing") {
 
 			@Override
-			protected void onInitialize() {
-				super.onInitialize();
-				add(new NoAntiCacheImage("icon", new PackageResourceReference(ProjectBlobPage.class, "indexing.gif")));
-				setOutputMarkupPlaceholderTag(true);
-			}
-
-			@Override
 			protected void onConfigure() {
 				super.onConfigure();
 
@@ -259,7 +251,8 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 				}
 			}
 			
-		});
+		}.setOutputMarkupPlaceholderTag(true));
+		
 		revisionIndexing.add(new WebSocketObserver() {
 			
 			@Override
@@ -603,7 +596,7 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 		blobOperations.add(new ViewStateAwarePageLink<Void>("history", ProjectCommitsPage.class, 
 				ProjectCommitsPage.paramsOf(getProject(), query, compareWith)));
 		
-		blobOperations.add(new DropdownLink("cloneOrDownload") {
+		blobOperations.add(new DropdownLink("getCode") {
 
 			@Override
 			protected void onConfigure() {
@@ -612,8 +605,14 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 			}
 
 			@Override
+			protected void onInitialize(FloatingPanel dropdown) {
+				super.onInitialize(dropdown);
+				dropdown.add(AttributeAppender.append("class", "get-code"));
+			}
+
+			@Override
 			protected Component newContent(String id, FloatingPanel dropdown) {
-				return new CloneOrDownloadPanel(id, this) {
+				return new GetCodePanel(id, this) {
 					
 					@Override
 					protected Project getProject() {
@@ -739,16 +738,21 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 	private void newCommitStatus(@Nullable AjaxRequestTarget target) {
 		Component commitStatus;
 		if (resolvedRevision != null) {
-			commitStatus = new CommitStatusPanel("buildStatus", resolvedRevision) {
+			commitStatus = new CommitStatusPanel("buildStatus", resolvedRevision, getRefName()) {
 
 				@Override
 				protected Project getProject() {
 					return ProjectBlobPage.this.getProject();
 				}
+
+				@Override
+				protected PullRequest getPullRequest() {
+					return ProjectBlobPage.this.getPullRequest();
+				}
 				
 			};
 		} else {
-			commitStatus = new WebMarkupContainer("buildStatus");
+			commitStatus = new WebMarkupContainer("buildStatus").add(AttributeAppender.append("class", "d-none"));
 		}
 		
 		commitStatus.setOutputMarkupPlaceholderTag(true);
@@ -905,7 +909,6 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 		newBlobOperations(target);
 		newBuildSupportNote(target);
 		newBlobContent(target);
-		resizeWindow(target);
 	}
 	
 	@Override
@@ -983,13 +986,13 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 			};
 			if (target != null) {
 				target.appendJavaScript(""
-						+ "$('#project-blob>.search-result').show(); "
-						+ "$('#project-blob .search-result>.body').focus();");
+						+ "$('.project-blob>.search-result').css('display', 'flex'); "
+						+ "$('.project-blob .search-result>.body').focus();");
 			}
 		} else {
 			content = new WebMarkupContainer("content").setOutputMarkupId(true);
 			if (target != null) 
-				target.appendJavaScript("$('#project-blob>.search-result').hide();");
+				target.appendJavaScript("$('.project-blob>.search-result').hide();");
 			else 
 				searchResult.add(AttributeAppender.replace("style", "display: none;"));
 		}
@@ -1016,12 +1019,7 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 			newBlobOperations(target);
 			newBuildSupportNote(target);
 			newBlobContent(target);
-			resizeWindow(target);
 		}
-	}
-	
-	private void resizeWindow(IPartialPageRequestHandler partialPageRequestHandler) {
-		partialPageRequestHandler.appendJavaScript("$(window).resize();");
 	}
 	
 	@Override
@@ -1091,6 +1089,7 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 			state.requestId = null;
 			newSearchResult(target, null);
 			onResolvedRevisionChange(target);
+			resizeWindow(target);
 		} else if (!Objects.equal(state.blobIdent.path, blobIdent.path)) {
 			state.blobIdent.path = blobIdent.path;
 			state.blobIdent.mode = blobIdent.mode;
@@ -1163,6 +1162,14 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 		return state.blobIdent.revision == null || getProject().getBranchRef(state.blobIdent.revision) != null;
 	}
 
+	@Override
+	public String getRefName() {
+		if (state.blobIdent.revision != null)
+			return getProject().getRefName(state.blobIdent.revision);
+		else
+			return null;
+	}
+	
 	@Override
 	public RevCommit getCommit() {
 		if (resolvedRevision != null)
@@ -1420,7 +1427,7 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 		BlobIdent blobIdent = getBlobIdent();
 		
 		for (FileUpload upload: uploads) {
-			String blobPath = upload.getClientFileName();
+			String blobPath = FilenameUtils.sanitizeFilename(upload.getClientFileName());
 			if (parentPath != null)
 				blobPath = parentPath + "/" + blobPath;
 			
@@ -1481,6 +1488,11 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 			return new JobIdentity(getProject(), getCommit().copy());
 		else // when we add file to an empty project
 			return new JobIdentity(getProject(), null);
+	}
+
+	@Override
+	protected Component newProjectTitle(String componentId) {
+		return new Label(componentId, "Files");
 	}
 
 }

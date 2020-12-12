@@ -51,6 +51,7 @@ import io.onedev.server.buildspec.job.Job;
 import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.entitymanager.CodeCommentManager;
 import io.onedev.server.entitymanager.CodeCommentReplyManager;
+import io.onedev.server.entitymanager.PullRequestManager;
 import io.onedev.server.git.BlobIdent;
 import io.onedev.server.git.GitUtils;
 import io.onedev.server.git.RefInfo;
@@ -81,9 +82,7 @@ import io.onedev.server.web.component.svg.SpriteImage;
 import io.onedev.server.web.component.user.contributoravatars.ContributorAvatars;
 import io.onedev.server.web.page.project.ProjectPage;
 import io.onedev.server.web.page.project.blob.ProjectBlobPage;
-import io.onedev.server.web.page.project.branches.ProjectBranchesPage;
 import io.onedev.server.web.page.project.builds.ProjectBuildsPage;
-import io.onedev.server.web.page.project.tags.ProjectTagsPage;
 import io.onedev.server.web.util.ReferenceTransformer;
 
 @SuppressWarnings("serial")
@@ -107,6 +106,8 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 	
 	private static final String PARAM_MARK = "mark";
 	
+	private static final String PARAM_REQUEST = "request";
+	
 	private State state;
 	
 	private ObjectId resolvedRevision;
@@ -123,6 +124,8 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 		}
 		
 	};
+	
+	private WebMarkupContainer refsContainer;
 	
 	private WebMarkupContainer revisionDiff;
 	
@@ -150,6 +153,7 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 		state.pathFilter = params.get(PARAM_PATH_FILTER).toString();
 		state.blameFile = params.get(PARAM_BLAME_FILE).toString();
 		state.commentId = params.get(PARAM_COMMENT).toOptionalLong();
+		state.requestId = params.get(PARAM_REQUEST).toOptionalLong();
 		state.mark = Mark.fromString(params.get(PARAM_MARK).toString());
 		
 		resolvedRevision = getProject().getRevCommit(state.revision, true).copy();
@@ -188,8 +192,8 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 		add(new CreateBranchLink("createBranch", projectModel, state.revision) {
 
 			@Override
-			protected void onCreate(AjaxRequestTarget target, String branch) {
-				setResponsePage(ProjectBranchesPage.class, ProjectBranchesPage.paramsOf(getProject()));
+			protected void onCreated(AjaxRequestTarget target, String branch) {
+				target.add(refsContainer);
 			}
 			
 		});
@@ -197,8 +201,8 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 		add(new CreateTagLink("createTag", projectModel, state.revision) {
 
 			@Override
-			protected void onCreate(AjaxRequestTarget target, String tag) {
-				setResponsePage(ProjectTagsPage.class, ProjectTagsPage.paramsOf(getProject()));
+			protected void onCreated(AjaxRequestTarget target, String tag) {
+				target.add(refsContainer);
 			}
 			
 		});
@@ -209,7 +213,7 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 		else 
 			add(new WebMarkupContainer("detail").setVisible(false));
 		
-		add(new AjaxLazyLoadPanel("refs") {
+		add(refsContainer = new AjaxLazyLoadPanel("refs") {
 
 			@Override
 			public Component getLazyLoadComponent(String markupId) {
@@ -251,7 +255,7 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 							link.add(new SpriteImage("icon", "branch"));
 							link.add(new Label("label", branch));
 							item.add(link);
-							item.add(AttributeAppender.append("class", "branch"));
+							item.add(AttributeAppender.append("class", "branch ref"));
 						} else {
 							String tag = Preconditions.checkNotNull(GitUtils.ref2tag(ref));
 							BlobIdent blobIdent = new BlobIdent(tag, null, FileMode.TREE.getBits());
@@ -261,7 +265,7 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 							link.add(new SpriteImage("icon", "tag"));
 							link.add(new Label("label", tag));
 							item.add(link);
-							item.add(AttributeAppender.append("class", "tag"));
+							item.add(AttributeAppender.append("class", "tag ref"));
 						}
 					}
 					
@@ -391,11 +395,19 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 				detailLink.setOutputMarkupId(true);
 				item.add(detailLink);
 				
-				item.add(new RunJobLink("run", commitId, job.getName()) {
+				item.add(new RunJobLink("run", commitId, job.getName(), null) {
 
 					@Override
 					protected Project getProject() {
 						return CommitDetailPage.this.getProject();
+					}
+
+					@Override
+					protected PullRequest getPullRequest() {
+						if (state.requestId != null)
+							return OneDev.getInstance(PullRequestManager.class).load(state.requestId);
+						else
+							return null;
 					}
 					
 				});
@@ -575,7 +587,6 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 	public void renderHead(IHeaderResponse response) {
 		super.renderHead(response);
 		response.render(JavaScriptHeaderItem.forReference(new CommitDetailResourceReference()));
-		response.render(OnDomReadyHeaderItem.forScript("onedev.server.commitDetail.onDomReady();"));
 	}
 
 	public static PageParameters paramsOf(Project project, State state) {
@@ -591,6 +602,8 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 			params.set(PARAM_BLAME_FILE, state.blameFile);
 		if (state.commentId != null)
 			params.set(PARAM_COMMENT, state.commentId);
+		if (state.requestId != null)
+			params.set(PARAM_REQUEST, state.requestId);
 		if (state.mark != null)
 			params.set(PARAM_MARK, state.mark.toString());
 		return params;
@@ -626,6 +639,9 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 		
 		@Nullable
 		public Long commentId;
+		
+		@Nullable
+		public Long requestId;
 		
 		public WhitespaceOption whitespaceOption = WhitespaceOption.DEFAULT;
 		
@@ -730,6 +746,15 @@ public class CommitDetailPage extends ProjectPage implements CommentSupport {
 	@Override
 	public void onSaveCommentReply(CodeCommentReply reply) {
 		OneDev.getInstance(CodeCommentReplyManager.class).save(reply);
+	}
+
+	@Override
+	protected Component newProjectTitle(String componentId) {
+		Fragment fragment = new Fragment(componentId, "projectTitleFrag", this);
+		fragment.add(new BookmarkablePageLink<Void>("commits", ProjectCommitsPage.class, 
+				ProjectCommitsPage.paramsOf(getProject())));
+		fragment.add(new Label("commitHash", GitUtils.abbreviateSHA(getCommit().name())));
+		return fragment;
 	}
 	
 }

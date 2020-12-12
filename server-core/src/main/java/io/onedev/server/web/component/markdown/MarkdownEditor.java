@@ -2,9 +2,11 @@ package io.onedev.server.web.component.markdown;
 
 import static org.apache.wicket.ajax.attributes.CallbackParameter.explicit;
 
+import java.io.IOException;
 import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -13,8 +15,9 @@ import java.util.Map;
 
 import javax.annotation.Nullable;
 import javax.servlet.http.Cookie;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
-import org.apache.commons.lang3.SerializationUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringEscapeUtils;
 import org.apache.wicket.AttributeModifier;
@@ -32,6 +35,7 @@ import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.markup.html.form.FormComponentPanel;
 import org.apache.wicket.markup.html.form.TextArea;
+import org.apache.wicket.markup.html.panel.Fragment;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.model.Model;
@@ -40,7 +44,8 @@ import org.apache.wicket.request.cycle.RequestCycle;
 import org.apache.wicket.request.http.WebRequest;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 import org.apache.wicket.request.resource.PackageResourceReference;
-import org.apache.wicket.util.crypt.Base64;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.unbescape.javascript.JavaScriptEscape;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -55,10 +60,13 @@ import io.onedev.server.model.Issue;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.PullRequest;
 import io.onedev.server.model.User;
+import io.onedev.server.util.FilenameUtils;
 import io.onedev.server.util.markdown.MarkdownManager;
 import io.onedev.server.util.validation.ProjectNameValidator;
 import io.onedev.server.web.avatar.AvatarManager;
 import io.onedev.server.web.behavior.AbstractPostAjaxBehavior;
+import io.onedev.server.web.component.floating.FloatingPanel;
+import io.onedev.server.web.component.link.DropdownLink;
 import io.onedev.server.web.component.markdown.emoji.EmojiOnes;
 import io.onedev.server.web.component.modal.ModalPanel;
 import io.onedev.server.web.page.project.ProjectPage;
@@ -68,6 +76,8 @@ import io.onedev.server.web.page.project.blob.render.BlobRenderContext;
 public class MarkdownEditor extends FormComponentPanel<String> {
 
 	protected static final int ATWHO_LIMIT = 10;
+	
+	private static final Logger logger = LoggerFactory.getLogger(MarkdownEditor.class);
 	
 	private final boolean compactMode;
 	
@@ -79,7 +89,9 @@ public class MarkdownEditor extends FormComponentPanel<String> {
 	
 	private TextArea<String> input;
 
-	private AbstractPostAjaxBehavior ajaxBehavior;
+	private AbstractPostAjaxBehavior actionBehavior;
+	
+	private AbstractPostAjaxBehavior attachmentUploadBehavior;
 	
 	/**
 	 * @param id 
@@ -160,6 +172,59 @@ public class MarkdownEditor extends FormComponentPanel<String> {
 		container.add(edit);
 		
 		container.add(AttributeAppender.append("class", compactMode?"compact-mode":"normal-mode"));
+		
+		container.add(new DropdownLink("doReference") {
+
+
+			@Override
+			protected Component newContent(String id, FloatingPanel dropdown) {
+				return new Fragment(id, "referenceMenuFrag", MarkdownEditor.this) {
+
+					@Override
+					public void renderHead(IHeaderResponse response) {
+						super.renderHead(response);
+						String script = String.format("onedev.server.markdown.setupActionMenu($('#%s'), $('#%s'));", 
+								container.getMarkupId(), getMarkupId());
+						response.render(OnDomReadyHeaderItem.forScript(script));
+					}
+					
+				}.setOutputMarkupId(true);
+			}
+			
+		}.setVisible(getReferenceSupport() != null));
+		
+		container.add(new DropdownLink("actionMenuTrigger") {
+
+
+			@Override
+			protected Component newContent(String id, FloatingPanel dropdown) {
+				return new Fragment(id, "actionMenuFrag", MarkdownEditor.this) {
+
+					@Override
+					protected void onInitialize() {
+						super.onInitialize();
+						add(new WebMarkupContainer("doMention").setVisible(getUserMentionSupport() != null));
+						
+						if (getReferenceSupport() != null) 
+							add(new Fragment("doReference", "referenceMenuFrag", MarkdownEditor.this));
+						else 
+							add(new WebMarkupContainer("doReference").setVisible(false));
+					}
+
+					@Override
+					public void renderHead(IHeaderResponse response) {
+						super.renderHead(response);
+						String script = String.format("onedev.server.markdown.setupActionMenu($('#%s'), $('#%s'));", 
+								container.getMarkupId(), getMarkupId());
+						response.render(OnDomReadyHeaderItem.forScript(script));
+					}
+					
+				}.setOutputMarkupId(true);
+			}
+			
+		});
+		
+		container.add(new WebMarkupContainer("doMention").setVisible(getUserMentionSupport() != null));
 			
 		edit.add(input = new TextArea<String>("input", Model.of(getModelObject())));
 		for (AttributeModifier modifier: getInputModifiers()) 
@@ -195,7 +260,7 @@ public class MarkdownEditor extends FormComponentPanel<String> {
 		
 		container.add(new WebMarkupContainer("canAttachFile").setVisible(getAttachmentSupport()!=null));
 		
-		container.add(ajaxBehavior = new AbstractPostAjaxBehavior() {
+		container.add(actionBehavior = new AbstractPostAjaxBehavior() {
 
 			@Override
 			protected void updateAjaxAttributes(AjaxRequestAttributes attributes) {
@@ -396,10 +461,40 @@ public class MarkdownEditor extends FormComponentPanel<String> {
 					String replaceMessage = params.getParameterValue("param2").toString();
 					String url = getAttachmentSupport().getAttachmentUrl(name);
 					insertUrl(target, isWebSafeImage(name), url, name, replaceMessage);
+					
 					break;
 				default:
 					throw new IllegalStateException("Unknown action: " + action);
 				}		
+			}
+			
+		});
+		
+		container.add(attachmentUploadBehavior = new AbstractPostAjaxBehavior() {
+			
+			@Override
+			protected void respond(AjaxRequestTarget target) {
+				Preconditions.checkNotNull(getAttachmentSupport(), "Unexpected attachment upload request");
+				HttpServletRequest request = (HttpServletRequest) RequestCycle.get().getRequest().getContainerRequest();
+				HttpServletResponse response = (HttpServletResponse) RequestCycle.get().getResponse().getContainerResponse();
+				try {
+					String fileName = FilenameUtils.sanitizeFilename(
+							URLDecoder.decode(request.getHeader("File-Name"), StandardCharsets.UTF_8.name()));
+					String attachmentName = getAttachmentSupport().saveAttachment(fileName, request.getInputStream());
+					response.getWriter().print(URLEncoder.encode(attachmentName, StandardCharsets.UTF_8.name()));
+					response.setStatus(HttpServletResponse.SC_OK);
+				} catch (Exception e) {
+					logger.error("Error uploading attachment.", e);
+					try {
+						if (e.getMessage() != null)
+							response.getWriter().print(e.getMessage());
+						else
+							response.getWriter().print("Internal server error");
+					} catch (IOException e2) {
+						throw new RuntimeException(e2);
+					}
+					response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+				}
 			}
 			
 		});
@@ -420,17 +515,9 @@ public class MarkdownEditor extends FormComponentPanel<String> {
 		super.renderHead(response);
 		response.render(JavaScriptHeaderItem.forReference(new MarkdownResourceReference()));
 		
-		String encodedAttachmentSupport;
-		if (getAttachmentSupport() != null) {
-			encodedAttachmentSupport = Base64.encodeBase64String(SerializationUtils.serialize(getAttachmentSupport()));
-			encodedAttachmentSupport = StringUtils.deleteWhitespace(encodedAttachmentSupport);
-			encodedAttachmentSupport = StringEscapeUtils.escapeEcmaScript(encodedAttachmentSupport);
-			encodedAttachmentSupport = "'" + encodedAttachmentSupport + "'";
-		} else {
-			encodedAttachmentSupport = "undefined";
-		}
-		String callback = ajaxBehavior.getCallbackFunction(explicit("action"), explicit("param1"), explicit("param2"), 
+		String actionCallback = actionBehavior.getCallbackFunction(explicit("action"), explicit("param1"), explicit("param2"), 
 				explicit("param3")).toString();
+		String attachmentUploadUrl = attachmentUploadBehavior.getCallbackUrl().toString();
 		
 		String autosaveKey = getAutosaveKey();
 		if (autosaveKey != null)
@@ -440,17 +527,17 @@ public class MarkdownEditor extends FormComponentPanel<String> {
 		
 		String script = String.format("onedev.server.markdown.onDomReady('%s', %s, %d, %s, %d, %b, %b, '%s', %s);", 
 				container.getMarkupId(), 
-				callback, 
+				actionCallback, 
 				ATWHO_LIMIT, 
-				encodedAttachmentSupport, 
-				getAttachmentSupport()!=null?getAttachmentSupport().getAttachmentMaxSize():0,
+				getAttachmentSupport()!=null? "'" + attachmentUploadUrl + "'": "undefined", 
+				getAttachmentSupport()!=null? getAttachmentSupport().getAttachmentMaxSize(): 0,
 				getUserMentionSupport() != null,
 				getReferenceSupport() != null, 
 				JavaScriptEscape.escapeJavaScript(ProjectNameValidator.PATTERN.pattern()),
 				autosaveKey);
 		response.render(OnDomReadyHeaderItem.forScript(script));
 		
-		script = String.format("onedev.server.markdown.onWindowLoad('%s');", container.getMarkupId());
+		script = String.format("onedev.server.markdown.onLoad('%s');", container.getMarkupId());
 		response.render(OnLoadHeaderItem.forScript(script));
 	}
 
