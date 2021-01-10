@@ -1,6 +1,7 @@
 package io.onedev.server.web.page.project;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,7 +20,7 @@ import org.eclipse.jgit.lib.ObjectId;
 
 import com.google.common.collect.Lists;
 
-import io.onedev.server.GeneralException;
+import io.onedev.commons.utils.ExplicitException;
 import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.ProjectManager;
 import io.onedev.server.model.Project;
@@ -89,7 +90,7 @@ public abstract class ProjectPage extends LayoutPage implements ProjectAware {
 		Project project = OneDev.getInstance(ProjectManager.class).find(projectName);
 		
 		if (project == null) 
-			throw new GeneralException("Unable to find project " + projectName);
+			throw new ExplicitException("Unable to find project " + projectName);
 		
 		Long projectId = project.getId();
 		
@@ -175,14 +176,26 @@ public abstract class ProjectPage extends LayoutPage implements ProjectAware {
 					ProjectCodeCommentsPage.class, ProjectCodeCommentsPage.paramsOf(getProject(), 0)));
 			menuItems.add(new SidebarMenuItem.Page("diff", "Code Compare", 
 					RevisionComparePage.class, RevisionComparePage.paramsOf(getProject())));
-			List<SidebarMenuItem> statsMenuItems = new ArrayList<>();
+		}
+
+		List<SidebarMenuItem> statsMenuItems = new ArrayList<>();
+		
+		if (SecurityUtils.canReadCode(getProject())) {
 			statsMenuItems.add(new SidebarMenuItem.Page(null, "Contributions", 
 					ProjectContribsPage.class, ProjectContribsPage.paramsOf(getProject())));
 			statsMenuItems.add(new SidebarMenuItem.Page(null, "Source Lines", 
 					SourceLinesPage.class, SourceLinesPage.paramsOf(getProject())));
-			
-			menuItems.add(new SidebarMenuItem.SubMenu("statistics", "Statistics", statsMenuItems));
 		}
+		
+		List<StatisticsMenuContribution> contributions = new ArrayList<>(OneDev.getExtensions(StatisticsMenuContribution.class));
+		contributions.sort(Comparator.comparing(StatisticsMenuContribution::getOrder));
+		
+		for (StatisticsMenuContribution contribution: contributions)
+			statsMenuItems.addAll(contribution.getMenuItems(getProject()));
+		
+		if (!statsMenuItems.isEmpty())
+			menuItems.add(new SidebarMenuItem.SubMenu("statistics", "Statistics", statsMenuItems));
+			
 		
 		if (SecurityUtils.canManage(getProject())) {
 			List<SidebarMenuItem> settingMenuItems = new ArrayList<>();

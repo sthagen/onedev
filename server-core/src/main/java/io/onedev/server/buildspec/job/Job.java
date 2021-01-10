@@ -2,6 +2,10 @@ package io.onedev.server.buildspec.job;
 
 import static io.onedev.server.model.Build.NAME_COMMIT;
 import static io.onedev.server.model.Build.NAME_JOB;
+import static io.onedev.server.model.Build.NAME_BRANCH;
+import static io.onedev.server.model.Build.NAME_TAG;
+import static io.onedev.server.model.Build.NAME_PULL_REQUEST;
+
 import static io.onedev.server.search.entity.build.BuildQuery.getRuleName;
 import static io.onedev.server.search.entity.build.BuildQueryLexer.And;
 import static io.onedev.server.search.entity.build.BuildQueryLexer.Is;
@@ -38,7 +42,9 @@ import io.onedev.server.buildspec.job.paramspec.ParamSpec;
 import io.onedev.server.buildspec.job.paramsupply.ParamSupply;
 import io.onedev.server.buildspec.job.trigger.JobTrigger;
 import io.onedev.server.event.ProjectEvent;
+import io.onedev.server.git.GitUtils;
 import io.onedev.server.model.Project;
+import io.onedev.server.model.PullRequest;
 import io.onedev.server.util.ComponentContext;
 import io.onedev.server.util.EditContext;
 import io.onedev.server.util.criteria.Criteria;
@@ -128,8 +134,7 @@ public class Job implements Serializable, Validatable {
 		this.name = name;
 	}
 
-	@Editable(order=110, description="Specify docker image of the job. "
-			+ "<b>Note:</b> Type <tt>@</tt> to <a href='$docRoot/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
+	@Editable(order=110, description="Specify docker image of the job")
 	@Interpolative(variableSuggester="suggestVariables")
 	@NotEmpty
 	public String getImage() {
@@ -168,8 +173,7 @@ public class Job implements Serializable, Validatable {
 	
 	@Editable(order=120, name="Commands", description="Specify content of Linux shell script or Windows command batch to execute in above image. "
 			+ "It will be executed under <a href='$docRoot/pages/concepts.md#job-workspace' target='_blank'>job workspace</a>, which may contain files of your repository and "
-			+ "dependency artifacts based on your configuration below. "
-			+ "<b>Note:</b> Type <tt>@</tt> to <a href='$docRoot/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
+			+ "dependency artifacts based on your configuration below")
 	@Interpolative
 	@Code(language = Code.SHELL, variableProvider="getVariables")
 	@Size(min=1, message="may not be empty")
@@ -286,10 +290,9 @@ public class Job implements Serializable, Validatable {
 	}
 
 	@Editable(order=9115, group="Artifacts & Reports", description="Optionally specify files to publish as job artifacts. "
-			+ "Artifact files are relative to <a href='$docRoot/pages/concepts.md#job-workspace' target='_blank'>job workspace</a>, and may use * or ? for pattern match. "
-			+ "<b>Note:</b> Type <tt>@</tt> to <a href='$docRoot/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
+			+ "Artifact files are relative to <a href='$docRoot/pages/concepts.md#job-workspace' target='_blank'>job workspace</a>, and may use * or ? for pattern match")
 	@Interpolative(variableSuggester="suggestVariables")
-	@Patterns(interpolative = true, path=true)
+	@Patterns(path=true)
 	@NameOfEmptyValue("No artifacts")
 	public String getArtifacts() {
 		return artifacts;
@@ -343,8 +346,7 @@ public class Job implements Serializable, Validatable {
 	}
 	
 	@Editable(order=9200, name="CPU Requirement", group="Resource Requirements", description="Specify CPU requirement of the job. "
-			+ "Refer to <a href='https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/#meaning-of-cpu' target='_blank'>kubernetes documentation</a> for details. "
-			+ "<b>Note:</b> Type <tt>@</tt> to <a href='$docRoot/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
+			+ "Refer to <a href='https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/#meaning-of-cpu' target='_blank'>kubernetes documentation</a> for details")
 	@Interpolative(variableSuggester="suggestVariables")
 	@NotEmpty
 	public String getCpuRequirement() {
@@ -356,8 +358,7 @@ public class Job implements Serializable, Validatable {
 	}
 
 	@Editable(order=9300, group="Resource Requirements", description="Specify memory requirement of the job. "
-			+ "Refer to <a href='https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/#meaning-of-memory' target='_blank'>kubernetes documentation</a> for details. "
-			+ "<b>Note:</b> Type <tt>@</tt> to <a href='$docRoot/pages/variable-substitution.md' target='_blank' tabindex='-1'>insert variable</a>, use <tt>\\</tt> to escape normal occurrences of <tt>@</tt> or <tt>\\</tt>")
+			+ "Refer to <a href='https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/#meaning-of-memory' target='_blank'>kubernetes documentation</a> for details")
 	@Interpolative(variableSuggester="suggestVariables")
 	@NotEmpty
 	public String getMemoryRequirement() {
@@ -480,11 +481,32 @@ public class Job implements Serializable, Validatable {
 		return paramSpecMap;
 	}
 	
-	public static String getBuildQuery(ObjectId commitId, String jobName) {
-		return "" 
+	public static String getBuildQuery(ObjectId commitId, String jobName, 
+			@Nullable String refName, @Nullable PullRequest request) {
+		String query = "" 
 				+ Criteria.quote(NAME_COMMIT) + " " + getRuleName(Is) + " " + Criteria.quote(commitId.name()) 
 				+ " " + getRuleName(And) + " "
 				+ Criteria.quote(NAME_JOB) + " " + getRuleName(Is) + " " + Criteria.quote(jobName);
+		if (request != null) {
+			query = query 
+					+ " " + getRuleName(And) + " " 
+					+ Criteria.quote(NAME_PULL_REQUEST) + " " + getRuleName(Is) + " " + Criteria.quote("#" + request.getNumber());
+		}
+		if (refName != null) {
+			String branch = GitUtils.ref2branch(refName);
+			if (branch != null) {
+				query = query 
+					+ " " + getRuleName(And) + " " 
+					+ Criteria.quote(NAME_BRANCH) + " " + getRuleName(Is) + " " + Criteria.quote(branch);
+			} 
+			String tag = GitUtils.ref2tag(refName);
+			if (tag != null) {
+				query = query 
+					+ " " + getRuleName(And) + " " 
+					+ Criteria.quote(NAME_TAG) + " " + getRuleName(Is) + " " + Criteria.quote(tag);
+			} 
+		}
+		return query;
 	}
 	
 	public static List<String> getChoices() {

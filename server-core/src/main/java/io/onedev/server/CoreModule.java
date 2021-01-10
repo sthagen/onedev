@@ -83,6 +83,7 @@ import io.onedev.commons.launcher.loader.AbstractPlugin;
 import io.onedev.commons.launcher.loader.AbstractPluginModule;
 import io.onedev.commons.launcher.loader.ImplementationProvider;
 import io.onedev.commons.utils.ExceptionUtils;
+import io.onedev.commons.utils.ExplicitException;
 import io.onedev.commons.utils.StringUtils;
 import io.onedev.server.buildspec.job.DefaultJobManager;
 import io.onedev.server.buildspec.job.JobManager;
@@ -91,6 +92,7 @@ import io.onedev.server.buildspec.job.log.LogManager;
 import io.onedev.server.buildspec.job.log.instruction.LogInstruction;
 import io.onedev.server.entitymanager.BuildDependenceManager;
 import io.onedev.server.entitymanager.BuildManager;
+import io.onedev.server.entitymanager.BuildMetricManager;
 import io.onedev.server.entitymanager.BuildParamManager;
 import io.onedev.server.entitymanager.BuildQuerySettingManager;
 import io.onedev.server.entitymanager.CodeCommentManager;
@@ -125,6 +127,7 @@ import io.onedev.server.entitymanager.UserAuthorizationManager;
 import io.onedev.server.entitymanager.UserManager;
 import io.onedev.server.entitymanager.impl.DefaultBuildDependenceManager;
 import io.onedev.server.entitymanager.impl.DefaultBuildManager;
+import io.onedev.server.entitymanager.impl.DefaultBuildMetricManager;
 import io.onedev.server.entitymanager.impl.DefaultBuildParamManager;
 import io.onedev.server.entitymanager.impl.DefaultBuildQuerySettingManager;
 import io.onedev.server.entitymanager.impl.DefaultCodeCommentManager;
@@ -278,8 +281,8 @@ import io.onedev.server.web.editable.EditSupport;
 import io.onedev.server.web.editable.EditSupportLocator;
 import io.onedev.server.web.editable.EditSupportRegistry;
 import io.onedev.server.web.mapper.DynamicPathPageMapper;
-import io.onedev.server.web.page.layout.DefaultUICustomization;
-import io.onedev.server.web.page.layout.UICustomization;
+import io.onedev.server.web.page.layout.DefaultMainMenuCustomization;
+import io.onedev.server.web.page.layout.MainMenuCustomization;
 import io.onedev.server.web.page.project.blob.render.BlobRendererContribution;
 import io.onedev.server.web.page.test.TestPage;
 import io.onedev.server.web.websocket.BuildEventBroadcaster;
@@ -390,6 +393,7 @@ public class CoreModule extends AbstractPluginModule {
 		bind(BuildQuerySettingManager.class).to(DefaultBuildQuerySettingManager.class);
 		bind(PullRequestAssignmentManager.class).to(DefaultPullRequestAssignmentManager.class);
 		bind(SshKeyManager.class).to(DefaultSshKeyManager.class);
+		bind(BuildMetricManager.class).to(DefaultBuildMetricManager.class);
 		
 		bind(WebHookManager.class);
 		
@@ -596,7 +600,7 @@ public class CoreModule extends AbstractPluginModule {
 			public Collection<Class<? extends Exception>> getExpectedExceptionClasses() {
 				return Sets.newHashSet(ConstraintViolationException.class, EntityNotFoundException.class, 
 						ObjectNotFoundException.class, StaleStateException.class, UnauthorizedException.class, 
-						GeneralException.class, PageExpiredException.class, StalePageException.class);
+						ExplicitException.class, PageExpiredException.class, StalePageException.class);
 			}
 			
 		});
@@ -609,7 +613,7 @@ public class CoreModule extends AbstractPluginModule {
 		
 		bind(TaskButton.TaskFutureManager.class);
 		
-		bind(UICustomization.class).toInstance(new DefaultUICustomization());
+		bind(MainMenuCustomization.class).toInstance(new DefaultMainMenuCustomization());
 	}
 	
 	private void configureBuild() {

@@ -19,7 +19,7 @@ import io.onedev.commons.codeassist.grammar.LexerRuleRefElementSpec;
 import io.onedev.commons.codeassist.parser.Element;
 import io.onedev.commons.codeassist.parser.ParseExpect;
 import io.onedev.commons.codeassist.parser.TerminalExpect;
-import io.onedev.server.GeneralException;
+import io.onedev.commons.utils.ExplicitException;
 import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.BuildParamManager;
 import io.onedev.server.model.Build;
@@ -27,7 +27,6 @@ import io.onedev.server.model.Project;
 import io.onedev.server.search.entity.build.BuildQuery;
 import io.onedev.server.search.entity.build.BuildQueryLexer;
 import io.onedev.server.search.entity.build.BuildQueryParser;
-import io.onedev.server.search.entity.project.ProjectQuery;
 import io.onedev.server.util.DateUtils;
 import io.onedev.server.web.behavior.inputassist.ANTLRAssistBehavior;
 import io.onedev.server.web.behavior.inputassist.InputAssistBehavior;
@@ -145,7 +144,7 @@ public class BuildQueryBehavior extends ANTLRAssistBehavior {
 									} else {
 										return null;
 									}
-								} catch (GeneralException ex) {
+								} catch (ExplicitException ex) {
 								}
 							}
 						}
@@ -188,7 +187,7 @@ public class BuildQueryBehavior extends ANTLRAssistBehavior {
 				String fieldName = BuildQuery.getValue(fieldElements.iterator().next().getMatchedText());
 				try {
 					BuildQuery.checkField(getProject(), fieldName, BuildQuery.getOperator(suggestedLiteral));
-				} catch (GeneralException e) {
+				} catch (ExplicitException e) {
 					return null;
 				}
 			} 
@@ -201,10 +200,10 @@ public class BuildQueryBehavior extends ANTLRAssistBehavior {
 		List<String> hints = new ArrayList<>();
 		if (terminalExpect.getElementSpec() instanceof LexerRuleRefElementSpec) {
 			LexerRuleRefElementSpec spec = (LexerRuleRefElementSpec) terminalExpect.getElementSpec();
-			if ("criteriaValue".equals(spec.getLabel()) && ProjectQuery.isInsideQuote(terminalExpect.getUnmatchedText())) {
+			if ("criteriaValue".equals(spec.getLabel()) && BuildQuery.isInsideQuote(terminalExpect.getUnmatchedText())) {
 				List<Element> fieldElements = terminalExpect.getState().findMatchedElementsByLabel("criteriaField", true);
 				if (!fieldElements.isEmpty()) {
-					String fieldName = ProjectQuery.getValue(fieldElements.get(0).getMatchedText());
+					String fieldName = BuildQuery.getValue(fieldElements.get(0).getMatchedText());
 					if (fieldName.equals(Build.NAME_PROJECT) || fieldName.equals(Build.NAME_VERSION)
 							|| fieldName.equals(Build.NAME_JOB)) {
 						hints.add("Use '*' for wildcard match");

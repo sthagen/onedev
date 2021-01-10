@@ -59,13 +59,13 @@ import org.apache.wicket.util.time.Duration;
 import io.onedev.commons.launcher.bootstrap.Bootstrap;
 import io.onedev.commons.launcher.loader.AppLoader;
 import io.onedev.commons.utils.ExceptionUtils;
-import io.onedev.server.GeneralException;
+import io.onedev.commons.utils.ExplicitException;
 import io.onedev.server.OneDev;
 import io.onedev.server.util.usage.InUseException;
 import io.onedev.server.web.component.svg.SpriteImageResolver;
 import io.onedev.server.web.mapper.BaseResourceMapper;
 import io.onedev.server.web.page.base.BasePage;
-import io.onedev.server.web.page.layout.UICustomization;
+import io.onedev.server.web.page.layout.MainMenuCustomization;
 import io.onedev.server.web.page.simple.error.GeneralErrorPage;
 import io.onedev.server.web.page.simple.error.InUseErrorPage;
 import io.onedev.server.web.resource.SvgSpriteResourceReference;
@@ -79,11 +79,11 @@ public class WebApplication extends org.apache.wicket.protocol.http.WebApplicati
 	
 	private final Set<WebApplicationConfigurator> applicationConfigurators;
 	
-	private final UICustomization uiCustomization;
+	private final MainMenuCustomization uiCustomization;
 
 	@Inject
 	public WebApplication(Set<WebApplicationConfigurator> applicationConfigurators, 
-			UICustomization uiCustomization) {
+			MainMenuCustomization uiCustomization) {
 		this.applicationConfigurators = applicationConfigurators;
 		this.uiCustomization = uiCustomization;
 	}
@@ -142,7 +142,7 @@ public class WebApplication extends org.apache.wicket.protocol.http.WebApplicati
 						&& !(component instanceof AbstractErrorPage) 
 						&& !(component instanceof BasePage)
 						&& !(component instanceof BrowserInfoPage)) {
-					throw new GeneralException("Page classes should extend from BasePage.");
+					throw new ExplicitException("Page classes should extend from BasePage.");
 				}
 			}
 		});
@@ -238,7 +238,7 @@ public class WebApplication extends org.apache.wicket.protocol.http.WebApplicati
 	@Override
 	public void mount(IRequestMapper mapper) {
 		if (mapper instanceof ResourceMapper && !(mapper instanceof BaseResourceMapper))
-			throw new GeneralException("Base resource mapper should be used");
+			throw new ExplicitException("Base resource mapper should be used");
 		super.mount(mapper);
 	}
 

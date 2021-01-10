@@ -38,7 +38,7 @@ import io.onedev.server.web.component.build.ParamValuesLabel;
 import io.onedev.server.web.component.entity.reference.ReferencePanel;
 import io.onedev.server.web.component.job.JobDefLink;
 import io.onedev.server.web.component.link.ViewStateAwarePageLink;
-import io.onedev.server.web.component.pullrequest.RequestStatusLabel;
+import io.onedev.server.web.component.pullrequest.RequestStatusBadge;
 import io.onedev.server.web.component.user.ident.Mode;
 import io.onedev.server.web.component.user.ident.UserIdentPanel;
 import io.onedev.server.web.page.builds.BuildListPage;
@@ -76,19 +76,11 @@ public abstract class BuildSidePanel extends Panel {
 		
 		add(general);
 
-		if (getBuild().getRefName() != null) {
-			String branch = GitUtils.ref2branch(getBuild().getRefName());
-			general.add(new Label("branch", branch).setVisible(branch != null));
-		} else {
-			general.add(new WebMarkupContainer("branch").setVisible(false));
-		}
-
-		if (getBuild().getRefName() != null) {
-			String tag = GitUtils.ref2tag(getBuild().getRefName());
-			general.add(new Label("tag", tag).setVisible(tag != null));
-		} else {
-			general.add(new WebMarkupContainer("tag").setVisible(false));
-		}
+		String branch = getBuild().getBranch();
+		general.add(new Label("branch", branch).setVisible(branch != null));
+		
+		String tag = getBuild().getTag();
+		general.add(new Label("tag", tag).setVisible(tag != null));
 		
 		CommitDetailPage.State commitState = new CommitDetailPage.State();
 		commitState.revision = getBuild().getCommitHash();
@@ -275,7 +267,7 @@ public abstract class BuildSidePanel extends Panel {
 							PullRequestActivitiesPage.paramsOf(request));
 					link.add(new Label("label", "#" + request.getNumber() + " " + request.getTitle()));
 					add(link);
-					add(new RequestStatusLabel("status", new AbstractReadOnlyModel<PullRequest>() {
+					add(new RequestStatusBadge("status", new AbstractReadOnlyModel<PullRequest>() {
 	
 						@Override
 						public PullRequest getObject() {

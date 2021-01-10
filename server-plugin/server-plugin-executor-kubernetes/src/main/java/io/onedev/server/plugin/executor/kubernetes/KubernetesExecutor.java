@@ -35,13 +35,13 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import io.onedev.commons.utils.ExceptionUtils;
 import io.onedev.commons.utils.FileUtils;
+import io.onedev.commons.utils.ExplicitException;
 import io.onedev.commons.utils.StringUtils;
 import io.onedev.commons.utils.command.Commandline;
-import io.onedev.commons.utils.command.ExecuteResult;
+import io.onedev.commons.utils.command.ExecutionResult;
 import io.onedev.commons.utils.command.LineConsumer;
 import io.onedev.k8shelper.KubernetesHelper;
 import io.onedev.server.OneDev;
-import io.onedev.server.GeneralException;
 import io.onedev.server.buildspec.job.CacheSpec;
 import io.onedev.server.buildspec.job.EnvVar;
 import io.onedev.server.buildspec.job.JobContext;
@@ -83,7 +83,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 	
 	private List<NodeSelectorEntry> nodeSelector = new ArrayList<>();
 	
-	private String serviceAccount;
+	private String clusterRole;
 	
 	private List<RegistryLogin> registryLogins = new ArrayList<>();
 	
@@ -104,15 +104,15 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 		this.nodeSelector = nodeSelector;
 	}
 
-	@Editable(order=40, description="Optionally specify a service account in above namespace to run the job "
-			+ "pod. Refer to <a href='https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/'>"
-			+ "kubernetes documentation</a> on how to set up service accounts")
-	public String getServiceAccount() {
-		return serviceAccount;
+	@Editable(order=40, description="Optionally specify cluster role the job pods service account "
+			+ "binding to. This is necessary if you want to do things such as running other "
+			+ "Kubernetes pods in job command")
+	public String getClusterRole() {
+		return clusterRole;
 	}
 
-	public void setServiceAccount(String serviceAccount) {
-		this.serviceAccount = serviceAccount;
+	public void setClusterRole(String clusterRole) {
+		this.clusterRole = clusterRole;
 	}
 
 	@Editable(order=200, description="Specify login information of docker registries if necessary. "
@@ -261,15 +261,27 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 		}
 	}
 	
-	private String createNamespace(@Nullable JobContext jobContext, SimpleLogger jobLogger) {
-		String namespace = getName() + "-";
-		if (jobContext != null) {
-			namespace += jobContext.getProjectName().replace('.', '-').replace('_', '-') + "-" 
-					+ jobContext.getBuildNumber() + "-" + jobContext.getRetried();
-		} else {
-			namespace += "executor-test";
-		}
-		
+	private void deleteClusterRoleBinding(String namespace, SimpleLogger jobLogger) {
+		Commandline cmd = newKubeCtl();
+		cmd.addArgs("delete", "clusterrolebinding", namespace);
+		cmd.execute(new LineConsumer() {
+
+			@Override
+			public void consume(String line) {
+				logger.debug(line);
+			}
+			
+		}, new LineConsumer() {
+
+			@Override
+			public void consume(String line) {
+				jobLogger.log("Kubernetes: " + line);
+			}
+			
+		}).checkReturnCode();
+	}
+	
+	private String createNamespace(String namespace, @Nullable JobContext jobContext, SimpleLogger jobLogger) {
 		AtomicBoolean namespaceExists = new AtomicBoolean(false);
 		Commandline cmd = newKubeCtl();
 		cmd.addArgs("get", "namespaces", "--field-selector", "metadata.name=" + namespace, 
@@ -390,7 +402,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 		if (!osInfos.isEmpty()) {
 			return OsInfo.getBaseline(osInfos);
 		} else {
-			throw new GeneralException("No applicable working nodes found");
+			throw new ExplicitException("No applicable working nodes found");
 		}
 	}
 	
@@ -434,6 +446,46 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 			return null;
 		}
 	}
+	
+	private void createClusterRoleBinding(String namespace, SimpleLogger jobLogger) {
+		AtomicBoolean clusterRoleBindingExists = new AtomicBoolean(false);
+		Commandline cmd = newKubeCtl();
+		cmd.addArgs("get", "clusterrolebindings", "--field-selector", "metadata.name=" + namespace, 
+				"-o", "name");
+		cmd.execute(new LineConsumer() {
+
+			@Override
+			public void consume(String line) {
+				clusterRoleBindingExists.set(true);
+			}
+			
+		}, new LineConsumer() {
+
+			@Override
+			public void consume(String line) {
+				jobLogger.log("Kubernetes: " + line);
+			}
+			
+		}).checkReturnCode();
+		
+		if (clusterRoleBindingExists.get())
+			deleteClusterRoleBinding(namespace, jobLogger);
+		
+		Map<Object, Object> clusterRoleBindingDef = CollectionUtils.newLinkedHashMap(
+				"apiVersion", "rbac.authorization.k8s.io/v1", 
+				"kind", "ClusterRoleBinding", 
+				"metadata", CollectionUtils.newLinkedHashMap(
+						"name", namespace), 
+				"subjects", Lists.<Object>newArrayList(CollectionUtils.newLinkedHashMap(
+						"kind", "ServiceAccount", 
+						"name", "default", 
+						"namespace", namespace)), 
+				"roleRef", CollectionUtils.newLinkedHashMap(
+						"apiGroup", "rbac.authorization.k8s.io",
+						"kind", "ClusterRole", 
+						"name", getClusterRole()));
+		createResource(clusterRoleBindingDef, new HashSet<>(), jobLogger);
+	}	
 	
 	@Nullable
 	private String createTrustCertsConfigMap(String namespace, SimpleLogger jobLogger) {
@@ -576,7 +628,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 					else 
 						kubectl.addArgs("cmd.exe", "/c");
 					kubectl.addArgs(jobService.getReadinessCheckCommand());
-					ExecuteResult result = kubectl.execute(new LineConsumer() {
+					ExecutionResult result = kubectl.execute(new LineConsumer() {
 
 						@Override
 						public void consume(String line) {
@@ -615,7 +667,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 					
 					collectContainerLog(namespace, podName, "default", null, jobLogger);
 					String message = "Service '" + jobService.getName() + "' is stopped unexpectedly";
-					throw new GeneralException(message);
+					throw new ExplicitException(message);
 				}
 			}
 			
@@ -654,303 +706,316 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 			
 		}).checkReturnCode();
 		
-		String namespace = createNamespace(jobContext, jobLogger);
-		jobLogger.log(String.format("Executing job (executor: %s, namespace: %s, image: %s)...", 
-				getName(), namespace, dockerImage));
+		String namespace = getName() + "-";
+		if (jobContext != null) {
+			namespace += jobContext.getProjectName().replace('.', '-').replace('_', '-') + "-" 
+					+ jobContext.getBuildNumber() + "-" + jobContext.getRetried();
+		} else {
+			namespace += "executor-test";
+		}
 		
+		if (getClusterRole() != null)
+			createClusterRoleBinding(namespace, jobLogger);
 		try {
-			String imagePullSecretName = createImagePullSecret(namespace, jobLogger);
-			if (jobContext != null) {
-				for (JobService jobService: jobContext.getServices()) {
-					jobLogger.log("Starting service (name: " + jobService.getName() + ", image: " + jobService.getImage() + ")...");
-					startService(namespace, jobContext, jobService, imagePullSecretName, jobLogger);
+			createNamespace(namespace, jobContext, jobLogger);
+			
+			jobLogger.log(String.format("Executing job (executor: %s, namespace: %s, image: %s)...", 
+					getName(), namespace, dockerImage));
+			try {
+				String imagePullSecretName = createImagePullSecret(namespace, jobLogger);
+				if (jobContext != null) {
+					for (JobService jobService: jobContext.getServices()) {
+						jobLogger.log("Starting service (name: " + jobService.getName() + ", image: " + jobService.getImage() + ")...");
+						startService(namespace, jobContext, jobService, imagePullSecretName, jobLogger);
+					}
 				}
-			}
-			
-			String trustCertsConfigMapName = createTrustCertsConfigMap(namespace, jobLogger);
-			
-			OsInfo baselineOsInfo = getBaselineOsInfo(getNodeSelector(), jobLogger);
-			
-			Map<String, Object> podSpec = new LinkedHashMap<>();
-			
-			Map<Object, Object> mainContainerSpec = CollectionUtils.newHashMap(
-					"name", "main", 
-					"image", dockerImage);
-	
-			String k8sHelperClassPath;
-			String containerBuildHome;
-			String containerCacheHome;
-			String containerUserHome;
-			String trustCertsHome;
-			String dockerSock;
-			if (baselineOsInfo.isLinux()) {
-				containerBuildHome = "/onedev-build";
-				containerCacheHome = containerBuildHome + "/cache";
-				containerUserHome = "/root/onedev";
-				trustCertsHome = containerBuildHome + "/trust-certs";
-				k8sHelperClassPath = "/k8s-helper/*";
-				mainContainerSpec.put("command", Lists.newArrayList("sh"));
-				mainContainerSpec.put("args", Lists.newArrayList(containerBuildHome + "/commands.sh"));
-				dockerSock = "/var/run/docker.sock";
-			} else {
-				containerBuildHome = "C:\\onedev-build";
-				containerCacheHome = containerBuildHome + "\\cache";
-				containerUserHome = "C:\\Users\\ContainerAdministrator\\onedev";
-				trustCertsHome = containerBuildHome + "\\trust-certs";
-				k8sHelperClassPath = "C:\\k8s-helper\\*";
-				mainContainerSpec.put("command", Lists.newArrayList("cmd"));
-				mainContainerSpec.put("args", Lists.newArrayList("/c", containerBuildHome + "\\commands.bat"));
-				dockerSock = null;
-			}
+				
+				String trustCertsConfigMapName = createTrustCertsConfigMap(namespace, jobLogger);
+				
+				OsInfo baselineOsInfo = getBaselineOsInfo(getNodeSelector(), jobLogger);
+				
+				Map<String, Object> podSpec = new LinkedHashMap<>();
+				
+				Map<Object, Object> mainContainerSpec = CollectionUtils.newHashMap(
+						"name", "main", 
+						"image", dockerImage);
+		
+				String k8sHelperClassPath;
+				String containerBuildHome;
+				String containerCacheHome;
+				String containerUserHome;
+				String trustCertsHome;
+				String dockerSock;
+				if (baselineOsInfo.isLinux()) {
+					containerBuildHome = "/onedev-build";
+					containerCacheHome = containerBuildHome + "/cache";
+					containerUserHome = "/root/onedev";
+					trustCertsHome = containerBuildHome + "/trust-certs";
+					k8sHelperClassPath = "/k8s-helper/*";
+					mainContainerSpec.put("command", Lists.newArrayList("sh"));
+					mainContainerSpec.put("args", Lists.newArrayList(containerBuildHome + "/commands.sh"));
+					dockerSock = "/var/run/docker.sock";
+				} else {
+					containerBuildHome = "C:\\onedev-build";
+					containerCacheHome = containerBuildHome + "\\cache";
+					containerUserHome = "C:\\Users\\ContainerAdministrator\\onedev";
+					trustCertsHome = containerBuildHome + "\\trust-certs";
+					k8sHelperClassPath = "C:\\k8s-helper\\*";
+					mainContainerSpec.put("command", Lists.newArrayList("cmd"));
+					mainContainerSpec.put("args", Lists.newArrayList("/c", containerBuildHome + "\\commands.bat"));
+					dockerSock = null;
+				}
 
-			Map<String, String> buildHomeMount = CollectionUtils.newLinkedHashMap(
-					"name", "build-home", 
-					"mountPath", containerBuildHome);
-			Map<String, String> userHomeMount = CollectionUtils.newLinkedHashMap(
-					"name", "user-home", 
-					"mountPath", containerUserHome);
-			Map<String, String> cacheHomeMount = CollectionUtils.newLinkedHashMap(
-					"name", "cache-home", 
-					"mountPath", containerCacheHome);
-			Map<String, String> trustCertsMount = CollectionUtils.newLinkedHashMap(
-					"name", "trust-certs-home", 
-					"mountPath", trustCertsHome);
-			Map<String, String> dockerSockMount = CollectionUtils.newLinkedHashMap(
-					"name", "docker-sock", 
-					"mountPath", dockerSock);
-			
-			List<Object> volumeMounts = Lists.<Object>newArrayList(buildHomeMount, userHomeMount, cacheHomeMount);
-			if (trustCertsConfigMapName != null)
-				volumeMounts.add(trustCertsMount);
-			if (dockerSock != null)
-				volumeMounts.add(dockerSockMount);
-			
-			mainContainerSpec.put("volumeMounts", volumeMounts);
-			
-			if (jobContext != null) {
-				mainContainerSpec.put("resources", CollectionUtils.newLinkedHashMap("requests", CollectionUtils.newLinkedHashMap(
-						"cpu", jobContext.getCpuRequirement(), 
-						"memory", jobContext.getMemoryRequirement())));
-			}
-	
-			List<Map<Object, Object>> envs = new ArrayList<>();
-			envs.add(CollectionUtils.newLinkedHashMap(
-					"name", KubernetesHelper.ENV_SERVER_URL, 
-					"value", getServerUrl()));
-			envs.add(CollectionUtils.newLinkedHashMap(
-					"name", KubernetesHelper.ENV_JOB_TOKEN, 
-					"value", jobToken));
-
-			List<String> sidecarArgs = Lists.newArrayList(
-					"-classpath", k8sHelperClassPath,
-					"io.onedev.k8shelper.SideCar");
-			List<String> initArgs = Lists.newArrayList(
-					"-classpath", k8sHelperClassPath, 
-					"io.onedev.k8shelper.Init");
-			if (jobContext == null) {
-				sidecarArgs.add("test");
-				initArgs.add("test");
-			}
-			
-			String helperImageVersion;
-			try (InputStream is = KubernetesExecutor.class.getClassLoader().getResourceAsStream("k8s-helper-version.properties")) {
-				ByteArrayOutputStream baos = new ByteArrayOutputStream();
-				IOUtils.copy(is, baos);
-				helperImageVersion = baos.toString();
-			} catch (IOException e) {
-				throw new RuntimeException(e);
-			}
-			
-			Map<Object, Object> sidecarContainerSpec = CollectionUtils.newHashMap(
-					"name", "sidecar", 
-					"image", "1dev/k8s-helper-" + baselineOsInfo.getHelperImageSuffix() + ":" + helperImageVersion, 
-					"command", Lists.newArrayList("java"), 
-					"args", sidecarArgs, 
-					"env", envs, 
-					"volumeMounts", volumeMounts);
-			
-			Map<Object, Object> initContainerSpec = CollectionUtils.newHashMap(
-					"name", "init", 
-					"image", "1dev/k8s-helper-" + baselineOsInfo.getHelperImageSuffix() + ":" + helperImageVersion, 
-					"command", Lists.newArrayList("java"), 
-					"args", initArgs,
-					"env", envs,
-					"volumeMounts", volumeMounts);
-			
-			podSpec.put("containers", Lists.<Object>newArrayList(mainContainerSpec, sidecarContainerSpec));
-			podSpec.put("initContainers", Lists.<Object>newArrayList(initContainerSpec));
-
-			Map<Object, Object> affinity = getAffinity(jobContext);
-			if (affinity != null) 
-				podSpec.put("affinity", affinity);
-			
-			if (imagePullSecretName != null)
-				podSpec.put("imagePullSecrets", Lists.<Object>newArrayList(CollectionUtils.newLinkedHashMap("name", imagePullSecretName)));
-			if (getServiceAccount() != null)
-				podSpec.put("serviceAccountName", getServiceAccount());
-			podSpec.put("restartPolicy", "Never");		
-			
-			if (!getNodeSelector().isEmpty())
-				podSpec.put("nodeSelector", toMap(getNodeSelector()));
-			
-			Map<Object, Object> buildHomeVolume = CollectionUtils.newLinkedHashMap(
-					"name", "build-home", 
-					"emptyDir", CollectionUtils.newLinkedHashMap());
-			Map<Object, Object> userHomeVolume = CollectionUtils.newLinkedHashMap(
-					"name", "user-home", 
-					"emptyDir", CollectionUtils.newLinkedHashMap());
-			Map<Object, Object> cacheHomeVolume = CollectionUtils.newLinkedHashMap(
-					"name", "cache-home", 
-					"hostPath", CollectionUtils.newLinkedHashMap(
-							"path", baselineOsInfo.getCacheHome(), 
-							"type", "DirectoryOrCreate"));
-			List<Object> volumes = Lists.<Object>newArrayList(buildHomeVolume, userHomeVolume, cacheHomeVolume);
-			if (trustCertsConfigMapName != null) {
-				Map<Object, Object> trustCertsHomeVolume = CollectionUtils.newLinkedHashMap(
+				Map<String, String> buildHomeMount = CollectionUtils.newLinkedHashMap(
+						"name", "build-home", 
+						"mountPath", containerBuildHome);
+				Map<String, String> userHomeMount = CollectionUtils.newLinkedHashMap(
+						"name", "user-home", 
+						"mountPath", containerUserHome);
+				Map<String, String> cacheHomeMount = CollectionUtils.newLinkedHashMap(
+						"name", "cache-home", 
+						"mountPath", containerCacheHome);
+				Map<String, String> trustCertsMount = CollectionUtils.newLinkedHashMap(
 						"name", "trust-certs-home", 
-						"configMap", CollectionUtils.newLinkedHashMap(
-								"name", trustCertsConfigMapName));			
-				volumes.add(trustCertsHomeVolume);
-			}
-			if (dockerSock != null) {
-				Map<Object, Object> dockerSockVolume = CollectionUtils.newLinkedHashMap(
+						"mountPath", trustCertsHome);
+				Map<String, String> dockerSockMount = CollectionUtils.newLinkedHashMap(
 						"name", "docker-sock", 
+						"mountPath", dockerSock);
+				
+				List<Object> volumeMounts = Lists.<Object>newArrayList(buildHomeMount, userHomeMount, cacheHomeMount);
+				if (trustCertsConfigMapName != null)
+					volumeMounts.add(trustCertsMount);
+				if (dockerSock != null)
+					volumeMounts.add(dockerSockMount);
+				
+				mainContainerSpec.put("volumeMounts", volumeMounts);
+				
+				if (jobContext != null) {
+					mainContainerSpec.put("resources", CollectionUtils.newLinkedHashMap("requests", CollectionUtils.newLinkedHashMap(
+							"cpu", jobContext.getCpuRequirement(), 
+							"memory", jobContext.getMemoryRequirement())));
+				}
+		
+				List<Map<Object, Object>> envs = new ArrayList<>();
+				envs.add(CollectionUtils.newLinkedHashMap(
+						"name", KubernetesHelper.ENV_SERVER_URL, 
+						"value", getServerUrl()));
+				envs.add(CollectionUtils.newLinkedHashMap(
+						"name", KubernetesHelper.ENV_JOB_TOKEN, 
+						"value", jobToken));
+
+				List<String> sidecarArgs = Lists.newArrayList(
+						"-classpath", k8sHelperClassPath,
+						"io.onedev.k8shelper.SideCar");
+				List<String> initArgs = Lists.newArrayList(
+						"-classpath", k8sHelperClassPath, 
+						"io.onedev.k8shelper.Init");
+				if (jobContext == null) {
+					sidecarArgs.add("test");
+					initArgs.add("test");
+				}
+				
+				String helperImageVersion;
+				try (InputStream is = KubernetesExecutor.class.getClassLoader().getResourceAsStream("k8s-helper-version.properties")) {
+					ByteArrayOutputStream baos = new ByteArrayOutputStream();
+					IOUtils.copy(is, baos);
+					helperImageVersion = baos.toString();
+				} catch (IOException e) {
+					throw new RuntimeException(e);
+				}
+				
+				Map<Object, Object> sidecarContainerSpec = CollectionUtils.newHashMap(
+						"name", "sidecar", 
+						"image", "1dev/k8s-helper-" + baselineOsInfo.getHelperImageSuffix() + ":" + helperImageVersion, 
+						"command", Lists.newArrayList("java"), 
+						"args", sidecarArgs, 
+						"env", envs, 
+						"volumeMounts", volumeMounts);
+				
+				Map<Object, Object> initContainerSpec = CollectionUtils.newHashMap(
+						"name", "init", 
+						"image", "1dev/k8s-helper-" + baselineOsInfo.getHelperImageSuffix() + ":" + helperImageVersion, 
+						"command", Lists.newArrayList("java"), 
+						"args", initArgs,
+						"env", envs,
+						"volumeMounts", volumeMounts);
+				
+				podSpec.put("containers", Lists.<Object>newArrayList(mainContainerSpec, sidecarContainerSpec));
+				podSpec.put("initContainers", Lists.<Object>newArrayList(initContainerSpec));
+
+				Map<Object, Object> affinity = getAffinity(jobContext);
+				if (affinity != null) 
+					podSpec.put("affinity", affinity);
+				
+				if (imagePullSecretName != null)
+					podSpec.put("imagePullSecrets", Lists.<Object>newArrayList(CollectionUtils.newLinkedHashMap("name", imagePullSecretName)));
+				podSpec.put("restartPolicy", "Never");		
+				
+				if (!getNodeSelector().isEmpty())
+					podSpec.put("nodeSelector", toMap(getNodeSelector()));
+				
+				Map<Object, Object> buildHomeVolume = CollectionUtils.newLinkedHashMap(
+						"name", "build-home", 
+						"emptyDir", CollectionUtils.newLinkedHashMap());
+				Map<Object, Object> userHomeVolume = CollectionUtils.newLinkedHashMap(
+						"name", "user-home", 
+						"emptyDir", CollectionUtils.newLinkedHashMap());
+				Map<Object, Object> cacheHomeVolume = CollectionUtils.newLinkedHashMap(
+						"name", "cache-home", 
 						"hostPath", CollectionUtils.newLinkedHashMap(
-								"path", dockerSock, 
-								"type", "File"));
-				volumes.add(dockerSockVolume);
-			}
-			podSpec.put("volumes", volumes);
-
-			String podName = "job";
-			
-			Map<Object, Object> podDef = CollectionUtils.newLinkedHashMap(
-					"apiVersion", "v1", 
-					"kind", "Pod", 
-					"metadata", CollectionUtils.newLinkedHashMap(
-							"name", podName, 
-							"namespace", namespace), 
-					"spec", podSpec);
-			
-			createResource(podDef, Sets.newHashSet(), jobLogger);
-			String podFQN = namespace + "/" + podName;
-			jobLogger.log("Preparing job environment...");
-			
-			logger.debug("Checking error events (pod: {})...", podFQN);
-			// Some errors only reported via events
-			checkEventError(namespace, podName, jobLogger);
-			
-			logger.debug("Waiting for init container to start (pod: {})...", podFQN);
-			watchPod(namespace, podName, new StatusChecker() {
-
-				@Override
-				public StopWatch check(JsonNode statusNode) {
-					JsonNode initContainerStatusesNode = statusNode.get("initContainerStatuses");
-					if (isContainerStarted(initContainerStatusesNode, "init"))
-						return new StopWatch(null);
-					else
-						return null;
+								"path", baselineOsInfo.getCacheHome(), 
+								"type", "DirectoryOrCreate"));
+				List<Object> volumes = Lists.<Object>newArrayList(buildHomeVolume, userHomeVolume, cacheHomeVolume);
+				if (trustCertsConfigMapName != null) {
+					Map<Object, Object> trustCertsHomeVolume = CollectionUtils.newLinkedHashMap(
+							"name", "trust-certs-home", 
+							"configMap", CollectionUtils.newLinkedHashMap(
+									"name", trustCertsConfigMapName));			
+					volumes.add(trustCertsHomeVolume);
 				}
-				
-			}, jobLogger);
-			
-			if (jobContext != null)
-				jobContext.notifyJobRunning();
-			
-			AtomicReference<String> nodeNameRef = new AtomicReference<>(null);
-			
-			kubectl.clearArgs();
-			kubectl.addArgs("get", "pod", podName, "-n", namespace, "-o", "jsonpath={.spec.nodeName}");
-			kubectl.execute(new LineConsumer() {
-
-				@Override
-				public void consume(String line) {
-					nodeNameRef.set(line);
+				if (dockerSock != null) {
+					Map<Object, Object> dockerSockVolume = CollectionUtils.newLinkedHashMap(
+							"name", "docker-sock", 
+							"hostPath", CollectionUtils.newLinkedHashMap(
+									"path", dockerSock, 
+									"type", "File"));
+					volumes.add(dockerSockVolume);
 				}
-				
-			}, new LineConsumer() {
+				podSpec.put("volumes", volumes);
 
-				@Override
-				public void consume(String line) {
-					jobLogger.log("Kubernetes: " + line);
-				}
+				String podName = "job";
 				
-			}).checkReturnCode();
-			
-			String nodeName = Preconditions.checkNotNull(nodeNameRef.get());
-			jobLogger.log("Running job pod on node " + nodeName + "...");
-			
-			logger.debug("Collecting init container log (pod: {})...", podFQN);
-			collectContainerLog(namespace, podName, "init", KubernetesHelper.LOG_END_MESSAGE, jobLogger);
-			
-			if (jobContext != null && isCreateCacheLabels()) 
-				updateCacheLabels(nodeName, jobContext, jobLogger);
-			
-			logger.debug("Waiting for main container to start (pod: {})...", podFQN);
-			watchPod(namespace, podName, new StatusChecker() {
-
-				@Override
-				public StopWatch check(JsonNode statusNode) {
-					JsonNode initContainerStatusesNode = statusNode.get("initContainerStatuses");
-					String errorMessage = getContainerError(initContainerStatusesNode, "init");
-					if (errorMessage != null)
-						return new StopWatch(new GeneralException("Error executing init logic: " + errorMessage));
-					
-					JsonNode containerStatusesNode = statusNode.get("containerStatuses");
-					if (isContainerStarted(containerStatusesNode, "main")) 
-						return new StopWatch(null);
-					else
-						return null;
-				}
+				Map<Object, Object> podDef = CollectionUtils.newLinkedHashMap(
+						"apiVersion", "v1", 
+						"kind", "Pod", 
+						"metadata", CollectionUtils.newLinkedHashMap(
+								"name", podName, 
+								"namespace", namespace), 
+						"spec", podSpec);
 				
-			}, jobLogger);
-			
-			logger.debug("Collecting main container log (pod: {})...", podFQN);
-			collectContainerLog(namespace, podName, "main", KubernetesHelper.LOG_END_MESSAGE, jobLogger);
-			
-			logger.debug("Waiting for sidecar container to start (pod: {})...", podFQN);
-			watchPod(namespace, podName, new StatusChecker() {
-
-				@Override
-				public StopWatch check(JsonNode statusNode) {
-					JsonNode containerStatusesNode = statusNode.get("containerStatuses");
-					if (isContainerStarted(containerStatusesNode, "sidecar"))
-						return new StopWatch(null);
-					else
-						return null;
-				}
+				createResource(podDef, Sets.newHashSet(), jobLogger);
+				String podFQN = namespace + "/" + podName;
+				jobLogger.log("Preparing job environment...");
 				
-			}, jobLogger);
-			
-			logger.debug("Collecting sidecar container log (pod: {})...", podFQN);
-			collectContainerLog(namespace, podName, "sidecar", KubernetesHelper.LOG_END_MESSAGE, jobLogger);
-			
-			logger.debug("Checking execution result (pod: {})...", podFQN);
-			watchPod(namespace, podName, new StatusChecker() {
+				logger.debug("Checking error events (pod: {})...", podFQN);
+				// Some errors only reported via events
+				checkEventError(namespace, podName, jobLogger);
+				
+				logger.debug("Waiting for init container to start (pod: {})...", podFQN);
+				watchPod(namespace, podName, new StatusChecker() {
 
-				@Override
-				public StopWatch check(JsonNode statusNode) {
-					JsonNode containerStatusesNode = statusNode.get("containerStatuses");
-					String errorMessage = getContainerError(containerStatusesNode, "main");
-					if (errorMessage != null) {
-						return new StopWatch(new GeneralException(errorMessage));
-					} else {
-						errorMessage = getContainerError(containerStatusesNode, "sidecar");
-						if (errorMessage != null)
-							return new StopWatch(new GeneralException("Error executing sidecar logic: " + errorMessage));
-						else if (isContainerStopped(containerStatusesNode, "sidecar"))
+					@Override
+					public StopWatch check(JsonNode statusNode) {
+						JsonNode initContainerStatusesNode = statusNode.get("initContainerStatuses");
+						if (isContainerStarted(initContainerStatusesNode, "init"))
 							return new StopWatch(null);
 						else
 							return null;
 					}
-				}
+					
+				}, jobLogger);
 				
-			}, jobLogger);
-			
-			if (jobContext != null && isCreateCacheLabels()) 
-				updateCacheLabels(nodeName, jobContext, jobLogger);
+				if (jobContext != null)
+					jobContext.notifyJobRunning();
+				
+				AtomicReference<String> nodeNameRef = new AtomicReference<>(null);
+				
+				kubectl.clearArgs();
+				kubectl.addArgs("get", "pod", podName, "-n", namespace, "-o", "jsonpath={.spec.nodeName}");
+				kubectl.execute(new LineConsumer() {
+
+					@Override
+					public void consume(String line) {
+						nodeNameRef.set(line);
+					}
+					
+				}, new LineConsumer() {
+
+					@Override
+					public void consume(String line) {
+						jobLogger.log("Kubernetes: " + line);
+					}
+					
+				}).checkReturnCode();
+				
+				String nodeName = Preconditions.checkNotNull(nodeNameRef.get());
+				jobLogger.log("Running job pod on node " + nodeName + "...");
+				
+				logger.debug("Collecting init container log (pod: {})...", podFQN);
+				collectContainerLog(namespace, podName, "init", KubernetesHelper.LOG_END_MESSAGE, jobLogger);
+				
+				if (jobContext != null && isCreateCacheLabels()) 
+					updateCacheLabels(nodeName, jobContext, jobLogger);
+				
+				logger.debug("Waiting for main container to start (pod: {})...", podFQN);
+				watchPod(namespace, podName, new StatusChecker() {
+
+					@Override
+					public StopWatch check(JsonNode statusNode) {
+						JsonNode initContainerStatusesNode = statusNode.get("initContainerStatuses");
+						String errorMessage = getContainerError(initContainerStatusesNode, "init");
+						if (errorMessage != null)
+							return new StopWatch(new ExplicitException("Error executing init logic: " + errorMessage));
+						
+						JsonNode containerStatusesNode = statusNode.get("containerStatuses");
+						if (isContainerStarted(containerStatusesNode, "main")) 
+							return new StopWatch(null);
+						else
+							return null;
+					}
+					
+				}, jobLogger);
+				
+				logger.debug("Collecting main container log (pod: {})...", podFQN);
+				collectContainerLog(namespace, podName, "main", KubernetesHelper.LOG_END_MESSAGE, jobLogger);
+				
+				logger.debug("Waiting for sidecar container to start (pod: {})...", podFQN);
+				watchPod(namespace, podName, new StatusChecker() {
+
+					@Override
+					public StopWatch check(JsonNode statusNode) {
+						JsonNode containerStatusesNode = statusNode.get("containerStatuses");
+						if (isContainerStarted(containerStatusesNode, "sidecar"))
+							return new StopWatch(null);
+						else
+							return null;
+					}
+					
+				}, jobLogger);
+				
+				logger.debug("Collecting sidecar container log (pod: {})...", podFQN);
+				collectContainerLog(namespace, podName, "sidecar", KubernetesHelper.LOG_END_MESSAGE, jobLogger);
+				
+				logger.debug("Checking execution result (pod: {})...", podFQN);
+				watchPod(namespace, podName, new StatusChecker() {
+
+					@Override
+					public StopWatch check(JsonNode statusNode) {
+						JsonNode containerStatusesNode = statusNode.get("containerStatuses");
+						String errorMessage = getContainerError(containerStatusesNode, "main");
+						if (errorMessage != null) {
+							return new StopWatch(new ExplicitException(errorMessage));
+						} else {
+							errorMessage = getContainerError(containerStatusesNode, "sidecar");
+							if (errorMessage != null)
+								return new StopWatch(new ExplicitException("Error executing sidecar logic: " + errorMessage));
+							else if (isContainerStopped(containerStatusesNode, "sidecar"))
+								return new StopWatch(null);
+							else
+								return null;
+						}
+					}
+					
+				}, jobLogger);
+				
+				if (jobContext != null && isCreateCacheLabels()) 
+					updateCacheLabels(nodeName, jobContext, jobLogger);
+			} finally {
+				deleteNamespace(namespace, jobLogger);
+			}			
 		} finally {
-			deleteNamespace(namespace, jobLogger);
+			if (getClusterRole() != null)
+				deleteClusterRoleBinding(namespace, jobLogger);
 		}
 	}
 	
@@ -967,7 +1032,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 						if (reasonNode != null)
 							reason = reasonNode.asText();
 						else
-							reason = "terminated for unknown reason";
+							reason = "Unknown reason";
 						
 						if (!reason.equals("Completed")) {
 							JsonNode messageNode = terminatedNode.get("message");
@@ -976,7 +1041,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 							} else {
 								JsonNode exitCodeNode = terminatedNode.get("exitCode");
 								if (exitCodeNode != null && exitCodeNode.asInt() != 0)
-									return "exit code: " + exitCodeNode.asText();
+									return "Job command failed with exit code " + exitCodeNode.asText();
 								else
 									return reason;
 							}
@@ -1080,7 +1145,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 			for (String labelUpdate: partition) 
 				kubectl.addArgs(labelUpdate);
 			AtomicBoolean labelNotFound = new AtomicBoolean(false);
-			ExecuteResult result = kubectl.execute(new LineConsumer() {
+			ExecutionResult result = kubectl.execute(new LineConsumer() {
 
 				@Override
 				public void consume(String line) {
@@ -1178,7 +1243,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 						} 
 					}
 					if (errorMessage != null) 
-						stopWatchRef.set(new StopWatch(new GeneralException(errorMessage)));
+						stopWatchRef.set(new StopWatch(new ExplicitException(errorMessage)));
 					else 
 						stopWatchRef.set(statusChecker.check(statusNode));
 					if (stopWatchRef.get() != null) 
@@ -1194,7 +1259,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 				
 			}).checkReturnCode();
 			
-			throw new GeneralException("Unexpected end of pod watching");
+			throw new ExplicitException("Unexpected end of pod watching");
 		} catch (Exception e) {
 			StopWatch stopWatch = stopWatchRef.get();
 			if (stopWatch != null) {
@@ -1238,7 +1303,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 									if (reason.equals("FailedScheduling"))
 										jobLogger.log("Kubernetes: " + message);
 									else 
-										stopWatchRef.set(new StopWatch(new GeneralException(message)));
+										stopWatchRef.set(new StopWatch(new ExplicitException(message)));
 								} else if (type.equals("Normal") && reason.equals("Started")) {
 									stopWatchRef.set(new StopWatch(null));
 								}
@@ -1263,7 +1328,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 				
 			}).checkReturnCode();
 			
-			throw new GeneralException("Unexpected end of event watching");
+			throw new ExplicitException("Unexpected end of event watching");
 		} catch (Exception e) {
 			StopWatch stopWatch = stopWatchRef.get();
 			if (stopWatch != null) {
@@ -1322,7 +1387,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 				kubectl.execute(logConsumer, logConsumer).checkReturnCode();
 			} catch (Exception e) {
 				if (errorMessageRef.get() != null) 
-					throw new GeneralException(errorMessageRef.get());
+					throw new ExplicitException(errorMessageRef.get());
 				else
 					throw ExceptionUtils.unchecked(e);
 			}		
@@ -1423,20 +1488,20 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 			if (osInfos.iterator().next().isLinux()) {
 				for (OsInfo osInfo: osInfos) {
 					if (!osInfo.isLinux())
-						throw new GeneralException("Linux and non-linux nodes should not be included in same executor");
+						throw new ExplicitException("Linux and non-linux nodes should not be included in same executor");
 				}
 				return osInfos.iterator().next();
 			} else if (osInfos.iterator().next().isWindows()) {
 				OsInfo baseline = null;
 				for (OsInfo osInfo: osInfos) {
 					if (!osInfo.isWindows())
-						throw new GeneralException("Windows and non-windows nodes should not be included in same executor");
+						throw new ExplicitException("Windows and non-windows nodes should not be included in same executor");
 					if (baseline == null || baseline.getWindowsVersion() > osInfo.getWindowsVersion())
 						baseline = osInfo;
 				}
 				return baseline;
 			} else {
-				throw new GeneralException("Either Windows or Linux nodes can be included in an executor");
+				throw new ExplicitException("Either Windows or Linux nodes can be included in an executor");
 			}
 		}
 		
@@ -1446,7 +1511,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 				if (kernelVersion.contains(entry.getKey()))
 					return entry.getValue();
 			}
-			throw new GeneralException("Unsupported windows kernel version: " + kernelVersion);
+			throw new ExplicitException("Unsupported windows kernel version: " + kernelVersion);
 		}
 		
 		public String getHelperImageSuffix() {

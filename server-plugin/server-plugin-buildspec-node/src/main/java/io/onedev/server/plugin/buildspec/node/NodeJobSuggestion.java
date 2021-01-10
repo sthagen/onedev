@@ -61,7 +61,7 @@ public class NodeJobSuggestion implements JobSuggestion {
 					"echo \"##onedev[SetBuildVersion '@" + VariableInterpolator.PREFIX_SCRIPTS + GroovyScript.BUILTIN_PREFIX + DETERMINE_PROJECT_VERSION + "@']\"", 
 					"echo", 
 					"npm install",
-					"npm install \\@angular/cli");
+					"npm install @@angular/cli");
 
 			if (jsonNode.has("scripts")) {
 				JsonNode jsonScripts = jsonNode.get("scripts");
@@ -272,8 +272,13 @@ public class NodeJobSuggestion implements JobSuggestion {
 		Build build = Build.get();
 		if (build != null) {
 			JsonNode jsonNode = getPackageJson(build.getProject(), build.getCommitId());
-			if (jsonNode != null)
-				return jsonNode.findValue("version").asText();
+			if (jsonNode != null) {
+				JsonNode versionNode = jsonNode.findValue("version");
+				if (versionNode != null)
+					return versionNode.asText();
+				else
+					return null;
+			}
 			else
 				return null;
 		} else {

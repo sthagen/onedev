@@ -56,8 +56,8 @@ import com.google.common.collect.Sets;
 import io.onedev.commons.launcher.loader.Listen;
 import io.onedev.commons.launcher.loader.ListenerRegistry;
 import io.onedev.commons.utils.ExceptionUtils;
+import io.onedev.commons.utils.ExplicitException;
 import io.onedev.commons.utils.LockUtils;
-import io.onedev.server.GeneralException;
 import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.entitymanager.ProjectManager;
@@ -112,7 +112,7 @@ import io.onedev.server.persistence.SessionManager;
 import io.onedev.server.persistence.TransactionManager;
 import io.onedev.server.persistence.annotation.Sessional;
 import io.onedev.server.persistence.annotation.Transactional;
-import io.onedev.server.persistence.dao.AbstractEntityManager;
+import io.onedev.server.persistence.dao.BaseEntityManager;
 import io.onedev.server.persistence.dao.Dao;
 import io.onedev.server.persistence.dao.EntityCriteria;
 import io.onedev.server.search.entity.EntityQuery;
@@ -130,7 +130,7 @@ import io.onedev.server.util.work.BatchWorkManager;
 import io.onedev.server.util.work.BatchWorker;
 
 @Singleton
-public class DefaultPullRequestManager extends AbstractEntityManager<PullRequest> implements PullRequestManager {
+public class DefaultPullRequestManager extends BaseEntityManager<PullRequest> implements PullRequestManager {
 
 	private static final Logger logger = LoggerFactory.getLogger(DefaultPullRequestManager.class);
 	
@@ -869,7 +869,7 @@ public class DefaultPullRequestManager extends AbstractEntityManager<PullRequest
 			String errorMessage = String.format("Impossible to provide required number of reviewers "
 					+ "(candidates: %s, required number of reviewers: %d, pull request: #%d)", 
 					reviewers, missingCount, update.getRequest().getNumber());
-			throw new GeneralException(errorMessage);
+			throw new ExplicitException(errorMessage);
 		}
 	}
 	
