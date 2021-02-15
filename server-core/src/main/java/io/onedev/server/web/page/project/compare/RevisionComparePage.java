@@ -3,7 +3,11 @@ package io.onedev.server.web.page.project.compare;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import javax.annotation.Nullable;
 
@@ -27,11 +31,16 @@ import org.eclipse.jgit.lib.ObjectId;
 
 import com.google.common.collect.Lists;
 
+import io.onedev.commons.utils.PlanarRange;
 import io.onedev.server.OneDev;
+import io.onedev.server.code.CodeProblem;
+import io.onedev.server.code.CodeProblemContribution;
+import io.onedev.server.code.LineCoverageContribution;
 import io.onedev.server.entitymanager.CodeCommentManager;
 import io.onedev.server.entitymanager.CodeCommentReplyManager;
 import io.onedev.server.entitymanager.PullRequestManager;
 import io.onedev.server.git.GitUtils;
+import io.onedev.server.model.Build;
 import io.onedev.server.model.CodeComment;
 import io.onedev.server.model.CodeCommentReply;
 import io.onedev.server.model.Project;
@@ -47,7 +56,6 @@ import io.onedev.server.util.ProjectAndRevision;
 import io.onedev.server.util.diff.WhitespaceOption;
 import io.onedev.server.web.asset.revisioncompare.RevisionCompareCssResourceReference;
 import io.onedev.server.web.component.commit.list.CommitListPanel;
-import io.onedev.server.web.component.diff.revision.CommentSupport;
 import io.onedev.server.web.component.diff.revision.RevisionDiffPanel;
 import io.onedev.server.web.component.link.ViewStateAwarePageLink;
 import io.onedev.server.web.component.revisionpicker.AffinalRevisionPicker;
@@ -60,9 +68,10 @@ import io.onedev.server.web.page.project.pullrequests.create.NewPullRequestPage;
 import io.onedev.server.web.page.project.pullrequests.detail.PullRequestDetailPage;
 import io.onedev.server.web.page.project.pullrequests.detail.activities.PullRequestActivitiesPage;
 import io.onedev.server.web.util.EditParamsAware;
+import io.onedev.server.web.util.RevisionDiff;
 
 @SuppressWarnings("serial")
-public class RevisionComparePage extends ProjectPage implements CommentSupport, EditParamsAware {
+public class RevisionComparePage extends ProjectPage implements RevisionDiff.AnnotationSupport, EditParamsAware {
 
 	public enum TabPanel {
 		COMMITS, 
@@ -222,7 +231,8 @@ public class RevisionComparePage extends ProjectPage implements CommentSupport, 
 		
 		state.pathFilter = params.get(PARAM_PATH_FILTER).toString();
 		state.blameFile = params.get(PARAM_BLAME_FILE).toString();
-		state.whitespaceOption = WhitespaceOption.ofNullableName(params.get(PARAM_WHITESPACE_OPTION).toString());
+		state.whitespaceOption = WhitespaceOption.ofName(
+				params.get(PARAM_WHITESPACE_OPTION).toString(WhitespaceOption.DEFAULT.name()));
 		
 		state.commitQuery = params.get(PARAM_COMMIT_QUERY).toString();
 		
@@ -616,10 +626,16 @@ public class RevisionComparePage extends ProjectPage implements CommentSupport, 
 
 			};
 			
-			tabPanel = new RevisionDiffPanel(TAB_PANEL_ID, projectModel, 
-					new Model<PullRequest>(null), 
+			tabPanel = new RevisionDiffPanel(TAB_PANEL_ID, 
 					state.compareWithMergeBase?mergeBase.name():state.leftSide.getRevision(), 
-					state.rightSide.getRevision(), pathFilterModel, whitespaceOptionModel, blameModel, this);
+					state.rightSide.getRevision(), pathFilterModel, whitespaceOptionModel, blameModel, this) {
+				
+				@Override
+				protected Project getProject() {
+					return projectModel.getObject();
+				}
+
+			};
 			break;
 		default:
 			tabPanel = new CommitListPanel(TAB_PANEL_ID, new IModel<String>() {
@@ -767,11 +783,6 @@ public class RevisionComparePage extends ProjectPage implements CommentSupport, 
 	}
 
 	@Override
-	public Collection<CodeComment> getComments() {
-		return commentsModel.getObject();
-	}
-	
-	@Override
 	public void onCommentOpened(AjaxRequestTarget target, CodeComment comment) {
 		state.mark = comment.getMark();
 		state.commentId = comment.getId();
@@ -848,4 +859,77 @@ public class RevisionComparePage extends ProjectPage implements CommentSupport, 
 		return new Label(componentId, "Code Compare");
 	}
 
+	@Override
+	public Map<CodeComment, PlanarRange> getOldComments(String blobPath) {
+		Map<CodeComment, PlanarRange> oldComments = new HashMap<>();
+		for (CodeComment comment: commentsModel.getObject()) {
+			ObjectId oldCommitId = state.compareWithMergeBase?mergeBase:leftCommitId;
+			if (comment.getMark().getCommitHash().equals(oldCommitId.name()) 
+					&& comment.getMark().getPath().equals(blobPath)) {
+				oldComments.put(comment, comment.getMark().getRange());
+			}
+		}
+		return oldComments;
+	}
+
+	@Override
+	public Map<CodeComment, PlanarRange> getNewComments(String blobPath) {
+		Map<CodeComment, PlanarRange> newComments = new HashMap<>();
+		for (CodeComment comment: commentsModel.getObject()) {
+			if (comment.getMark().getCommitHash().equals(rightCommitId.name())
+					&& comment.getMark().getPath().equals(blobPath)) {
+				newComments.put(comment, comment.getMark().getRange());
+			}
+		}
+		return newComments;
+	}
+
+	@Override
+	public Collection<CodeProblem> getOldProblems(String blobPath) {
+		Set<CodeProblem> problems = new HashSet<>();
+		ObjectId oldCommitId = state.compareWithMergeBase?mergeBase:leftCommitId;
+		for (Build build: getBuilds(oldCommitId)) {
+			for (CodeProblemContribution contribution: OneDev.getExtensions(CodeProblemContribution.class))
+				problems.addAll(contribution.getCodeProblems(build, blobPath, null));
+		}
+		return problems;
+	}
+
+	@Override
+	public Collection<CodeProblem> getNewProblems(String blobPath) {
+		Set<CodeProblem> problems = new HashSet<>();
+		for (Build build: getBuilds(rightCommitId)) {
+			for (CodeProblemContribution contribution: OneDev.getExtensions(CodeProblemContribution.class))
+				problems.addAll(contribution.getCodeProblems(build, blobPath, null));
+		}
+		return problems;
+	}
+
+	@Override
+	public Map<Integer, Integer> getOldCoverages(String blobPath) {
+		Map<Integer, Integer> coverages = new HashMap<>();
+		ObjectId oldCommitId = state.compareWithMergeBase?mergeBase:leftCommitId;
+		for (Build build: getBuilds(oldCommitId)) {
+			for (LineCoverageContribution contribution: OneDev.getExtensions(LineCoverageContribution.class)) {
+				contribution.getLineCoverages(build, blobPath, null).forEach((key, value) -> {
+					coverages.merge(key, value, (v1, v2) -> v1+v2);
+				});
+			}
+		}
+		return coverages;
+	}
+
+	@Override
+	public Map<Integer, Integer> getNewCoverages(String blobPath) {
+		Map<Integer, Integer> coverages = new HashMap<>();
+		for (Build build: getBuilds(rightCommitId)) {
+			for (LineCoverageContribution contribution: OneDev.getExtensions(LineCoverageContribution.class)) {
+				contribution.getLineCoverages(build, blobPath, null).forEach((key, value) -> {
+					coverages.merge(key, value, (v1, v2) -> v1+v2);
+				});
+			}
+		}
+		return coverages;
+	}
+	
 }

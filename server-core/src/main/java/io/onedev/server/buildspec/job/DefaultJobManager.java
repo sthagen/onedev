@@ -46,8 +46,8 @@ import com.google.common.collect.Sets;
 import io.onedev.commons.launcher.loader.Listen;
 import io.onedev.commons.launcher.loader.ListenerRegistry;
 import io.onedev.commons.utils.ExceptionUtils;
-import io.onedev.commons.utils.FileUtils;
 import io.onedev.commons.utils.ExplicitException;
+import io.onedev.commons.utils.FileUtils;
 import io.onedev.commons.utils.LockUtils;
 import io.onedev.k8shelper.CacheInstance;
 import io.onedev.k8shelper.CloneInfo;
@@ -224,7 +224,8 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 			}
 	
 			Collection<Build> builds = buildManager.query(project, commitId, jobName, 
-					reason.getRefName(), reason.getPullRequest(), paramMapToQuery);
+					reason.getRefName(), Optional.ofNullable(reason.getPullRequest()), 
+					paramMapToQuery);
 			
 			if (builds.isEmpty()) {
 				for (Map.Entry<String, List<String>> entry: paramMap.entrySet()) {

@@ -5,7 +5,11 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.commons.lang3.StringUtils;
@@ -39,13 +43,18 @@ import org.joda.time.DateTime;
 
 import com.google.common.collect.Lists;
 
+import io.onedev.commons.utils.PlanarRange;
 import io.onedev.server.OneDev;
+import io.onedev.server.code.CodeProblem;
+import io.onedev.server.code.CodeProblemContribution;
+import io.onedev.server.code.LineCoverageContribution;
 import io.onedev.server.entitymanager.CodeCommentManager;
 import io.onedev.server.entitymanager.CodeCommentReplyManager;
 import io.onedev.server.entitymanager.PullRequestManager;
 import io.onedev.server.git.GitUtils;
 import io.onedev.server.git.RefInfo;
 import io.onedev.server.infomanager.CommitInfoManager;
+import io.onedev.server.model.Build;
 import io.onedev.server.model.CodeComment;
 import io.onedev.server.model.CodeCommentReply;
 import io.onedev.server.model.Project;
@@ -72,7 +81,6 @@ import io.onedev.server.web.behavior.ReferenceInputBehavior;
 import io.onedev.server.web.component.branch.BranchLink;
 import io.onedev.server.web.component.branch.picker.AffinalBranchPicker;
 import io.onedev.server.web.component.commit.list.CommitListPanel;
-import io.onedev.server.web.component.diff.revision.CommentSupport;
 import io.onedev.server.web.component.diff.revision.RevisionDiffPanel;
 import io.onedev.server.web.component.link.ViewStateAwarePageLink;
 import io.onedev.server.web.component.markdown.AttachmentSupport;
@@ -90,9 +98,10 @@ import io.onedev.server.web.page.project.pullrequests.detail.PullRequestDetailPa
 import io.onedev.server.web.page.project.pullrequests.detail.activities.PullRequestActivitiesPage;
 import io.onedev.server.web.page.simple.security.LoginPage;
 import io.onedev.server.web.util.ProjectAttachmentSupport;
+import io.onedev.server.web.util.RevisionDiff;
 
 @SuppressWarnings("serial")
-public class NewPullRequestPage extends ProjectPage implements CommentSupport {
+public class NewPullRequestPage extends ProjectPage implements RevisionDiff.AnnotationSupport {
 
 	private static final String TABS_ID = "tabs";
 	
@@ -385,7 +394,7 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 				
 			});
 
-			tabs.add(new AjaxActionTab(Model.of("Files")) {
+			tabs.add(new AjaxActionTab(Model.of("File Changes")) {
 				
 				@Override
 				protected void onSelect(AjaxRequestTarget target, Component tabLink) {
@@ -515,9 +524,13 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 		 * later. Also it is guaranteed to be resolved to the same commit has as we've cached
 		 * it above when loading the project  
 		 */
-		RevisionDiffPanel diffPanel = new RevisionDiffPanel(TAB_PANEL_ID, projectModel, 
-				new Model<PullRequest>(null), request.getBaseCommitHash(), 
+		RevisionDiffPanel diffPanel = new RevisionDiffPanel(TAB_PANEL_ID, request.getBaseCommitHash(), 
 				source.getRevision(), pathFilterModel, whitespaceOptionModel, blameModel, this) {
+
+			@Override
+			protected Project getProject() {
+				return projectModel.getObject();
+			}
 
 			@Override
 			protected void onConfigure() {
@@ -872,8 +885,75 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 	}
 
 	@Override
-	public Collection<CodeComment> getComments() {
-		return commentsModel.getObject();
+	public Map<CodeComment, PlanarRange> getOldComments(String blobPath) {
+		Map<CodeComment, PlanarRange> oldComments = new HashMap<>();
+		for (CodeComment comment: commentsModel.getObject()) {
+			if (comment.getMark().getCommitHash().equals(getPullRequest().getBaseCommitHash())
+					&& comment.getMark().getPath().equals(blobPath)) {
+				oldComments.put(comment, comment.getMark().getRange());
+			}
+		}
+		return oldComments;
+	}
+
+	@Override
+	public Map<CodeComment, PlanarRange> getNewComments(String blobPath) {
+		Map<CodeComment, PlanarRange> newComments = new HashMap<>();
+		for (CodeComment comment: commentsModel.getObject()) {
+			if (comment.getMark().getCommitHash().equals(source.getObjectName())
+					&& comment.getMark().getPath().equals(blobPath)) {
+				newComments.put(comment, comment.getMark().getRange());
+			}
+		}
+		return newComments;
+	}
+	
+	@Override
+	public Collection<CodeProblem> getOldProblems(String blobPath) {
+		Set<CodeProblem> problems = new HashSet<>();
+		ObjectId baseCommitId = ObjectId.fromString(getPullRequest().getBaseCommitHash());
+		for (Build build: getBuilds(baseCommitId)) {
+			for (CodeProblemContribution contribution: OneDev.getExtensions(CodeProblemContribution.class))
+				problems.addAll(contribution.getCodeProblems(build, blobPath, null));
+		}
+		return problems;
+	}
+
+	@Override
+	public Collection<CodeProblem> getNewProblems(String blobPath) {
+		Set<CodeProblem> problems = new HashSet<>();
+		for (Build build: getBuilds(source.getObjectId())) {
+			for (CodeProblemContribution contribution: OneDev.getExtensions(CodeProblemContribution.class))
+				problems.addAll(contribution.getCodeProblems(build, blobPath, null));
+		}
+		return problems;
+	}
+
+	@Override
+	public Map<Integer, Integer> getOldCoverages(String blobPath) {
+		Map<Integer, Integer> coverages = new HashMap<>();
+		ObjectId baseCommitId = ObjectId.fromString(getPullRequest().getBaseCommitHash());
+		for (Build build: getBuilds(baseCommitId)) {
+			for (LineCoverageContribution contribution: OneDev.getExtensions(LineCoverageContribution.class)) {
+				contribution.getLineCoverages(build, blobPath, null).forEach((key, value) -> {
+					coverages.merge(key, value, (v1, v2) -> v1+v2);
+				});
+			}
+		}
+		return coverages;
+	}
+
+	@Override
+	public Map<Integer, Integer> getNewCoverages(String blobPath) {
+		Map<Integer, Integer> coverages = new HashMap<>();
+		for (Build build: getBuilds(source.getObjectId())) {
+			for (LineCoverageContribution contribution: OneDev.getExtensions(LineCoverageContribution.class)) {
+				contribution.getLineCoverages(build, blobPath, null).forEach((key, value) -> {
+					coverages.merge(key, value, (v1, v2) -> v1+v2);
+				});
+			}
+		}
+		return coverages;
 	}
 	
 	@Override
@@ -891,6 +971,7 @@ public class NewPullRequestPage extends ProjectPage implements CommentSupport {
 	@Override
 	public void onCommentClosed(AjaxRequestTarget target) {
 		commentId = null;
+		mark = null;
 	}
 	
 	@Override

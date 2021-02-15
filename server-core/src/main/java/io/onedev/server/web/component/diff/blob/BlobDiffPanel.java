@@ -16,26 +16,20 @@ import io.onedev.server.OneDev;
 import io.onedev.server.git.Blob;
 import io.onedev.server.git.BlobChange;
 import io.onedev.server.model.CodeComment;
-import io.onedev.server.model.Project;
 import io.onedev.server.model.PullRequest;
-import io.onedev.server.model.support.Mark;
 import io.onedev.server.util.diff.DiffUtils;
 import io.onedev.server.web.WebConstants;
 import io.onedev.server.web.component.diff.DiffRenderer;
 import io.onedev.server.web.component.diff.blob.text.TextDiffPanel;
 import io.onedev.server.web.component.diff.difftitle.BlobDiffTitle;
-import io.onedev.server.web.component.diff.revision.BlobCommentSupport;
 import io.onedev.server.web.component.diff.revision.DiffViewMode;
 import io.onedev.server.web.component.svg.SpriteImage;
+import io.onedev.server.web.util.DiffPlanarRange;
 
 @SuppressWarnings("serial")
-public class BlobDiffPanel extends Panel implements SourceAware {
+public class BlobDiffPanel extends Panel {
 
 	private static final String CONTENT_ID = "content";
-	
-	private final IModel<Project> projectModel;
-	
-	private final IModel<PullRequest> requestModel;
 	
 	private final BlobChange change;
 	
@@ -43,19 +37,12 @@ public class BlobDiffPanel extends Panel implements SourceAware {
 	
 	private final DiffViewMode diffMode;
 	
-	private final BlobCommentSupport commentSupport;
-	
-	public BlobDiffPanel(String id, IModel<Project> projectModel, IModel<PullRequest> requestModel, 
-			BlobChange change, DiffViewMode diffMode, @Nullable IModel<Boolean> blameModel, 
-			@Nullable BlobCommentSupport commentSupport) {
+	public BlobDiffPanel(String id, BlobChange change, DiffViewMode diffMode, @Nullable IModel<Boolean> blameModel) {
 		super(id);
 		
-		this.projectModel = projectModel;
-		this.requestModel = requestModel;
 		this.change = change;
 		this.blameModel = blameModel;
 		this.diffMode = diffMode;
-		this.commentSupport = commentSupport;
 	}
 	
 	private Fragment newFragment(String message, boolean warning) {
@@ -67,6 +54,11 @@ public class BlobDiffPanel extends Panel implements SourceAware {
 			fragment.add(new SpriteImage("icon", "info"));
 		fragment.add(new Label("message", message));
 		return fragment;
+	}
+	
+	@Nullable
+	protected PullRequest getPullRequest() {
+		return null;
 	}
 	
 	private void showBlob(Blob blob) {
@@ -81,7 +73,14 @@ public class BlobDiffPanel extends Panel implements SourceAware {
 				else
 					add(newFragment("Empty file removed.", false));
 			} else {
-				add(new TextDiffPanel(CONTENT_ID, projectModel, requestModel, change, diffMode, blameModel, commentSupport));
+				add(new TextDiffPanel(CONTENT_ID, change, diffMode, blameModel) {
+
+					@Override
+					protected PullRequest getPullRequest() {
+						return BlobDiffPanel.this.getPullRequest();
+					}
+					
+				});
 			}
 		} else if (blob.isPartial()) {
 			add(newFragment("File is too large to be loaded.", true));
@@ -113,11 +112,17 @@ public class BlobDiffPanel extends Panel implements SourceAware {
 					add(newFragment("Unable to diff as the file is too large.", true));
 				} else if (change.getAdditions() + change.getDeletions() > WebConstants.MAX_SINGLE_DIFF_LINES) {
 					add(newFragment("Diff is too large to be displayed.", true));
-				} else if (change.getAdditions() + change.getDeletions() == 0 
-						&& (commentSupport == null || commentSupport.getComments().isEmpty())) {
+				} else if (change.getAdditions() + change.getDeletions() == 0) {
 					add(newFragment("Content is identical", false));
 				} else {
-					add(new TextDiffPanel(CONTENT_ID, projectModel, requestModel, change, diffMode, blameModel, commentSupport));
+					add(new TextDiffPanel(CONTENT_ID, change, diffMode, blameModel) {
+
+						@Override
+						protected PullRequest getPullRequest() {
+							return BlobDiffPanel.this.getPullRequest();
+						}
+						
+					});
 				}
 			} else if (change.getOldBlob().isPartial() || change.getNewBlob().isPartial()) {
 				add(newFragment("File is too large to be loaded.", true));
@@ -145,67 +150,46 @@ public class BlobDiffPanel extends Panel implements SourceAware {
 	}
 
 	protected void onDetach() {
-		projectModel.detach();
-		requestModel.detach();
-		
 		if (blameModel != null)
 			blameModel.detach();
 		
 		super.onDetach();
 	}
 
-	@Override
-	public void onCommentDeleted(AjaxRequestTarget target, CodeComment comment) {
+	public void onCommentDeleted(AjaxRequestTarget target) {
 		Component content = get(CONTENT_ID);
-		if (content instanceof SourceAware) {
-			SourceAware sourceAware = (SourceAware) content;
-			sourceAware.onCommentDeleted(target, comment);
-		}
+		if (content instanceof TextDiffPanel) 
+			((TextDiffPanel) content).onCommentDeleted(target);
 	}
 
-	@Override
-	public void onCommentClosed(AjaxRequestTarget target, CodeComment comment) {
+	public void onCommentClosed(AjaxRequestTarget target) {
 		Component content = get(CONTENT_ID);
-		if (content instanceof SourceAware) {
-			SourceAware sourceAware = (SourceAware) content;
-			sourceAware.onCommentClosed(target, comment);
-		}
+		if (content instanceof TextDiffPanel)
+			((TextDiffPanel) content).onCommentClosed(target);
 	}
 
-	@Override
-	public void onCommentAdded(AjaxRequestTarget target, CodeComment comment) {
+	public void onCommentAdded(AjaxRequestTarget target, CodeComment comment, DiffPlanarRange range) {
 		Component content = get(CONTENT_ID);
-		if (content instanceof SourceAware) {
-			SourceAware sourceAware = (SourceAware) content;
-			sourceAware.onCommentAdded(target, comment);
-		}
+		if (content instanceof TextDiffPanel) 
+			((TextDiffPanel) content).onCommentAdded(target, comment, range);
 	}
 
-	@Override
-	public void mark(AjaxRequestTarget target, Mark mark) {
+	public void mark(AjaxRequestTarget target, DiffPlanarRange markRange) {
 		Component content = get(CONTENT_ID);
-		if (content instanceof SourceAware) {
-			SourceAware sourceAware = (SourceAware) content;
-			sourceAware.mark(target, mark);
-		}
+		if (content instanceof TextDiffPanel)
+			((TextDiffPanel) content).mark(target, markRange);
 	}
 
-	@Override
 	public void unmark(AjaxRequestTarget target) {
 		Component content = get(CONTENT_ID);
-		if (content instanceof SourceAware) {
-			SourceAware sourceAware = (SourceAware) content;
-			sourceAware.unmark(target);
-		}
+		if (content instanceof TextDiffPanel)
+			((TextDiffPanel) content).unmark(target);
 	}
-
-	@Override
+	
 	public void onUnblame(AjaxRequestTarget target) {
 		Component content = get(CONTENT_ID);
-		if (content instanceof SourceAware) {
-			SourceAware sourceAware = (SourceAware) content;
-			sourceAware.onUnblame(target);
-		}
+		if (content instanceof TextDiffPanel) 
+			((TextDiffPanel) content).onUnblame(target);
 	}
 
 }

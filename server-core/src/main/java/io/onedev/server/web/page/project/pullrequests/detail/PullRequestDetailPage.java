@@ -106,7 +106,6 @@ import io.onedev.server.web.page.project.pullrequests.create.NewPullRequestPage;
 import io.onedev.server.web.page.project.pullrequests.detail.activities.PullRequestActivitiesPage;
 import io.onedev.server.web.page.project.pullrequests.detail.changes.PullRequestChangesPage;
 import io.onedev.server.web.page.project.pullrequests.detail.codecomments.PullRequestCodeCommentsPage;
-import io.onedev.server.web.page.project.pullrequests.detail.mergepreview.MergePreviewPage;
 import io.onedev.server.web.page.project.pullrequests.detail.operationconfirm.CommentableOperationConfirmPanel;
 import io.onedev.server.web.page.project.pullrequests.detail.operationconfirm.MergeConfirmPanel;
 import io.onedev.server.web.util.ConfirmClickModifier;
@@ -607,8 +606,6 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 		});
 		tabs.add(new PullRequestTab("File Changes", PullRequestChangesPage.class));
 		tabs.add(new PullRequestTab("Code Comments", PullRequestCodeCommentsPage.class));
-		if (getPullRequest().isOpen())
-			tabs.add(new PullRequestTab("Merge Preview", MergePreviewPage.class));
 		
 		add(new Tabbable("requestTabs", tabs).setOutputMarkupId(true));
 		
@@ -1015,7 +1012,8 @@ public abstract class PullRequestDetailPage extends ProjectPage implements PullR
 		
 		User submitter = User.from(request.getSubmitter(), request.getSubmitterName());
 		statusAndBranchesContainer.add(new UserIdentPanel("user", submitter, Mode.NAME));
-		statusAndBranchesContainer.add(new Label("date", DateUtils.formatAge(request.getSubmitDate())));
+		statusAndBranchesContainer.add(new Label("date", DateUtils.formatAge(request.getSubmitDate()))
+			.add(new AttributeAppender("title", DateUtils.formatDateTime(request.getSubmitDate()))));
 		
 		statusAndBranchesContainer.add(new BranchLink("target", request.getTarget()));
 		if (request.getSourceProject() != null) {

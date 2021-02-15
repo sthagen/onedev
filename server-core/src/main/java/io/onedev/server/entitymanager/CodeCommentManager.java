@@ -22,7 +22,7 @@ public interface CodeCommentManager extends EntityManager<CodeComment> {
 	
 	Collection<CodeComment> query(Project project, ObjectId...commitIds);
 	
-	Map<CodeComment, PlanarRange> findHistory(Project project, ObjectId commitId, String path);
+	Map<CodeComment, PlanarRange> queryInHistory(Project project, ObjectId commitId, String path);
 		
 	List<CodeComment> query(Project project, @Nullable PullRequest request, 
 			EntityQuery<CodeComment> commentQuery, int firstResult, int maxResults);

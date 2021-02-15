@@ -6,7 +6,7 @@
 	<parent>
 		<groupId>io.onedev</groupId>
 		<artifactId>server</artifactId>
-		<version>4.1.0</version>
+		<version>4.1.3</version>
 	</parent>
 	<dependencies>
 		<dependency>
@@ -17,7 +17,6 @@
 	</dependencies>
 	<modules>
 		<module>server-plugin-archetype</module>
-		<module>server-plugin-report-html</module>
 		<module>server-plugin-executor-kubernetes</module>
 		<module>server-plugin-executor-docker</module>
 		<module>server-plugin-buildspec-maven</module>
@@ -27,5 +26,6 @@
 	    <module>server-plugin-sso-openid</module>
     	<module>server-plugin-report-markdown</module>
    		<module>server-plugin-report-jest</module>
+    <module>server-plugin-report-clover</module>
   </modules>
 </project>

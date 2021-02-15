@@ -142,6 +142,10 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 	
 	private static final String PARAM_POSITION = "position";
 	
+	private static final String PARAM_COVERAGE_REPORT = "coverage-report";
+	
+	private static final String PARAM_PROBLEM_REPORT = "problem-report";
+	
 	private static final String PARAM_RAW = "raw";
 	
 	private static final String REVISION_PICKER_ID = "revisionPicker";
@@ -196,14 +200,12 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 			resolvedRevision = getProject().getRevCommit(state.blobIdent.revision, true).copy();
 		
 		state.position = params.get(PARAM_POSITION).toString();
-		
 		state.requestId = params.get(PARAM_REQUEST).toOptionalLong();
-		
 		state.commentId = params.get(PARAM_COMMENT).toOptionalLong();
-		
 		state.query = params.get(PARAM_QUERY).toString();
-	
 		state.initialNewPath = params.get(PARAM_INITIAL_NEW_PATH).toString();
+		state.coverageReport = params.get(PARAM_COVERAGE_REPORT).toOptionalString();
+		state.problemReport = params.get(PARAM_PROBLEM_REPORT).toOptionalString();
 		
 		if (state.mode == Mode.ADD || state.mode == Mode.EDIT || state.mode == Mode.DELETE) {
 			if (!isOnBranch()) 
@@ -923,10 +925,10 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 		response.render(OnDomReadyHeaderItem.forScript(script));
 	}
 
-	public static ProjectBlobPage.State getState(CodeComment comment) {
+	public static State getState(CodeComment comment) {
 		BlobIdent blobIdent = new BlobIdent(comment.getMark().getCommitHash(), comment.getMark().getPath(), 
 				FileMode.REGULAR_FILE.getBits());
-		ProjectBlobPage.State state = new ProjectBlobPage.State(blobIdent);
+		State state = new State(blobIdent);
 		state.commentId = comment.getId();
 		state.position = SourceRendererProvider.getPosition(comment.getMark().getRange());
 		return state;
@@ -959,6 +961,10 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 			params.add(PARAM_URL_BEFORE_EDIT, state.urlBeforeEdit);
 		if (state.urlAfterEdit != null)
 			params.add(PARAM_URL_AFTER_EDIT, state.urlAfterEdit);
+		if (state.coverageReport != null)
+			params.add(PARAM_COVERAGE_REPORT, state.coverageReport);
+		if (state.problemReport != null)
+			params.add(PARAM_PROBLEM_REPORT, state.problemReport);
 			
 		if (state.query != null)
 			params.add(PARAM_QUERY, state.query);
@@ -1137,9 +1143,9 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 	}
 
 	@Override
-	public void onCommentOpened(AjaxRequestTarget target, CodeComment comment) {
+	public void onCommentOpened(AjaxRequestTarget target, CodeComment comment, PlanarRange range) {
 		state.commentId = comment.getId();
-		state.position = SourceRendererProvider.getPosition(Preconditions.checkNotNull(comment.mapRange(state.blobIdent)));
+		state.position = SourceRendererProvider.getPosition(range);
 		pushState(target);
 	}
 
@@ -1198,6 +1204,10 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 		 * only when mode is VIEW 
 		 */
 		public boolean viewPlain;
+		
+		public String coverageReport;
+		
+		public String problemReport;
 		
 		public String urlBeforeEdit;
 		
@@ -1394,6 +1404,16 @@ public class ProjectBlobPage extends ProjectPage implements BlobRenderContext, S
 			RevisionResolved revisionResolveEvent = (RevisionResolved) event.getPayload();
 			resolvedRevision = revisionResolveEvent.getResolvedRevision();
 		} 
+	}
+
+	@Override
+	public String getCoverageReport() {
+		return state.coverageReport;
+	}
+
+	@Override
+	public String getProblemReport() {
+		return state.problemReport;
 	}
 
 	@Override

@@ -8,6 +8,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -258,7 +259,7 @@ public class DefaultBuildManager extends BaseEntityManager<Build> implements Bui
 	@Sessional
 	@Override
 	public Collection<Build> query(Project project, ObjectId commitId, String jobName, 
-			String refName, PullRequest request, Map<String, List<String>> params) {
+			String refName, Optional<PullRequest> request, Map<String, List<String>> params) {
 		CriteriaBuilder builder = getSession().getCriteriaBuilder();
 		CriteriaQuery<Build> query = builder.createQuery(Build.class);
 		Root<Build> root = query.from(Build.class);
@@ -271,10 +272,12 @@ public class DefaultBuildManager extends BaseEntityManager<Build> implements Bui
 		if (refName != null)
 			predicates.add(builder.equal(root.get(Build.PROP_REF_NAME), refName));
 
-		if (request != null)
-			predicates.add(builder.equal(root.get(Build.PROP_PULL_REQUEST), request));
-		else
-			predicates.add(builder.isNull(root.get(Build.PROP_PULL_REQUEST)));
+		if (request != null) {
+			if (request.isPresent())
+				predicates.add(builder.equal(root.get(Build.PROP_PULL_REQUEST), request.get()));
+			else
+				predicates.add(builder.isNull(root.get(Build.PROP_PULL_REQUEST)));
+		}
 			
 		for (Map.Entry<String, List<String>> entry: params.entrySet()) {
 			if (!entry.getValue().isEmpty()) {
@@ -710,7 +713,7 @@ public class DefaultBuildManager extends BaseEntityManager<Build> implements Bui
 		}
 	}
 	
-	private CriteriaQuery<Object[]> buildQueryOfStreamPrevios(Build build, Status status, String...fields) {
+	private CriteriaQuery<Object[]> buildStreamPreviousQuery(Build build, Status status, String...fields) {
 		CriteriaBuilder builder = getSession().getCriteriaBuilder();
 		CriteriaQuery<Object[]> query = builder.createQuery(Object[].class);
 		Root<Build> root = query.from(Build.class);
@@ -732,9 +735,9 @@ public class DefaultBuildManager extends BaseEntityManager<Build> implements Bui
 	
 	@Sessional
 	@Override
-	public Collection<Long> queryNumbersOfStreamPrevious(Build build, Status status, int limit) {
+	public Collection<Long> queryStreamPreviousNumbers(Build build, Status status, int limit) {
 		Map<ObjectId, Long> buildNumbers = new HashMap<>();
-		for (Object[] fields: getSession().createQuery(buildQueryOfStreamPrevios(build, status, "commitHash", "number")).list()) {
+		for (Object[] fields: getSession().createQuery(buildStreamPreviousQuery(build, status, "commitHash", "number")).list()) {
 			buildNumbers.put(ObjectId.fromString((String) fields[0]), (Long)fields[1]);
 		}
 		
@@ -762,7 +765,7 @@ public class DefaultBuildManager extends BaseEntityManager<Build> implements Bui
 	@Override
 	public Build findStreamPrevious(Build build, Status status) {
 		Map<ObjectId, Long> buildIds = new HashMap<>();
-		for (Object[] fields: getSession().createQuery(buildQueryOfStreamPrevios(
+		for (Object[] fields: getSession().createQuery(buildStreamPreviousQuery(
 				build, status, "commitHash", "id")).list()) {
 			buildIds.put(ObjectId.fromString((String) fields[0]), (Long)fields[1]);
 		}

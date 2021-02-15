@@ -9,6 +9,8 @@ import org.apache.wicket.request.resource.CssResourceReference;
 
 import io.onedev.server.web.asset.clipboard.ClipboardResourceReference;
 import io.onedev.server.web.asset.codemirror.CodeThemeCssResourceReference;
+import io.onedev.server.web.asset.codeproblem.CodeProblemResourceReference;
+import io.onedev.server.web.asset.commentindicator.CommentIndicatorCssResourceReference;
 import io.onedev.server.web.asset.hover.HoverResourceReference;
 import io.onedev.server.web.asset.scrollintoview.ScrollIntoViewResourceReference;
 import io.onedev.server.web.asset.selectionpopover.SelectionPopoverResourceReference;
@@ -29,8 +31,10 @@ public class TextDiffResourceReference extends BaseDependentResourceReference {
 		dependencies.add(JavaScriptHeaderItem.forReference(new SelectionPopoverResourceReference()));
 		dependencies.add(JavaScriptHeaderItem.forReference(new ClipboardResourceReference()));
 		dependencies.add(JavaScriptHeaderItem.forReference(new ScrollIntoViewResourceReference()));
+		dependencies.add(JavaScriptHeaderItem.forReference(new CodeProblemResourceReference()));
 		dependencies.add(CssHeaderItem.forReference(new CodeThemeCssResourceReference()));
 		dependencies.add(CssHeaderItem.forReference(new CssResourceReference(TextDiffPanel.class, "text-diff.css")));
+		dependencies.add(CssHeaderItem.forReference(new CommentIndicatorCssResourceReference()));
 		return dependencies;
 	}
 

@@ -8,6 +8,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import javax.annotation.Nullable;
@@ -35,7 +36,6 @@ import org.apache.wicket.markup.html.form.CheckBox;
 import org.apache.wicket.markup.html.form.Form;
 import org.apache.wicket.markup.html.form.TextField;
 import org.apache.wicket.markup.html.panel.Fragment;
-import org.apache.wicket.model.AbstractReadOnlyModel;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.model.Model;
@@ -45,6 +45,7 @@ import org.apache.wicket.request.http.WebRequest;
 import org.apache.wicket.request.http.WebResponse;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 import org.eclipse.jgit.lib.FileMode;
+import org.eclipse.jgit.revwalk.RevCommit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.unbescape.html.HtmlEscape;
@@ -61,6 +62,10 @@ import io.onedev.commons.utils.LinearRange;
 import io.onedev.commons.utils.PlanarRange;
 import io.onedev.commons.utils.StringUtils;
 import io.onedev.server.OneDev;
+import io.onedev.server.code.CodeProblem;
+import io.onedev.server.code.CodeProblemContribution;
+import io.onedev.server.code.LineCoverageContribution;
+import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.entitymanager.CodeCommentManager;
 import io.onedev.server.entitymanager.CodeCommentReplyManager;
 import io.onedev.server.git.BlameBlock;
@@ -68,6 +73,7 @@ import io.onedev.server.git.Blob;
 import io.onedev.server.git.BlobIdent;
 import io.onedev.server.git.GitUtils;
 import io.onedev.server.git.command.BlameCommand;
+import io.onedev.server.model.Build;
 import io.onedev.server.model.CodeComment;
 import io.onedev.server.model.CodeCommentReply;
 import io.onedev.server.model.Project;
@@ -79,7 +85,6 @@ import io.onedev.server.search.code.SearchManager;
 import io.onedev.server.search.code.hit.QueryHit;
 import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.util.DateUtils;
-import io.onedev.server.util.ProjectAndRevision;
 import io.onedev.server.util.match.MatchScoreProvider;
 import io.onedev.server.util.match.MatchScoreUtils;
 import io.onedev.server.util.patternset.PatternSet;
@@ -88,13 +93,11 @@ import io.onedev.server.web.behavior.AbstractPostAjaxBehavior;
 import io.onedev.server.web.behavior.blamemessage.BlameMessageBehavior;
 import io.onedev.server.web.component.codecomment.CodeCommentPanel;
 import io.onedev.server.web.component.floating.FloatingPanel;
-import io.onedev.server.web.component.link.DropdownLink;
 import io.onedev.server.web.component.link.ViewStateAwareAjaxLink;
 import io.onedev.server.web.component.menu.MenuItem;
 import io.onedev.server.web.component.modal.ModalLink;
 import io.onedev.server.web.component.modal.ModalPanel;
 import io.onedev.server.web.component.project.comment.CommentInput;
-import io.onedev.server.web.component.revisionpicker.RevisionSelector;
 import io.onedev.server.web.component.sourceformat.OptionChangeCallback;
 import io.onedev.server.web.component.sourceformat.SourceFormatPanel;
 import io.onedev.server.web.component.symboltooltip.SymbolTooltipPanel;
@@ -104,7 +107,8 @@ import io.onedev.server.web.page.project.blob.render.view.BlobViewPanel;
 import io.onedev.server.web.page.project.blob.render.view.Positionable;
 import io.onedev.server.web.page.project.blob.search.SearchMenuContributor;
 import io.onedev.server.web.page.project.commits.CommitDetailPage;
-import io.onedev.server.web.page.project.compare.RevisionComparePage;
+import io.onedev.server.web.util.AnnotationInfo;
+import io.onedev.server.web.util.CodeCommentInfo;
 import io.onedev.server.web.util.ProjectAttachmentSupport;
 import io.onedev.server.web.util.WicketUtils;
 
@@ -125,28 +129,36 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 	
 	private final List<Symbol> symbols = new ArrayList<>();
 	
-	private final IModel<Map<CodeComment, PlanarRange>> commentRangesModel = 
-			new LoadableDetachableModel<Map<CodeComment, PlanarRange>>() {
+	private final IModel<AnnotationInfo> annotationInfoModel = new LoadableDetachableModel<AnnotationInfo>() {
 
 		@Override
-		protected Map<CodeComment, PlanarRange> load() {
-			if (context.getPullRequest() != null) {
-				Map<CodeComment, PlanarRange> commentRanges = new HashMap<>();
-				for (CodeComment comment: context.getPullRequest().getCodeComments()) {
-					if (comment.getMark().getCommitHash().equals(context.getCommit().name()) 
-							&& comment.getMark().getPath().equals(context.getBlobIdent().path)) {
-						commentRanges.put(comment, comment.getMark().getRange());
-					}
+		protected AnnotationInfo load() {
+			Project project = context.getProject();
+			RevCommit commitId = context.getCommit();
+			String path = context.getBlobIdent().path;
+			
+			CodeCommentManager codeCommentManager = OneDev.getInstance(CodeCommentManager.class);
+			Map<CodeComment, PlanarRange> comments = codeCommentManager.queryInHistory(project, commitId, path);
+
+			Set<CodeProblem> problems = new HashSet<>();
+			Map<Integer, Integer> coverages = new HashMap<>();
+			
+			BuildManager buildManager = OneDev.getInstance(BuildManager.class);
+			for (Build build: buildManager.query(project, commitId, null, null, null, new HashMap<>())) {
+				for (CodeProblemContribution contribution: OneDev.getExtensions(CodeProblemContribution.class))
+					problems.addAll(contribution.getCodeProblems(build, path, context.getProblemReport()));
+				for (LineCoverageContribution contribution: OneDev.getExtensions(LineCoverageContribution.class)) { 
+					contribution.getLineCoverages(build, path, context.getCoverageReport()).forEach((key, value)->{
+						coverages.merge(key, value, (v1, v2)->v1+v2);
+					});
 				}
-				return commentRanges;
-			} else {
-				return OneDev.getInstance(CodeCommentManager.class).findHistory(
-						context.getProject(), context.getCommit(), context.getBlobIdent().path);
 			}
+			
+			return new AnnotationInfo(CodeCommentInfo.groupByLine(comments), CodeProblem.groupByLine(problems), coverages);
 		}
 		
 	};
-
+	
 	private WebMarkupContainer commentContainer;
 	
 	private WebMarkupContainer outline;
@@ -250,9 +262,9 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 		target.appendJavaScript("onedev.server.sourceView.onToggleOutline();");
 	}
 
-	private String getJson(PlanarRange mark) {
+	private String convertToJson(Object obj) {
 		try {
-			return OneDev.getInstance(ObjectMapper.class).writeValueAsString(mark);
+			return OneDev.getInstance(ObjectMapper.class).writeValueAsString(obj);
 		} catch (JsonProcessingException e) {
 			throw new RuntimeException(e);
 		}
@@ -271,47 +283,27 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 			}
 
 		};
+		if (context.getOpenComment() != null) {
+			for (List<CodeCommentInfo> listOfCommentInfos: annotationInfoModel.getObject().getComments().values()) {
+				for (CodeCommentInfo commentInfo: listOfCommentInfos) {
+					if (commentInfo.getId() == context.getOpenComment().getId()) {
+						commentContainer.setDefaultModelObject(commentInfo.getRange());
+						break;
+					}
+				}
+			}
+		}
 		
 		WebMarkupContainer head = new WebMarkupContainer("head");
 		head.setOutputMarkupId(true);
 		commentContainer.add(head);
 		
-		head.add(new DropdownLink("context") {
+		head.add(new WebMarkupContainer("outdated") {
 
 			@Override
 			protected void onConfigure() {
 				super.onConfigure();
-				setVisible(context.getPullRequest() == null && context.getOpenComment() != null);
-			}
-
-			@Override
-			protected Component newContent(String id, FloatingPanel dropdown) {
-				return new RevisionSelector(id, new AbstractReadOnlyModel<Project>() {
-
-					@Override
-					public Project getObject() {
-						return context.getProject();
-					}
-					
-				}) {
-					
-					@Override
-					protected void onSelect(AjaxRequestTarget target, String revision) {
-						RevisionComparePage.State state = new RevisionComparePage.State();
-						CodeComment comment = context.getOpenComment();
-						state.commentId = comment.getId();
-						state.mark = comment.getMark();
-						state.compareWithMergeBase = false;
-						state.leftSide = new ProjectAndRevision(comment.getProject(), 
-								comment.getMark().getCommitHash());
-						state.rightSide = new ProjectAndRevision(comment.getProject(), revision);
-						state.tabPanel = RevisionComparePage.TabPanel.FILE_CHANGES;
-						state.whitespaceOption = context.getOpenComment().getCompareContext().getWhitespaceOption();
-						PageParameters params = RevisionComparePage.paramsOf(comment.getProject(), state);
-						setResponsePage(RevisionComparePage.class, params);
-					}
-					
-				};
+				setVisible(commentContainer.getDefaultModelObject() == null);
 			}
 			
 		});
@@ -320,16 +312,7 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 
 			@Override
 			public void onClick(AjaxRequestTarget target) {
-				CodeComment comment = context.getOpenComment();
-				PlanarRange range;
-				if (comment != null) { 
-					range = commentRangesModel.getObject().get(comment);
-					if (range == null)
-						range = comment.getMark().getRange();
-				} else { 
-					range = (PlanarRange) commentContainer.getDefaultModelObject();
-				}
-				
+				PlanarRange range = (PlanarRange) commentContainer.getDefaultModelObject();
 				String position = SourceRendererProvider.getPosition(range);
 				position(target, position);
 				context.onPosition(target, position);
@@ -337,12 +320,12 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 			}
 
 			@Override
-			protected void onInitialize() {
-				super.onInitialize();
-				setOutputMarkupId(true);
+			protected void onConfigure() {
+				super.onConfigure();
+				setVisible(commentContainer.getDefaultModelObject() != null);
 			}
 			
-		});
+		}.setOutputMarkupId(true));
 		
 		head.add(new AjaxLink<Void>("close") {
 
@@ -366,7 +349,7 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 
 				@Override
 				protected void onDeleteComment(AjaxRequestTarget target, CodeComment comment) {
-					SourceViewPanel.this.onCommentDeleted(target, comment);
+					SourceViewPanel.this.onCommentDeleted(target);
 				}
 
 				@Override
@@ -401,31 +384,18 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 				IRequestParameters params = RequestCycle.get().getRequest().getPostParameters();
 				switch(params.getParameterValue("action").toString("")) {
 				case "openSelectionPopover": 
-					PlanarRange mark = getMark(params, "param1", "param2", "param3", "param4");
-					String unableCommentMessage = null;
-					PullRequest request = context.getPullRequest();
-					String commitHash = context.getCommit().name();
-					if (request != null && !request.canCommentOnCommit(commitHash)) { 
-						if (request.getMergePreview() != null 
-								&& request.getMergePreview().getMergeCommitHash() != null 
-								&& request.getMergePreview().getMergeCommitHash().equals(commitHash)) {
-							unableCommentMessage = "Unable to comment on pull request merge preview";
-						} else {
-							unableCommentMessage = "Unable to comment on commits not belonging to pull request";
-						}
-					}
+					PlanarRange range = getRange(params, "param1", "param2", "param3", "param4");
 							
-					String position = SourceRendererProvider.getPosition(mark);
-					String script = String.format("onedev.server.sourceView.openSelectionPopover(%s, '%s', %s, %s);", 
-							getJson(mark), context.getPositionUrl(position), SecurityUtils.getUser()!=null, 
-							unableCommentMessage!=null?"'" + unableCommentMessage + "'":"undefined");
+					String position = SourceRendererProvider.getPosition(range);
+					String script = String.format("onedev.server.sourceView.openSelectionPopover(%s, '%s', %s);", 
+							convertToJson(range), context.getPositionUrl(position), SecurityUtils.getUser()!=null);
 					target.appendJavaScript(script);
 					break;
 				case "addComment": 
 					Preconditions.checkNotNull(SecurityUtils.getUser());
 					
-					mark = getMark(params, "param1", "param2", "param3", "param4");
-					commentContainer.setDefaultModelObject(mark);
+					range = getRange(params, "param1", "param2", "param3", "param4");
+					commentContainer.setDefaultModelObject(range);
 					
 					Fragment fragment = new Fragment(BODY_ID, "newCommentFrag", SourceViewPanel.this);
 					fragment.setOutputMarkupId(true);
@@ -438,16 +408,10 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 					
 					StringBuilder mentions = new StringBuilder();
 
-					if (context.getPullRequest() == null) {
-						/*
-						 * Outside of pull request, no one will be notified of the comment. So we automatically 
-						 * mention authors of commented lines
-						 */
-						LinearRange range = new LinearRange(mark.getFromRow(), mark.getToRow());
-						for (User user: context.getProject().getAuthors(context.getBlobIdent().path, context.getCommit(), range)) {
-							if (user.getEmail() != null)
-								mentions.append("@").append(user.getName()).append(" ");
-						}
+					for (User user: context.getProject().getAuthors(context.getBlobIdent().path, context.getCommit(), 
+							new LinearRange(range.getFromRow(), range.getToRow()))) {
+						if (user.getEmail() != null)
+							mentions.append("@").append(user.getName()).append(" ");
 					}
 					
 					form.add(contentInput = new CommentInput("content", Model.of(mentions.toString()), true) {
@@ -502,12 +466,16 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 							
 							CodeComment comment = new CodeComment();
 							comment.setUUID(uuid);
-							comment.setMark(new Mark());
-							comment.getMark().setCommitHash(context.getCommit().name());
-							comment.getMark().setPath(context.getBlobIdent().path);
+							
+							Mark mark = new Mark();
+							mark.setCommitHash(context.getCommit().name());
+							mark.setPath(context.getBlobIdent().path);
+							
+							mark.setRange(range);
+							
+							comment.setMark(mark);
 							comment.setContent(contentInput.getModelObject());
 							comment.setUser(SecurityUtils.getUser());
-							comment.getMark().setRange(mark);
 							comment.setProject(context.getProject());
 							comment.setRequest(context.getPullRequest());
 							comment.setCompareContext(getCompareContext());
@@ -518,7 +486,7 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 
 								@Override
 								protected void onDeleteComment(AjaxRequestTarget target, CodeComment comment) {
-									SourceViewPanel.this.onCommentDeleted(target, comment);
+									SourceViewPanel.this.onCommentDeleted(target);
 								}
 
 								@Override
@@ -541,10 +509,11 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 							commentContainer.replace(commentPanel);
 							target.add(commentContainer);
 
-							String script = String.format("onedev.server.sourceView.onCommentAdded(%s);", getJsonOfComment(comment));
+							String script = String.format("onedev.server.sourceView.onCommentAdded(%s);", 
+									convertToJson(new CodeCommentInfo(comment, range)));
 							target.appendJavaScript(script);
 							
-							context.onCommentOpened(target, comment);
+							context.onCommentOpened(target, comment, range);
 						}
 
 					});
@@ -552,17 +521,19 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 					commentContainer.replace(fragment);
 					commentContainer.setVisible(true);
 					target.add(commentContainer);
-					context.onAddComment(target, mark);
-					target.appendJavaScript(String.format("onedev.server.sourceView.onAddComment(%s);", getJson(mark)));
+					context.onAddComment(target, range);
+					target.appendJavaScript(String.format("onedev.server.sourceView.onAddComment(%s);", convertToJson(range)));
 					break;
 				case "openComment":
 					Long commentId = params.getParameterValue("param1").toLong();
-					CodeComment comment = OneDev.getInstance(CodeCommentManager.class).load(commentId);
+					range = getRange(params, "param2", "param3", "param4", "param5");
+					commentContainer.setDefaultModelObject(range);
+					
 					CodeCommentPanel commentPanel = new CodeCommentPanel(BODY_ID, commentId) {
 
 						@Override
 						protected void onDeleteComment(AjaxRequestTarget target, CodeComment comment) {
-							SourceViewPanel.this.onCommentDeleted(target, comment);
+							SourceViewPanel.this.onCommentDeleted(target);
 						}
 
 						@Override
@@ -585,9 +556,12 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 					commentContainer.replace(commentPanel);
 					commentContainer.setVisible(true);
 					target.add(commentContainer);
-					script = String.format("onedev.server.sourceView.onOpenComment(%s);", getJsonOfComment(comment));
+					
+					CodeComment comment = OneDev.getInstance(CodeCommentManager.class).load(commentId);
+					script = String.format("onedev.server.sourceView.onCommentOpened(%s);", 
+							convertToJson(new CodeCommentInfo(comment, range)));
 					target.appendJavaScript(script);
-					context.onCommentOpened(target, comment);
+					context.onCommentOpened(target, comment, range);
 					break;
 				case "outlineSearch":
 					new ModalPanel(target) {
@@ -705,14 +679,7 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 		
 		outline.setVisible(isOutlineVisibleInitially());
 		
-		add(symbolTooltip = new SymbolTooltipPanel("symbolTooltip", new AbstractReadOnlyModel<Project>() {
-
-			@Override
-			public Project getObject() {
-				return context.getProject();
-			}
-			
-		}) {
+		add(symbolTooltip = new SymbolTooltipPanel("symbolTooltip") {
 
 			@Override
 			protected void onSelect(AjaxRequestTarget target, QueryHit hit) {
@@ -729,6 +696,11 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 			@Override
 			protected String getBlobPath() {
 				return context.getBlobIdent().path;
+			}
+
+			@Override
+			protected Project getProject() {
+				return context.getProject();
 			}
 			
 		});
@@ -764,32 +736,13 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 		return compareContext;
 	}
 	
-	private PlanarRange getMark(IRequestParameters params, String beginLineParam, String beginCharParam, 
+	private PlanarRange getRange(IRequestParameters params, String beginLineParam, String beginCharParam, 
 			String endLineParam, String endCharParam) {
 		int beginLine = params.getParameterValue(beginLineParam).toInt();
 		int beginChar = params.getParameterValue(beginCharParam).toInt();
 		int endLine = params.getParameterValue(endLineParam).toInt();
 		int endChar = params.getParameterValue(endCharParam).toInt();
-		PlanarRange mark = new PlanarRange();
-		mark.fromRow = beginLine;
-		mark.fromColumn = beginChar;
-		mark.toRow = endLine;
-		mark.toColumn = endChar;
-		return mark;
-	}
-
-	private String getJsonOfComment(CodeComment comment) {
-		CommentInfo commentInfo = new CommentInfo();
-		commentInfo.id = comment.getId();
-		commentInfo.mark = Preconditions.checkNotNull(comment.mapRange(context.getBlobIdent()));
-
-		String jsonOfCommentInfo;
-		try {
-			jsonOfCommentInfo = OneDev.getInstance(ObjectMapper.class).writeValueAsString(commentInfo);
-		} catch (JsonProcessingException e) {
-			throw new RuntimeException(e);
-		}
-		return jsonOfCommentInfo;
+		return new PlanarRange(beginLine, beginChar, endLine, endChar);
 	}
 
 	private void clearComment(AjaxRequestTarget target) {
@@ -798,11 +751,15 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 		target.add(commentContainer);
 	}
 	
-	private void onCommentDeleted(AjaxRequestTarget target, CodeComment comment) {
+	@Override
+	protected void onDetach() {
+		annotationInfoModel.detach();
+		super.onDetach();
+	}
+
+	private void onCommentDeleted(AjaxRequestTarget target) {
 		clearComment(target);
-		String script = String.format("onedev.server.sourceView.onCommentDeleted(%s);", 
-				getJsonOfComment(comment));
-		target.appendJavaScript(script);
+		target.appendJavaScript("onedev.server.sourceView.onCommentDeleted();");
 		context.onCommentClosed(target);
 	}
 	
@@ -847,11 +804,7 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 				blameInfo.ranges = blame.getRanges();
 				blameInfos.add(blameInfo);
 			}
-			try {
-				jsonOfBlameInfos = OneDev.getInstance(ObjectMapper.class).writeValueAsString(blameInfos);
-			} catch (JsonProcessingException e) {
-				throw new RuntimeException(e);
-			}
+			jsonOfBlameInfos = convertToJson(blameInfos);
 		} else {
 			jsonOfBlameInfos = "undefined";
 		}
@@ -867,63 +820,46 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 		Blob blob = context.getProject().getBlob(context.getBlobIdent(), true);
 		
 		String jsonOfBlameInfos = getJsonOfBlameInfos(context.getMode() == Mode.BLAME);
-		Map<Integer, List<CommentInfo>> commentInfos = new HashMap<>(); 
-		for (Map.Entry<CodeComment, PlanarRange> entry: commentRangesModel.getObject().entrySet()) {
-			CodeComment comment = entry.getKey();
-			PlanarRange textRange = entry.getValue();
-			int line = textRange.getFromRow();
-			List<CommentInfo> commentInfosAtLine = commentInfos.get(line);
-			if (commentInfosAtLine == null) {
-				commentInfosAtLine = new ArrayList<>();
-				commentInfos.put(line, commentInfosAtLine);
-			}
-			CommentInfo commentInfo = new CommentInfo();
-			commentInfo.id = comment.getId();
-			commentInfo.mark = textRange;
-			commentInfosAtLine.add(commentInfo);
-		}
-		for (List<CommentInfo> value: commentInfos.values()) {
-			value.sort((o1, o2)->(int)(o1.id-o2.id));
-		}
 		
-		String jsonOfCommentInfos;
-		try {
-			jsonOfCommentInfos = OneDev.getInstance(ObjectMapper.class).writeValueAsString(commentInfos);
-		} catch (JsonProcessingException e) {
-			throw new RuntimeException(e);
+		CodeCommentInfo openCommentInfo;
+		if (context.getOpenComment() != null) {
+			PlanarRange range = (PlanarRange) commentContainer.getDefaultModelObject();
+			if (range != null)
+				openCommentInfo = new CodeCommentInfo(context.getOpenComment(), range);
+			else
+				openCommentInfo = null;
+		} else { 
+			openCommentInfo = null;
 		}
-		
-		PlanarRange mark = SourceRendererProvider.getRange(context.getPosition());
-		String jsonOfMark = mark!=null? getJson(mark): "undefined";
-			
+
 		CharSequence callback = ajaxBehavior.getCallbackFunction(
 				explicit("action"), explicit("param1"), explicit("param2"), 
-				explicit("param3"), explicit("param4"));
+				explicit("param3"), explicit("param4"), explicit("param5"));
+		
+		PlanarRange markRange = SourceRendererProvider.getRange(context.getPosition());
+		if (markRange == null)
+			markRange = (PlanarRange) commentContainer.getDefaultModelObject();
 		
 		String script = String.format("onedev.server.sourceView.onDomReady("
-				+ "'%s', '%s', %s, %s, '%s', '%s', %s, %s, %s, %s, %s, '%s');", 
+				+ "'%s', '%s', %s, %s, '%s', '%s', %s, %s, %s, %s, '%s', %s);", 
 				JavaScriptEscape.escapeJavaScript(context.getBlobIdent().path),
 				JavaScriptEscape.escapeJavaScript(blob.getText().getContent()),
-				context.getOpenComment()!=null?getJsonOfComment(context.getOpenComment()):"undefined",
-				jsonOfMark,
+				convertToJson(openCommentInfo),
+				convertToJson(markRange),
 				symbolTooltip.getMarkupId(), 
 				context.getBlobIdent().revision, 
 				jsonOfBlameInfos, 
-				jsonOfCommentInfos,
 				callback, 
 				blameMessageBehavior.getCallback(),
 				sourceFormat.getTabSize(),
-				sourceFormat.getLineWrapMode());
+				sourceFormat.getLineWrapMode(), 
+				convertToJson(annotationInfoModel.getObject()));
 		response.render(OnDomReadyHeaderItem.forScript(script));
 		
-		script = String.format("onedev.server.sourceView.onWindowLoad(%s);", jsonOfMark);
-		response.render(OnLoadHeaderItem.forScript(script));
-	}
-
-	@Override
-	protected void onDetach() {
-		commentRangesModel.detach();
-		super.onDetach();
+		if (markRange != null) {
+			script = String.format("onedev.server.sourceView.onWindowLoad(%s);", convertToJson(markRange));
+			response.render(OnLoadHeaderItem.forScript(script));
+		}
 	}
 
 	@SuppressWarnings("unused")
@@ -945,15 +881,6 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 	private String getSymbolId(List<Symbol> symbols, Symbol symbol) {
 		return "outline-symbol-" + symbols.indexOf(symbol);
 	}
-	
-	@SuppressWarnings("unused")
-	private static class CommentInfo {
-		long id;
-		
-		String title;
-		
-		PlanarRange mark;
-	}
 
 	@Override
 	protected boolean isEditSupported() {
@@ -965,7 +892,7 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 		String script;
 		PlanarRange mark = SourceRendererProvider.getRange(position);
 		if (mark != null) 
-			script = String.format("onedev.server.sourceView.mark(%s, true);", getJson(mark));
+			script = String.format("onedev.server.sourceView.mark(%s, true);", convertToJson(mark));
 		else 
 			script = String.format("onedev.server.sourceView.clearMark();");
 		target.appendJavaScript(script);
@@ -1059,8 +986,7 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 	
 	private void closeComment(AjaxRequestTarget target) {
 		clearComment(target);
-		if (context.getOpenComment() != null) 
-			context.onCommentClosed(target);
+		context.onCommentClosed(target);
 		target.appendJavaScript("onedev.server.sourceView.onCloseComment();");
 	}
 	

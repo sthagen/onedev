@@ -37,6 +37,12 @@ public interface BlobRenderContext extends Serializable {
 	@Nullable
 	String getPosition();
 	
+	@Nullable
+	String getCoverageReport();
+	
+	@Nullable
+	String getProblemReport();
+	
 	void onPosition(AjaxRequestTarget target, String position);
 	
 	String getPositionUrl(String position);
@@ -89,7 +95,7 @@ public interface BlobRenderContext extends Serializable {
 	
 	void onCommitted(@Nullable AjaxRequestTarget target, RefUpdated refUpdated, @Nullable String position);
 	
-	void onCommentOpened(AjaxRequestTarget target, CodeComment comment);
+	void onCommentOpened(AjaxRequestTarget target, CodeComment comment, PlanarRange range);
 
 	void onCommentClosed(AjaxRequestTarget target);
 	

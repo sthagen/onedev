@@ -86,12 +86,12 @@ import io.onedev.server.web.page.project.pullrequests.create.NewPullRequestPage;
 import io.onedev.server.web.page.project.pullrequests.detail.activities.PullRequestActivitiesPage;
 import io.onedev.server.web.page.project.pullrequests.detail.changes.PullRequestChangesPage;
 import io.onedev.server.web.page.project.pullrequests.detail.codecomments.PullRequestCodeCommentsPage;
-import io.onedev.server.web.page.project.pullrequests.detail.mergepreview.MergePreviewPage;
 import io.onedev.server.web.page.project.setting.authorization.ProjectAuthorizationsPage;
 import io.onedev.server.web.page.project.setting.avatar.AvatarEditPage;
 import io.onedev.server.web.page.project.setting.branchprotection.BranchProtectionsPage;
 import io.onedev.server.web.page.project.setting.build.ActionAuthorizationsPage;
 import io.onedev.server.web.page.project.setting.build.BuildPreservationsPage;
+import io.onedev.server.web.page.project.setting.build.DefaultFixedIssueFiltersPage;
 import io.onedev.server.web.page.project.setting.build.JobSecretsPage;
 import io.onedev.server.web.page.project.setting.general.GeneralProjectSettingPage;
 import io.onedev.server.web.page.project.setting.tagprotection.TagProtectionsPage;
@@ -236,7 +236,6 @@ public class BaseUrlMapper extends CompoundRequestMapper {
 		add(new DynamicPathPageMapper("projects/${project}/pulls/${request}/activities", PullRequestActivitiesPage.class));
 		add(new DynamicPathPageMapper("projects/${project}/pulls/${request}/code-comments", PullRequestCodeCommentsPage.class));
 		add(new DynamicPathPageMapper("projects/${project}/pulls/${request}/changes", PullRequestChangesPage.class));
-		add(new DynamicPathPageMapper("projects/${project}/pulls/${request}/merge-preview", MergePreviewPage.class));
 		add(new DynamicPathPageMapper("projects/${project}/pulls/${request}/invalid", InvalidPullRequestPage.class));
 
 		add(new DynamicPathPageMapper("projects/${project}/issues/boards", IssueBoardsPage.class));
@@ -269,6 +268,7 @@ public class BaseUrlMapper extends CompoundRequestMapper {
 		add(new DynamicPathPageMapper("projects/${project}/settings/build/job-secrets", JobSecretsPage.class));
 		add(new DynamicPathPageMapper("projects/${project}/settings/build/action-authorizations", ActionAuthorizationsPage.class));
 		add(new DynamicPathPageMapper("projects/${project}/settings/build/build-preserve-rules", BuildPreservationsPage.class));
+		add(new DynamicPathPageMapper("projects/${project}/settings/build/default-fixed-issues-filter", DefaultFixedIssueFiltersPage.class));
 		add(new DynamicPathPageMapper("projects/${project}/settings/web-hooks", WebHooksPage.class));
 	}
 

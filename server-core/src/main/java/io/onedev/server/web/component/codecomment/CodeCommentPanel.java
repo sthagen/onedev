@@ -24,7 +24,6 @@ import org.apache.wicket.markup.head.JavaScriptHeaderItem;
 import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.markup.html.form.Form;
-import org.apache.wicket.markup.html.link.BookmarkablePageLink;
 import org.apache.wicket.markup.html.panel.Fragment;
 import org.apache.wicket.markup.html.panel.Panel;
 import org.apache.wicket.markup.repeater.RepeatingView;
@@ -35,7 +34,6 @@ import org.apache.wicket.request.IRequestHandler;
 import org.apache.wicket.request.Url;
 import org.apache.wicket.request.cycle.IRequestCycleListener;
 import org.apache.wicket.request.cycle.RequestCycle;
-import org.apache.wicket.request.mapper.parameter.PageParameters;
 
 import com.google.common.collect.Sets;
 
@@ -60,8 +58,6 @@ import io.onedev.server.web.component.markdown.MarkdownViewer;
 import io.onedev.server.web.component.project.comment.CommentInput;
 import io.onedev.server.web.component.user.ident.Mode;
 import io.onedev.server.web.component.user.ident.UserIdentPanel;
-import io.onedev.server.web.page.project.blob.ProjectBlobPage;
-import io.onedev.server.web.page.project.pullrequests.detail.changes.PullRequestChangesPage;
 import io.onedev.server.web.util.ProjectAttachmentSupport;
 
 @SuppressWarnings("serial")
@@ -107,7 +103,8 @@ public abstract class CodeCommentPanel extends Panel {
 		commentContainer.add(new UserIdentPanel("userAvatar", user, Mode.AVATAR));
 		commentContainer.add(new Label("userName", user.getDisplayName()));
 		commentContainer.add(new Label("action", "commented"));
-		commentContainer.add(new Label("date", DateUtils.formatAge(getComment().getCreateDate())));
+		commentContainer.add(new Label("date", DateUtils.formatAge(getComment().getCreateDate()))
+				.add(new AttributeAppender("title", DateUtils.formatDateTime(getComment().getCreateDate()))));
 
 		commentContainer.add(new MarkdownViewer("content", new IModel<String>() {
 
@@ -256,7 +253,8 @@ public abstract class CodeCommentPanel extends Panel {
 		replyContainer.add(new Label("userName", user.getDisplayName()));
 		
 		replyContainer.add(new Label("action", "replied"));
-		replyContainer.add(new Label("date", DateUtils.formatAge(reply.getDate())));
+		replyContainer.add(new Label("date", DateUtils.formatAge(reply.getDate()))
+				.add(new AttributeAppender("title", DateUtils.formatDateTime(reply.getDate()))));
 
 		replyContainer.add(new MarkdownViewer("content", new IModel<String>() {
 
@@ -408,42 +406,6 @@ public abstract class CodeCommentPanel extends Panel {
 	protected void onInitialize() {
 		super.onInitialize();
 
-		WebMarkupContainer outdatedContext = new WebMarkupContainer("outdatedContext") {
-			
-			@Override
-			protected void onConfigure() {
-				super.onConfigure();
-				
-				if (getPullRequest() != null) {
-					CodeComment comment = getComment();
-					if (getPage() instanceof ProjectBlobPage) {
-						setVisible(comment.isContextChanged(getPullRequest()));
-					} else if (getPage() instanceof PullRequestChangesPage) {
-						PullRequestChangesPage page = (PullRequestChangesPage) getPage();
-						if (page.getState().newCommitHash.equals(comment.getMark().getCommitHash())) {
-							setVisible(comment.isContextChanged(getPullRequest()));
-						} else {
-							setVisible(!getPullRequest().getLatestUpdate().getHeadCommitHash()
-									.equals(page.getState().newCommitHash));
-						}
-					} else {
-						setVisible(false);
-					}
-				} else {
-					setVisible(false);
-				}
-			}
-			
-		};
-		add(outdatedContext.setOutputMarkupPlaceholderTag(true));
-		
-		if (getPullRequest() != null) {
-			PageParameters params = PullRequestChangesPage.paramsOf(getPullRequest(), getComment());
-			outdatedContext.add(new BookmarkablePageLink<Void>("link", PullRequestChangesPage.class, params));
-		} else {
-			outdatedContext.add(new WebMarkupContainer("link"));
-		}
-		
 		add(newCommentContainer());
 		
 		repliesView = new RepeatingView("replies");
@@ -499,8 +461,6 @@ public abstract class CodeCommentPanel extends Panel {
 					handler.add(newReplyContainer);
 					prevReplyMarkupId = newReplyContainer.getMarkupId();
 				}
-				
-				handler.add(outdatedContext);
 			}
 			
 			@Override
