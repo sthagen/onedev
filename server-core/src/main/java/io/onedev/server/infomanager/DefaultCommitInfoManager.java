@@ -86,7 +86,7 @@ public class DefaultCommitInfoManager extends AbstractEnvironmentManager impleme
 
 	private static final Logger logger = LoggerFactory.getLogger(DefaultCommitInfoManager.class);
 	
-	private static final int INFO_VERSION = 10;
+	private static final int INFO_VERSION = 11;
 	
 	private static final long LOG_FILE_SIZE = 256*1024;
 	
@@ -437,7 +437,7 @@ public class DefaultCommitInfoManager extends AbstractEnvironmentManager impleme
 										if (currentCommit.getBody() != null)
 											commitMessage += "\n\n" + currentCommit.getBody();
 										
-										for (Long issueNumber: IssueUtils.parseFixedIssueNumbers(commitMessage)) {
+										for (Long issueNumber: IssueUtils.parseFixedIssueNumbers(project, commitMessage)) {
 											ByteIterable issueKey = new LongByteIterable(issueNumber);
 											Collection<ObjectId> fixingCommits = readCommits(fixCommitsStore, txn, issueKey);
 											
