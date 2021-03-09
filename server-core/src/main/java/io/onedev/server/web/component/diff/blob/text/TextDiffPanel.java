@@ -3,6 +3,7 @@ package io.onedev.server.web.component.diff.blob.text;
 import static org.apache.wicket.ajax.attributes.CallbackParameter.explicit;
 
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -76,7 +77,6 @@ import io.onedev.server.web.page.base.BasePage;
 import io.onedev.server.web.page.project.blob.ProjectBlobPage;
 import io.onedev.server.web.page.project.blob.render.BlobRenderContext.Mode;
 import io.onedev.server.web.page.project.commits.CommitDetailPage;
-import io.onedev.server.web.page.project.pullrequests.detail.changes.PullRequestChangesPage;
 import io.onedev.server.web.util.AnnotationInfo;
 import io.onedev.server.web.util.CodeCommentInfo;
 import io.onedev.server.web.util.DiffPlanarRange;
@@ -103,10 +103,15 @@ public class TextDiffPanel extends Panel {
 				Map<Integer, List<CodeCommentInfo>> newCommentsByLine = 
 						CodeCommentInfo.groupByLine(change.getAnnotationSupport().getNewComments());
 
-				Map<Integer, List<CodeProblem>> oldProblemsByLine = 
-						CodeProblem.groupByLine(change.getAnnotationSupport().getOldProblems());
-				Map<Integer, List<CodeProblem>> newProblemsByLine = 
-						CodeProblem.groupByLine(change.getAnnotationSupport().getNewProblems());
+				List<CodeProblem> oldProblems = new ArrayList<>();
+				for (CodeProblem problem: change.getAnnotationSupport().getOldProblems()) 
+					oldProblems.add(problem.normalizeRange(change.getOldText().getLines()));
+				Map<Integer, List<CodeProblem>> oldProblemsByLine = CodeProblem.groupByLine(oldProblems);
+				
+				List<CodeProblem> newProblems = new ArrayList<>();
+				for (CodeProblem problem: change.getAnnotationSupport().getNewProblems()) 
+					newProblems.add(problem.normalizeRange(change.getNewText().getLines()));
+				Map<Integer, List<CodeProblem>> newProblemsByLine = CodeProblem.groupByLine(newProblems);
 				
 				return new DiffAnnotationInfo(
 						new AnnotationInfo(oldCommentsByLine, oldProblemsByLine, 
@@ -229,8 +234,7 @@ public class TextDiffPanel extends Panel {
 			if (getPullRequest() != null 
 					&& getPullRequest().getSource() != null 
 					&& getPullRequest().getSource().getObjectName(false) != null
-					&& SecurityUtils.canModify(getPullRequest().getSourceProject(), getPullRequest().getSourceBranch(), change.getPath())
-					&& getPage() instanceof PullRequestChangesPage) { 
+					&& SecurityUtils.canModify(getPullRequest().getSourceProject(), getPullRequest().getSourceBranch(), change.getPath())) { 
 				// we are in context of a pull request and pull request source branch exists, so we edit in source branch instead
 				Link<Void> editLink = new Link<Void>("editFile") {
 
@@ -713,12 +717,12 @@ public class TextDiffPanel extends Panel {
 			PageParameters params = CommitDetailPage.paramsOf(getProject(), state);
 			String url = urlFor(CommitDetailPage.class, params).toString();
 			if (diffMode == DiffViewMode.UNIFIED) {
-				builder.append(String.format("<td class='blame noselect'><a class='hash' href='%s' data-hash='%s'>%s</a><span class='date'>%s</span><span class='author'>%s</span></td>", 
+				builder.append(String.format("<td class='blame noselect'><a class='hash' href='%s' onclick='onedev.server.viewState.getFromViewAndSetToHistory();' data-hash='%s'>%s</a><span class='date'>%s</span><span class='author'>%s</span></td>", 
 						url, commit.getHash(), GitUtils.abbreviateSHA(commit.getHash()), 
 						DateUtils.formatDate(commit.getCommitter().getWhen()),
 						HtmlEscape.escapeHtml5(commit.getAuthor().getName())));
 			} else {
-				builder.append(String.format("<td class='abbr blame noselect'><a class='hash' href='%s' data-hash='%s'>%s</a></td>", 
+				builder.append(String.format("<td class='abbr blame noselect'><a class='hash' href='%s' onclick='onedev.server.viewState.getFromViewAndSetToHistory();' data-hash='%s'>%s</a></td>", 
 						url, commit.getHash(), GitUtils.abbreviateSHA(commit.getHash())));
 			}
 		} else {

@@ -41,7 +41,12 @@ onedev.server.textDiff = {
 
 		onedev.server.textDiff.initBlameTooltip(containerId, $container.find("td.blame>a.hash"));
 		
-		$container.selectionPopover("init", function() {
+		$container.selectionPopover("init", function(e) {
+	    	if ($(e.target).closest("td.content").length == 0 
+					|| $(e.target).closest(".selection-popover").length != 0) {
+	    		return;
+			}
+			
 	    	var selection = window.getSelection();
 	    	if (!selection.rangeCount) {
 	    		return "close";
@@ -479,7 +484,7 @@ onedev.server.textDiff = {
 	},
 	onWindowLoad: function(containerId, markRange) {
 		var $container = $("#" + containerId);
-		if (!onedev.server.history.isVisited()) 
+		if (onedev.server.viewState.getFromHistory() === undefined)
 			onedev.server.textDiff.scrollTo($container, markRange);
 	},
 	initBlameTooltip: function(containerId, $hashLink) {
@@ -808,10 +813,11 @@ onedev.server.textDiff = {
 		
 		let $trigger = $(document.createElement("a"));
 		$trigger.addClass("problem-trigger");
-		$trigger.addClass(onedev.server.codeProblem.getLinkClass(problems));
+		
+		let iconInfo = onedev.server.codeProblem.getIconInfo(problems);
+		$trigger.addClass(iconInfo[1]);
 
-		let icon = onedev.server.codeProblem.getIcon(problems);
-		$trigger.append(`<svg class='icon'><use xlink:href='${onedev.server.icons}#${icon}'/></svg>`);
+		$trigger.append(`<svg class='icon icon-sm'><use xlink:href='${onedev.server.icons}#${iconInfo[0]}'/></svg>`);
 		
 		let markRanges = [];
 		for (var i in problems) 
@@ -822,33 +828,41 @@ onedev.server.textDiff = {
 		}).mouseout(function() {
 			onedev.server.textDiff.restoreMark($container);
 		});
-		
-		$trigger.popover({
-			html: true, 
-			sanitize: false, 
-			placement: "top", 
-			container: $container,
-			content: onedev.server.codeProblem.renderProblems(problems),
-			template: `<div data-line='${line}' class='${oldOrNew} popover problem-popover'><div class='arrow'></div><div class='popover-body'></div></div>`
-		}).on("shown.bs.popover", function() {
-			var $currentPopover = $(`.problem-popover.${oldOrNew}[data-line='${line}']`);
-			$(".popover").not($currentPopover).popover("hide");
-			$currentPopover.find(".problem-content").mouseover(function() {
-				onedev.server.textDiff.mark($container, problems[$(this).index()].range);
-			}).mouseout(function() {
-				onedev.server.textDiff.restoreMark($container);
-			}).each(function() {
-				var problem = problems[$(this).index()];
-				$(this).children(".add-comment").click(function() {
-					if (onedev.server.textDiff.confirmUnsavedChanges($container)) {
-						$currentPopover.popover("hide");
-						var range = problem.range;
-						$container.data("callback")("addComment", leftSide, range.fromRow, range.fromColumn, 
-								range.toRow, range.toColumn);
-					}
-				});
-			});
-		});
+
+		$trigger.mousedown(function() {
+			/* 
+			 * When there are many problems, initializing popover for all of them will slow down 
+		 	 * load of the source view. So we initialize popover in mouse down event
+			 */
+			if (!$trigger.data("popoverInited")) {
+				$trigger.popover({
+					html: true, 
+					sanitize: false, 
+					placement: "top", 
+					container: $container,
+					content: onedev.server.codeProblem.renderProblems(problems),
+					template: `<div data-line='${line}' class='${oldOrNew} popover problem-popover'><div class='arrow'></div><div class='popover-body'></div></div>`
+				}).on("shown.bs.popover", function() {
+					var $currentPopover = $(`.problem-popover.${oldOrNew}[data-line='${line}']`);
+					$(".popover").not($currentPopover).popover("hide");
+					$currentPopover.find(".problem-content").mouseover(function() {
+						onedev.server.textDiff.mark($container, problems[$(this).index()].range);
+					}).mouseout(function() {
+						onedev.server.textDiff.restoreMark($container);
+					}).each(function() {
+						var problem = problems[$(this).index()];
+						$(this).children(".add-comment").click(function() {
+							if (onedev.server.textDiff.confirmUnsavedChanges($container)) {
+								$currentPopover.popover("hide");
+								var range = problem.range;
+								$container.data("callback")("addComment", leftSide, range.fromRow, range.fromColumn, 
+										range.toRow, range.toColumn);
+							}
+						});
+					});
+				}).data("popoverInited", true);				
+			}			
+		});		
 		
 		$lineNumTd.prepend($trigger);
 	},
@@ -897,7 +911,7 @@ onedev.server.textDiff = {
 			if (updated)
 				$indicator.addClass("updated");
 			
-			$indicator.append(`<svg class='icon icon-lg'><use xlink:href='${onedev.server.icons}#comments'/></svg>`);
+			$indicator.append(`<svg class='icon'><use xlink:href='${onedev.server.icons}#comments'/></svg>`);
 			
 			$indicator.popover({
 				html: true, 
@@ -934,7 +948,7 @@ onedev.server.textDiff = {
 			if (comment.updated)
 				$indicator.addClass("updated");
 			$indicator.addClass("comment-trigger").attr("title", "Click to show comment of marked text");
-			$indicator.append("<svg class='icon icon-lg'><use xlink:href='" + onedev.server.icons + "#comment'/></svg>");
+			$indicator.append("<svg class='icon'><use xlink:href='" + onedev.server.icons + "#comment'/></svg>");
 			$indicator.mouseover(function() {
 				onedev.server.textDiff.mark($container, comment.range);
 			});
@@ -1060,3 +1074,13 @@ onedev.server.textDiff = {
 		}, 100);
 	}
 };
+
+$(function() {
+	$(document).keydown(function(e) {
+		if (e.keyCode == 27) 
+			$('.problem-popover').popover("hide");
+	}).mouseup(function(e) {
+		if ($(e.target).closest(".problem-popover, .problem-trigger").length == 0)		
+			$('.problem-popover').popover("hide");
+	});
+});

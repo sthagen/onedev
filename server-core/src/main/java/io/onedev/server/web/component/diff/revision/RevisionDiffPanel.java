@@ -114,6 +114,8 @@ import io.onedev.server.web.util.SuggestionUtils;
 public abstract class RevisionDiffPanel extends Panel {
 
 	private static final String COOKIE_VIEW_MODE = "onedev.server.diff.viewmode";
+	
+	private static final String COOKIE_COMMENT_WIDTH = "revisionDiff.comment.width";
 
 	private static final String BODY_ID = "body";
 	
@@ -1180,7 +1182,18 @@ public abstract class RevisionDiffPanel extends Panel {
 		};
 		commentContainer.setOutputMarkupPlaceholderTag(true);
 		
+		float commentWidth;
+		WebRequest request = (WebRequest) RequestCycle.get().getRequest();
+		Cookie cookie = request.getCookie(COOKIE_COMMENT_WIDTH);
+		if (cookie != null) 
+			commentWidth = Float.parseFloat(cookie.getValue());
+		else 
+			commentWidth = 300;
+		
+		commentContainer.add(AttributeAppender.append("style", "width:" + commentWidth + "px"));
+		
 		WebMarkupContainer head = new WebMarkupContainer("head");
+		head.setOutputMarkupId(true);
 		commentContainer.add(head);
 		
 		head.add(new WebMarkupContainer("outdated") {
@@ -1240,7 +1253,7 @@ public abstract class RevisionDiffPanel extends Panel {
 				if (change != null) {
 					DiffPlanarRange commentRange = change.getAnnotationSupport().getCommentRange(openComment);
 					if (commentRange != null)
-						commentContainer.setDefaultModelObject(commentRange);
+						commentContainer.setDefaultModelObject(change.getMark(commentRange));
 				}
 				CodeCommentPanel commentPanel = new CodeCommentPanel(BODY_ID, openComment.getId()) {
 

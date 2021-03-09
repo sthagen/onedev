@@ -16,7 +16,7 @@ public class CloverStatsPage extends BuildMetricStatsPage<CloverMetric> {
 
 	@Override
 	protected Component newProjectTitle(String componentId) {
-		return new Label(componentId, "Clover Coverage Statistics");
+		return new Label(componentId, "Clover Statistics");
 	}
 
 }

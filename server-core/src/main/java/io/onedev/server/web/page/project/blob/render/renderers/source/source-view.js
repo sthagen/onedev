@@ -52,8 +52,10 @@ onedev.server.sourceView = {
 		onedev.server.sourceView.checkShortcutsBinding();
 	    
 	    $code.selectionPopover("init", function(e) {
-	    	if ($(e.target).closest(".selection-popover").length != 0)
+	    	if ($(e.target).closest(".CodeMirror-line").length == 0 
+					|| $(e.target).closest(".selection-popover").length != 0) {
 	    		return;
+			}
 	    	var from = cm.getCursor("from");
 	    	var to = cm.getCursor("to");
 	    	if (from.line != to.line || from.ch != to.ch) {
@@ -155,12 +157,7 @@ onedev.server.sourceView = {
 	initComment: function() {
 		var $sourceView = $(".source-view");
 		var $code = $sourceView.children(".code");
-		var commentWidthCookieKey = "sourceView.comment.width";
 		var $comment = $sourceView.children(".comment");
-		var commentWidth = Cookies.get(commentWidthCookieKey);
-		if (!commentWidth)
-			commentWidth = $sourceView.outerWidth()/3;
-		$comment.outerWidth(commentWidth);
 		var $commentResizeHandle = $comment.children(".ui-resizable-handle");
 		$comment.resizable({
 			autoHide: false,
@@ -173,7 +170,7 @@ onedev.server.sourceView = {
 			},
 			stop: function(e, ui) {
 				$(this).resizable({maxWidth: undefined});
-				Cookies.set(commentWidthCookieKey, ui.size.width, {expires: Infinity});
+				Cookies.set("sourceView.comment.width", ui.size.width, {expires: Infinity});
 			}
 		});
 	},
@@ -186,12 +183,7 @@ onedev.server.sourceView = {
 	initOutline: function() {
 		var $sourceView = $(".source-view");
 		var $code = $sourceView.children(".code");
-		var outlineWidthCookieKey = "sourceView.outline.width";
 		var $outline = $sourceView.children(".outline");
-		var outlineWidth = Cookies.get(outlineWidthCookieKey);
-		if (!outlineWidth)
-			outlineWidth = 300;
-		$outline.outerWidth(outlineWidth);
 		var $outlineResizeHandle = $outline.children(".ui-resizable-handle");
 		$outline.resizable({
 			autoHide: false,
@@ -204,7 +196,7 @@ onedev.server.sourceView = {
 			},
 			stop: function(e, ui) {
 				$(this).resizable({maxWidth: undefined});
-				Cookies.set(outlineWidthCookieKey, ui.size.width, {expires: Infinity});
+				Cookies.set("sourceView.outline.width", ui.size.width, {expires: Infinity});
 			}
 		});
 	},
@@ -253,43 +245,50 @@ onedev.server.sourceView = {
 		for (var i in problems) 
 			markRanges.push(problems[i].range);			
 		
-		var icon = onedev.server.codeProblem.getIcon(problems);
-		var linkClass = onedev.server.codeProblem.getLinkClass(problems);
+		var iconInfo = onedev.server.codeProblem.getIconInfo(problems);
 		
-		let svg = `<svg class='icon'><use xlink:href='${onedev.server.icons}#${icon}'/></svg>`;
-		$gutter.append(`<a class='problem-trigger ${linkClass}'>${svg}</a>`);
+		let svg = `<svg class='icon icon-sm'><use xlink:href='${onedev.server.icons}#${iconInfo[0]}'/></svg>`;
+		$gutter.append(`<a class='problem-trigger ${iconInfo[1]}'>${svg}</a>`);
 		var $trigger = $gutter.children("a");
 		$trigger.mouseover(function() {
 			onedev.server.codemirror.mark(cm, markRanges);
 		}).mouseout(function() {
 			onedev.server.sourceView.restoreMark();
 		});
-		
-		$trigger.popover({
-			html: true, 
-			sanitize: false, 
-			placement: "top",
-			container: ".source-view>.code",
-			content: onedev.server.codeProblem.renderProblems(problems),
-			template: `<div data-line='${line}' class='popover problem-popover'><div class='arrow'></div><div class='popover-body'></div></div>`
-		}).on("shown.bs.popover", function() {
-			var $currentPopover = $(".problem-popover[data-line='" + line + "']");
-			$(".popover").not($currentPopover).popover("hide");
-			$currentPopover.find(".problem-content").mouseover(function() {
-				onedev.server.codemirror.mark(cm, problems[$(this).index()].range);
-			}).mouseout(function() {
-				onedev.server.sourceView.restoreMark();
-			}).each(function() {
-				var problem = problems[$(this).index()];
-				$(this).children(".add-comment").click(function() {
-					if (onedev.server.sourceView.confirmUnsavedChanges()) {
-						$currentPopover.popover("hide");
-						var range = problem.range;
-						callback("addComment", range.fromRow, range.fromColumn, 
-								range.toRow, range.toColumn);
-					}
-				});
-			});
+
+		$trigger.mousedown(function() {
+			/* 
+			 * When there are many problems, initializing popover for all of them will slow down 
+		 	 * load of the source view. So we initialize popover in mouse down event
+			 */
+			if (!$trigger.data("popoverInited")) {
+				$trigger.popover({
+					html: true, 
+					sanitize: false, 
+					placement: "top",
+					container: ".source-view>.code",
+					content: onedev.server.codeProblem.renderProblems(problems),
+					template: `<div data-line='${line}' class='popover problem-popover'><div class='arrow'></div><div class='popover-body'></div></div>`
+				}).on("shown.bs.popover", function() {
+					var $currentPopover = $(".problem-popover[data-line='" + line + "']");
+					$(".popover").not($currentPopover).popover("hide");
+					$currentPopover.find(".problem-content").mouseover(function() {
+						onedev.server.codemirror.mark(cm, problems[$(this).index()].range);
+					}).mouseout(function() {
+						onedev.server.sourceView.restoreMark();
+					}).each(function() {
+						var problem = problems[$(this).index()];
+						$(this).children(".add-comment").click(function() {
+							if (onedev.server.sourceView.confirmUnsavedChanges()) {
+								$currentPopover.popover("hide");
+								var range = problem.range;
+								callback("addComment", range.fromRow, range.fromColumn, 
+										range.toRow, range.toColumn);
+							}
+						});
+					});
+				}).data("popoverInited", true);				
+			}
 		});
 		
 		cm.setGutterMarker(parseInt(line), "CodeMirror-problems", $gutter[0]);	
@@ -328,7 +327,7 @@ onedev.server.sourceView = {
 			let cssClasses = "comment-indicator";
 			if (updated)
 				cssClasses += " updated"; 			
-			$gutter.append(`<a class='${cssClasses}'><svg class='icon icon-lg'><use xlink:href='${onedev.server.icons}#comments'/></svg></a>`);
+			$gutter.append(`<a class='${cssClasses}'><svg class='icon'><use xlink:href='${onedev.server.icons}#comments'/></svg></a>`);
 			
 			var $indicator = $gutter.children("a");
 			$indicator.popover({
@@ -366,7 +365,7 @@ onedev.server.sourceView = {
 			var cssClasses = "comment-trigger comment-indicator";
 			if (comment.updated)
 				cssClasses += " updated";
-			var svg = `<svg class='icon icon-lg'><use xlink:href='${onedev.server.icons}#comment'/></svg>`;
+			var svg = `<svg class='icon'><use xlink:href='${onedev.server.icons}#comment'/></svg>`;
 			$gutter.append(`<a class='${cssClasses}' title='Click to show comment of marked text'>${svg}</a>`);
 			var $indicator = $gutter.children("a");
 			$indicator.mouseover(function() {
@@ -691,3 +690,13 @@ onedev.server.sourceView = {
 		$body.children().bind("keydown", "down", onKeydown);		
 	}
 };
+
+$(function() {
+	$(document).keydown(function(e) {
+		if (e.keyCode == 27) 
+			$('.problem-popover').popover("hide");
+	}).mouseup(function(e) {
+		if ($(e.target).closest(".problem-trigger, .problem-popover").length == 0)
+			$(".problem-popover").popover("hide");
+	});
+});

@@ -6,9 +6,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.Callable;
 
-import org.apache.wicket.Component;
-import org.apache.wicket.Page;
-import org.apache.wicket.markup.html.link.Link;
 import org.apache.wicket.protocol.http.WebApplication;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 
@@ -27,14 +24,12 @@ import io.onedev.server.search.buildmetric.BuildMetricQuery;
 import io.onedev.server.search.buildmetric.BuildMetricQueryParser;
 import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.web.WebApplicationConfigurator;
-import io.onedev.server.web.component.link.ViewStateAwarePageLink;
-import io.onedev.server.web.component.tabbable.PageTabHead;
 import io.onedev.server.web.mapper.DynamicPathPageMapper;
 import io.onedev.server.web.page.layout.SidebarMenuItem;
 import io.onedev.server.web.page.project.StatisticsMenuContribution;
-import io.onedev.server.web.page.project.builds.detail.BuildDetailPage;
 import io.onedev.server.web.page.project.builds.detail.BuildTab;
 import io.onedev.server.web.page.project.builds.detail.BuildTabContribution;
+import io.onedev.server.web.page.project.builds.detail.report.BuildReportTab;
 
 /**
  * NOTE: Do not forget to rename moduleClass property defined in the pom if you've renamed this class.
@@ -55,7 +50,7 @@ public class JestTestReportModule extends AbstractPluginModule {
 			
 			@Override
 			public Collection<Class<?>> getImplementations() {
-				return Sets.newHashSet(JobJestReport.class);
+				return Sets.newHashSet(JobJestTestReport.class);
 			}
 			
 		});
@@ -65,14 +60,16 @@ public class JestTestReportModule extends AbstractPluginModule {
 			@Override
 			public List<BuildTab> getTabs(Build build) {
 				List<BuildTab> tabs = new ArrayList<>();
-				LockUtils.read(build.getReportLockKey(JobJestReport.DIR), new Callable<Void>() {
+				LockUtils.read(build.getReportLockKey(JobJestTestReport.DIR), new Callable<Void>() {
 
 					@Override
 					public Void call() throws Exception {
-						if (build.getReportDir(JobJestReport.DIR).exists()) {
-							for (File reportDir: build.getReportDir(JobJestReport.DIR).listFiles()) {
-								if (SecurityUtils.canAccessReport(build, reportDir.getName())) 
-									tabs.add(new JestReportTab(reportDir.getName()));
+						if (build.getReportDir(JobJestTestReport.DIR).exists()) {
+							for (File reportDir: build.getReportDir(JobJestTestReport.DIR).listFiles()) {
+								if (!reportDir.isHidden() && SecurityUtils.canAccessReport(build, reportDir.getName())) {
+									tabs.add(new BuildReportTab(reportDir.getName(), JestTestSuitesPage.class, 
+											JestTestCasesPage.class, JestTestStatsPage.class));
+								}
 							}
 						}
 						return null;
@@ -84,7 +81,7 @@ public class JestTestReportModule extends AbstractPluginModule {
 			
 			@Override
 			public int getOrder() {
-				return 200;
+				return 100;
 			}
 			
 		});
@@ -123,40 +120,4 @@ public class JestTestReportModule extends AbstractPluginModule {
 		});		
 	}
 
-	private static class JestReportTab extends BuildTab {
-
-		private static final long serialVersionUID = 1L;
-
-		public JestReportTab(String title) {
-			super(title, JestTestSuitesPage.class, JestTestReportPage.class);
-		}
-		
-		@Override
-		public Component render(String componentId) {
-			return new PageTabHead(componentId, this) {
-
-				private static final long serialVersionUID = 1L;
-
-				@Override
-				protected Link<?> newLink(String linkId, Class<? extends Page> pageClass) {
-					BuildDetailPage page = (BuildDetailPage) getPage();
-					PageParameters params = JestTestReportPage.paramsOf(
-							page.getBuild(), getTitle());
-					return new ViewStateAwarePageLink<Void>(linkId, pageClass, params);
-				}
-				
-			};
-		}
-
-		@Override
-		public boolean isActive(Page currentPage) {
-			if (super.isActive(currentPage)) {
-				JestTestReportPage jestReportPage = (JestTestReportPage) currentPage;
-				return getTitle().equals(jestReportPage.getReportName());
-			} else {
-				return false;
-			}
-		}
-		
-	}
 }

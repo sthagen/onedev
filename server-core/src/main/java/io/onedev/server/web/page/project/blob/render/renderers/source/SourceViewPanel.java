@@ -125,6 +125,10 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 	
 	private static final String COOKIE_OUTLINE = "sourceView.outline";
 	
+	private static final String COOKIE_OUTLINE_WIDTH = "sourceView.outline.width";
+	
+	private static final String COOKIE_COMMENT_WIDTH = "sourceView.comment.width";
+	
 	private static final String BODY_ID = "body";
 	
 	private final List<Symbol> symbols = new ArrayList<>();
@@ -143,10 +147,13 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 			Set<CodeProblem> problems = new HashSet<>();
 			Map<Integer, Integer> coverages = new HashMap<>();
 			
+			List<String> lines = context.getProject().getBlob(context.getBlobIdent(), true).getText().getLines();
 			BuildManager buildManager = OneDev.getInstance(BuildManager.class);
 			for (Build build: buildManager.query(project, commitId, null, null, null, new HashMap<>())) {
-				for (CodeProblemContribution contribution: OneDev.getExtensions(CodeProblemContribution.class))
-					problems.addAll(contribution.getCodeProblems(build, path, context.getProblemReport()));
+				for (CodeProblemContribution contribution: OneDev.getExtensions(CodeProblemContribution.class)) {
+					for (CodeProblem problem: contribution.getCodeProblems(build, path, context.getProblemReport())) 
+						problems.add(problem.normalizeRange(lines));
+				}
 				for (LineCoverageContribution contribution: OneDev.getExtensions(LineCoverageContribution.class)) { 
 					contribution.getLineCoverages(build, path, context.getCoverageReport()).forEach((key, value)->{
 						coverages.merge(key, value, (v1, v2)->v1+v2);
@@ -283,6 +290,17 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 			}
 
 		};
+		
+		float commentWidth;
+		WebRequest request = (WebRequest) RequestCycle.get().getRequest();
+		Cookie cookie = request.getCookie(COOKIE_COMMENT_WIDTH);
+		if (cookie != null) 
+			commentWidth = Float.parseFloat(cookie.getValue());
+		else 
+			commentWidth = 300;
+		
+		commentContainer.add(AttributeAppender.append("style", "width:" + commentWidth + "px"));
+		
 		if (context.getOpenComment() != null) {
 			for (List<CodeCommentInfo> listOfCommentInfos: annotationInfoModel.getObject().getComments().values()) {
 				for (CodeCommentInfo commentInfo: listOfCommentInfos) {
@@ -627,6 +645,15 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 			}
 			
 		};
+		
+		float outlineWidth;
+		cookie = request.getCookie(COOKIE_OUTLINE_WIDTH);
+		if (cookie != null) 
+			outlineWidth = Float.parseFloat(cookie.getValue());
+		else 
+			outlineWidth = 300;
+		
+		outline.add(AttributeAppender.append("style", "width:" + outlineWidth + "px"));
 		outline.add(new AjaxLink<Void>("close") {
 
 			@Override
@@ -839,6 +866,8 @@ public class SourceViewPanel extends BlobViewPanel implements Positionable, Sear
 		PlanarRange markRange = SourceRendererProvider.getRange(context.getPosition());
 		if (markRange == null)
 			markRange = (PlanarRange) commentContainer.getDefaultModelObject();
+		else
+			markRange = markRange.normalize(blob.getText().getLines());
 		
 		String script = String.format("onedev.server.sourceView.onDomReady("
 				+ "'%s', '%s', %s, %s, '%s', '%s', %s, %s, %s, %s, '%s', %s);", 
