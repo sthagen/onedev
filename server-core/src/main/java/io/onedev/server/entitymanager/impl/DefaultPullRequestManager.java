@@ -687,9 +687,14 @@ public class DefaultPullRequestManager extends BaseEntityManager<PullRequest> im
 	public void on(BuildEvent event) {
 		Build build = event.getBuild();
 		if (build.getRequest() != null) {
-			MergePreview mergePreview = build.getRequest().getMergePreview();
-			if (mergePreview != null && build.getCommitHash().equals(mergePreview.getMergeCommitHash()))
-				listenerRegistry.post(new PullRequestBuildEvent(build));
+			if (build.getRequest().isDiscarded()) {
+				if (build.getRequest().getLatestUpdate().getTargetHeadCommitHash().equals(build.getCommitHash()))
+					listenerRegistry.post(new PullRequestBuildEvent(build));
+			} else {
+				MergePreview mergePreview = build.getRequest().getMergePreview();
+				if (mergePreview != null && build.getCommitHash().equals(mergePreview.getMergeCommitHash()))
+					listenerRegistry.post(new PullRequestBuildEvent(build));
+			}
 		}
 	}
 	
@@ -912,10 +917,9 @@ public class DefaultPullRequestManager extends BaseEntityManager<PullRequest> im
 			}
 		}
 
-		if (orders.isEmpty()) {
-			orders.add(builder.asc(PullRequestQuery.getPath(root, PullRequest.PROP_CLOSE_INFO + "." + CloseInfo.PROP_STATUS)));
+		if (orders.isEmpty()) 
 			orders.add(builder.desc(PullRequestQuery.getPath(root, PullRequest.PROP_LAST_UPDATE + "." + LastUpdate.PROP_DATE)));
-		}
+		
 		query.orderBy(orders);
 		
 		return query;

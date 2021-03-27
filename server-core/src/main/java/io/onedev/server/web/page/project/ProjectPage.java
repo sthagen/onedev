@@ -44,6 +44,7 @@ import io.onedev.server.web.page.project.codecomments.ProjectCodeCommentsPage;
 import io.onedev.server.web.page.project.commits.CommitDetailPage;
 import io.onedev.server.web.page.project.commits.ProjectCommitsPage;
 import io.onedev.server.web.page.project.compare.RevisionComparePage;
+import io.onedev.server.web.page.project.dashboard.ProjectDashboardPage;
 import io.onedev.server.web.page.project.issues.boards.IssueBoardsPage;
 import io.onedev.server.web.page.project.issues.create.NewIssuePage;
 import io.onedev.server.web.page.project.issues.detail.IssueDetailPage;
@@ -234,7 +235,7 @@ public abstract class ProjectPage extends LayoutPage implements ProjectAware {
 		}
 		
 		String avatarUrl = OneDev.getInstance(AvatarManager.class).getAvatarUrl(getProject());
-		SidebarMenu.Header menuHeader = new SidebarMenu.Header(avatarUrl, "CURRENT PROJECT") {
+		SidebarMenu.Header menuHeader = new SidebarMenu.Header(avatarUrl, getProject().getName()) {
 			
 			@Override
 			protected Component newMoreInfo(String componentId, FloatingPanel dropdown) {
@@ -265,7 +266,7 @@ public abstract class ProjectPage extends LayoutPage implements ProjectAware {
 		fragment.add(new BookmarkablePageLink<Void>("projects", ProjectListPage.class));
 		
 		ViewStateAwarePageLink<?> link = new ViewStateAwarePageLink<Void>("projectLink", 
-				ProjectBlobPage.class, ProjectBlobPage.paramsOf(getProject()));
+				ProjectDashboardPage.class, ProjectDashboardPage.paramsOf(getProject()));
 		link.add(new Label("label", getProject().getName()));
 		
 		fragment.add(link);
@@ -274,6 +275,11 @@ public abstract class ProjectPage extends LayoutPage implements ProjectAware {
 		return fragment;
 	}
 
+	@Override
+	protected String getPageTitle() {
+		return getProject().getName();
+	}
+	
 	protected abstract Component newProjectTitle(String componentId);
 	
 	protected Collection<Build> getBuilds(ObjectId commitId) {

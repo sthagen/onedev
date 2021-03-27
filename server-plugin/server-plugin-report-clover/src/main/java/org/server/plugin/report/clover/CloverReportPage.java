@@ -82,12 +82,12 @@ public class CloverReportPage extends BuildReportPage {
 
 		@Override
 		protected CloverReportData load() {
-			return LockUtils.read(getBuild().getReportLockKey(JobCloverReport.DIR), new Callable<CloverReportData>() {
+			return LockUtils.read(getBuild().getReportCategoryLockKey(JobCloverReport.DIR), new Callable<CloverReportData>() {
 
 				@Override
 				public CloverReportData call() throws Exception {
 					return CloverReportData.readFrom(new File(
-							getBuild().getReportDir(JobCloverReport.DIR), getReportName()));
+							getBuild().getReportCategoryDir(JobCloverReport.DIR), getReportName()));
 				}
 				
 			});
@@ -327,6 +327,8 @@ public class CloverReportPage extends BuildReportPage {
 				
 				Link<Void> nameLink;
 				if (coverageInfo instanceof PackageCoverageInfo) {
+					State state = new State();
+					state.orderBy = CloverReportPage.this.state.orderBy;
 					PageParameters params = paramsOf(getBuild(), getReportName(), 
 							coverageInfo.getName(), state);
 					nameLink = new BookmarkablePageLink<Void>("name", CloverReportPage.class, params);

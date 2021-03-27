@@ -421,15 +421,16 @@ public class Build extends AbstractEntity implements Referenceable {
 		return jobWorkspace;
 	}
 
-	public void setJobWorkspace(String jobWorkspace) {
+	public void setJobWorkspace(@Nullable String jobWorkspace) {
 		this.jobWorkspace = jobWorkspace;
 	}
 
+	@Nullable
 	public String getVersion() {
 		return version;
 	}
 
-	public void setVersion(String version) {
+	public void setVersion(@Nullable String version) {
 		this.version = version;
 	}
 
@@ -833,12 +834,12 @@ public class Build extends AbstractEntity implements Referenceable {
 		return new File(getPublishDir(), ARTIFACTS_DIR);
 	}
 	
-	public String getReportLockKey(String reportDir) {
-		return "job-report:" + getId() + ":" + reportDir;
+	public String getReportCategoryLockKey(String reportCategory) {
+		return "job-report:" + getId() + ":" + reportCategory;
 	}
 	
-	public File getReportDir(String reportDir) {
-		return new File(getPublishDir(), reportDir);
+	public File getReportCategoryDir(String reportCategory) {
+		return new File(getPublishDir(), reportCategory);
 	}
 	
 	public void publishArtifacts(File workspaceDir, String artifacts) {
