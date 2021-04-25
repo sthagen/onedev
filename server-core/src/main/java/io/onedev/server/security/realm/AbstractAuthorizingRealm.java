@@ -29,10 +29,9 @@ import io.onedev.server.model.GroupAuthorization;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.User;
 import io.onedev.server.model.UserAuthorization;
-import io.onedev.server.model.support.issue.fieldspec.FieldSpec;
+import io.onedev.server.model.support.issue.field.spec.FieldSpec;
 import io.onedev.server.persistence.SessionManager;
 import io.onedev.server.security.permission.AccessBuildLog;
-import io.onedev.server.security.permission.CreateProjects;
 import io.onedev.server.security.permission.EditIssueField;
 import io.onedev.server.security.permission.JobPermission;
 import io.onedev.server.security.permission.ProjectPermission;
@@ -77,8 +76,6 @@ public abstract class AbstractAuthorizingRealm extends AuthorizingRealm {
 				}
 			}
 		}
-		if (user != null && group.isCreateProjects())
-			permissions.add(new CreateProjects());
 		for (GroupAuthorization authorization: group.getAuthorizations()) 
 			permissions.add(new ProjectPermission(authorization.getProject(), authorization.getRole()));
 		return permissions;
@@ -102,9 +99,10 @@ public abstract class AbstractAuthorizingRealm extends AuthorizingRealm {
 		        	for (UserAuthorization authorization: user.getAuthorizations()) 
     					permissions.add(new ProjectPermission(authorization.getProject(), authorization.getRole()));
 		        } 
-	        	Group group = groupManager.findAnonymous();
-	        	if (group != null)
-	           		permissions.addAll(getGroupPermissions(group, user));
+		        for (Project project: projectManager.query()) {
+		        	if (project.getDefaultRole() != null)
+		        		permissions.add(new ProjectPermission(project, project.getDefaultRole()));
+		        }
 				return permissions;
 			}
 			

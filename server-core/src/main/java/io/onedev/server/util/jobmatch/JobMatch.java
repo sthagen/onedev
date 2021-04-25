@@ -87,7 +87,7 @@ public class JobMatch extends Criteria<Build> {
 					case Build.NAME_JOB:
 						return new NameCriteria(fieldValue);
 					default:
-						return new ImageCriteria(fieldValue);
+						throw new RuntimeException("Unknown job match field: " + fieldName);
 					}
 				}
 				
@@ -124,9 +124,7 @@ public class JobMatch extends Criteria<Build> {
 	}
 	
 	public static void checkField(String fieldName, int operator) {
-		if (fieldName.equals(Build.NAME_PROJECT) 
-				|| fieldName.equals(Build.NAME_JOB)
-				|| fieldName.equals(Build.NAME_IMAGE)) {
+		if (fieldName.equals(Build.NAME_PROJECT) || fieldName.equals(Build.NAME_JOB)) {
 			if (operator != JobMatchLexer.Is)
 				throw newOperatorException(fieldName, operator);
 		} else {

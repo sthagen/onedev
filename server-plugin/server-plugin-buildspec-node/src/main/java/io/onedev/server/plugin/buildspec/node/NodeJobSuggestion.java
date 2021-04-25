@@ -21,13 +21,14 @@ import io.onedev.server.OneDev;
 import io.onedev.server.buildspec.job.CacheSpec;
 import io.onedev.server.buildspec.job.Job;
 import io.onedev.server.buildspec.job.JobSuggestion;
-import io.onedev.server.buildspec.job.VariableInterpolator;
 import io.onedev.server.buildspec.job.trigger.BranchUpdateTrigger;
+import io.onedev.server.buildspec.step.CommandStep;
 import io.onedev.server.git.Blob;
 import io.onedev.server.git.BlobIdent;
 import io.onedev.server.model.Build;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.support.administration.GroovyScript;
+import io.onedev.server.util.interpolative.VariableInterpolator;
 
 public class NodeJobSuggestion implements JobSuggestion {
 
@@ -56,7 +57,9 @@ public class NodeJobSuggestion implements JobSuggestion {
 		if (content.indexOf("angular/core") != -1) { // Recognize angular projects
 			Job job = new Job();
 			job.setName("angular ci");
-			job.setImage("1dev/buildspec-node:10.16-alpine-chrome");
+			
+			CommandStep step = new CommandStep();
+			step.setImage("1dev/buildspec-node:10.16-alpine-chrome");
 			List<String> commands = Lists.newArrayList( 
 					"echo \"##onedev[SetBuildVersion '@" + VariableInterpolator.PREFIX_SCRIPTS + GroovyScript.BUILTIN_PREFIX + DETERMINE_PROJECT_VERSION + "@']\"", 
 					"echo", 
@@ -99,7 +102,9 @@ public class NodeJobSuggestion implements JobSuggestion {
 						"npx ng build"));
 			}
 
-			job.setCommands(commands);
+			step.setCommands(commands);
+			job.setSteps(Lists.newArrayList(step));
+			
 			setupTriggers(job);
 			setupCaches(job);
 			jobs.add(job);
@@ -108,7 +113,9 @@ public class NodeJobSuggestion implements JobSuggestion {
 		if (content.indexOf("react") != -1) { // Recognize react projects
 			Job job = new Job();
 			job.setName("react ci");
-			job.setImage("node:10.16-alpine");
+			
+			CommandStep step = new CommandStep();
+			step.setImage("node:10.16-alpine");
 
 			List<String> commands = Lists.newArrayList( 
 					"echo \"##onedev[SetBuildVersion '@" + VariableInterpolator.PREFIX_SCRIPTS + GroovyScript.BUILTIN_PREFIX + DETERMINE_PROJECT_VERSION + "@']\"", 
@@ -148,7 +155,9 @@ public class NodeJobSuggestion implements JobSuggestion {
 						"npx react-scripts build"));
 			}
 
-			job.setCommands(commands);
+			step.setCommands(commands);
+			job.setSteps(Lists.newArrayList(step));
+			
 			setupTriggers(job);
 			setupCaches(job);
 			jobs.add(job);
@@ -157,7 +166,10 @@ public class NodeJobSuggestion implements JobSuggestion {
 		if (content.indexOf("vue") != -1) { // Recognize vue projects
 			Job job = new Job();
 			job.setName("vue ci");
-			job.setImage("node:10.16-alpine");
+			
+			CommandStep step = new CommandStep();
+			
+			step.setImage("node:10.16-alpine");
 
 			List<String> commands = Lists.newArrayList( 
 					"echo \"##onedev[SetBuildVersion '@" + VariableInterpolator.PREFIX_SCRIPTS + GroovyScript.BUILTIN_PREFIX + DETERMINE_PROJECT_VERSION + "@']\"", 
@@ -191,7 +203,9 @@ public class NodeJobSuggestion implements JobSuggestion {
 				commands.add("npx jest");
 			}
 
-			job.setCommands(commands);
+			step.setCommands(commands);
+			job.setSteps(Lists.newArrayList(step));
+			
 			setupTriggers(job);
 			setupCaches(job);
 			jobs.add(job);
@@ -200,7 +214,10 @@ public class NodeJobSuggestion implements JobSuggestion {
 		if (content.indexOf("express") != -1) { // Recognize express projects
 			Job job = new Job();
 			job.setName("express ci");
-			job.setImage("node:10.16-alpine");
+			
+			CommandStep step = new CommandStep();
+			
+			step.setImage("node:10.16-alpine");
 
 			List<String> commands = Lists.newArrayList( 
 					"echo \"##onedev[SetBuildVersion '@" + VariableInterpolator.PREFIX_SCRIPTS + GroovyScript.BUILTIN_PREFIX + DETERMINE_PROJECT_VERSION + "@']\"", 
@@ -232,7 +249,10 @@ public class NodeJobSuggestion implements JobSuggestion {
 			} else {
 				commands.add("npx mocha");
 			}
-			job.setCommands(commands);
+			step.setCommands(commands);
+			
+			job.setSteps(Lists.newArrayList(step));
+			
 			setupTriggers(job);
 			setupCaches(job);
 			jobs.add(job);

@@ -20,13 +20,14 @@ import com.google.common.collect.Lists;
 import io.onedev.server.buildspec.job.CacheSpec;
 import io.onedev.server.buildspec.job.Job;
 import io.onedev.server.buildspec.job.JobSuggestion;
-import io.onedev.server.buildspec.job.VariableInterpolator;
 import io.onedev.server.buildspec.job.trigger.BranchUpdateTrigger;
+import io.onedev.server.buildspec.step.CommandStep;
 import io.onedev.server.git.Blob;
 import io.onedev.server.git.BlobIdent;
 import io.onedev.server.model.Build;
 import io.onedev.server.model.Project;
 import io.onedev.server.model.support.administration.GroovyScript;
+import io.onedev.server.util.interpolative.VariableInterpolator;
 
 public class MavenJobSuggestion implements JobSuggestion {
 
@@ -43,18 +44,22 @@ public class MavenJobSuggestion implements JobSuggestion {
 			Job job = new Job();
 			job.setName("maven ci");
 
-			job.setImage("@" + VariableInterpolator.PREFIX_SCRIPTS + GroovyScript.BUILTIN_PREFIX + DETERMINE_DOCKER_IMAGE + "@");
+			CommandStep step = new CommandStep();
+			
+			step.setImage("@" + VariableInterpolator.PREFIX_SCRIPTS + GroovyScript.BUILTIN_PREFIX + DETERMINE_DOCKER_IMAGE + "@");
 			/*
 			 * Before running maven test, we extract version of the project and use LogInstruction to tell 
 			 * OneDev using extracted version for current build
 			 */
-			job.setCommands(Lists.newArrayList(
+			step.setCommands(Lists.newArrayList(
 					"echo \"Detecting project version (may require some time while downloading maven dependencies)...\"",
 					"buildVersion=$(mvn org.apache.maven.plugins:maven-help-plugin:3.1.0:evaluate -Dexpression=project.version -q -DforceStdout)",
 					"echo \"##onedev[SetBuildVersion '$buildVersion']\"",
 					"echo", 
 					"mvn clean test"));
 
+			job.setSteps(Lists.newArrayList(step));
+			
 			// Trigger the job automatically when there is a push to the branch			
 			BranchUpdateTrigger trigger = new BranchUpdateTrigger();
 			job.getTriggers().add(trigger);

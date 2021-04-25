@@ -15,6 +15,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
 import javax.servlet.http.HttpServletRequest;
@@ -27,42 +28,44 @@ import javax.ws.rs.core.HttpHeaders;
 
 import org.apache.wicket.Component;
 import org.eclipse.jgit.lib.ObjectId;
-import org.eclipse.jgit.revwalk.RevCommit;
 import org.hibernate.validator.constraints.NotEmpty;
 
+import io.onedev.commons.codeassist.InputCompletion;
+import io.onedev.commons.codeassist.InputStatus;
 import io.onedev.commons.codeassist.InputSuggestion;
 import io.onedev.k8shelper.KubernetesHelper;
 import io.onedev.server.buildspec.BuildSpec;
 import io.onedev.server.buildspec.BuildSpecAware;
+import io.onedev.server.buildspec.NamedElement;
 import io.onedev.server.buildspec.job.action.PostBuildAction;
 import io.onedev.server.buildspec.job.gitcredential.DefaultCredential;
 import io.onedev.server.buildspec.job.gitcredential.GitCredential;
-import io.onedev.server.buildspec.job.paramspec.ParamSpec;
-import io.onedev.server.buildspec.job.paramsupply.ParamSupply;
 import io.onedev.server.buildspec.job.trigger.JobTrigger;
+import io.onedev.server.buildspec.param.ParamUtils;
+import io.onedev.server.buildspec.param.spec.ParamSpec;
+import io.onedev.server.buildspec.step.CommandStep;
+import io.onedev.server.buildspec.step.Step;
 import io.onedev.server.event.ProjectEvent;
 import io.onedev.server.git.GitUtils;
-import io.onedev.server.model.Project;
 import io.onedev.server.model.PullRequest;
 import io.onedev.server.util.ComponentContext;
 import io.onedev.server.util.EditContext;
 import io.onedev.server.util.criteria.Criteria;
 import io.onedev.server.util.validation.Validatable;
 import io.onedev.server.util.validation.annotation.ClassValidating;
-import io.onedev.server.web.editable.annotation.Code;
+import io.onedev.server.web.editable.annotation.ChoiceProvider;
 import io.onedev.server.web.editable.annotation.Editable;
 import io.onedev.server.web.editable.annotation.Interpolative;
 import io.onedev.server.web.editable.annotation.NameOfEmptyValue;
 import io.onedev.server.web.editable.annotation.Patterns;
 import io.onedev.server.web.editable.annotation.RetryCondition;
 import io.onedev.server.web.editable.annotation.ShowCondition;
-import io.onedev.server.web.page.project.blob.ProjectBlobPage;
-import io.onedev.server.web.util.SuggestionUtils;
+import io.onedev.server.web.editable.annotation.SuggestionProvider;
 import io.onedev.server.web.util.WicketUtils;
 
 @Editable
 @ClassValidating
-public class Job implements Serializable, Validatable {
+public class Job implements NamedElement, Serializable, Validatable {
 
 	private static final long serialVersionUID = 1L;
 	
@@ -70,7 +73,11 @@ public class Job implements Serializable, Validatable {
 	
 	public static final String PROP_JOB_DEPENDENCIES = "jobDependencies";
 	
+	public static final String PROP_REQUIRED_SERVICES = "requiredServices";
+	
 	public static final String PROP_TRIGGERS = "triggers";
+	
+	public static final String PROP_STEPS = "steps";
 	
 	public static final String PROP_RETRY_CONDITION = "retryCondition";
 	
@@ -78,12 +85,10 @@ public class Job implements Serializable, Validatable {
 	
 	private String name;
 	
+	private List<Step> steps = new ArrayList<>();
+	
 	private List<ParamSpec> paramSpecs = new ArrayList<>();
 	
-	private String image;
-	
-	private List<String> commands;
-
 	private boolean retrieveSource = true;
 	
 	private Integer cloneDepth;
@@ -94,7 +99,7 @@ public class Job implements Serializable, Validatable {
 	
 	private List<ProjectDependency> projectDependencies = new ArrayList<>();
 	
-	private List<JobService> services = new ArrayList<>();
+	private List<String> requiredServices = new ArrayList<>();
 	
 	private String artifacts;
 	
@@ -120,8 +125,14 @@ public class Job implements Serializable, Validatable {
 	
 	private transient Map<String, ParamSpec> paramSpecMap;
 	
+	public Job() {
+		steps.add(new CommandStep());
+	}
+	
 	@Editable(order=100, description="Specify name of the job")
+	@SuggestionProvider("getNameSuggestions")
 	@NotEmpty
+	@Override
 	public String getName() {
 		return name;
 	}
@@ -129,71 +140,29 @@ public class Job implements Serializable, Validatable {
 	public void setName(String name) {
 		this.name = name;
 	}
-
-	@Editable(order=110, description="Specify docker image of the job")
-	@Interpolative(variableSuggester="suggestVariables")
-	@NotEmpty
-	public String getImage() {
-		return image;
-	}
-
-	public void setImage(String image) {
-		this.image = image;
-	}
-
-	public static List<InputSuggestion> suggestVariables(String matchWith) {
-		Component component = ComponentContext.get().getComponent();
-		List<InputSuggestion> suggestions = new ArrayList<>();
-		ProjectBlobPage page = (ProjectBlobPage) WicketUtils.getPage();
-		BuildSpecAware buildSpecAware = WicketUtils.findInnermost(component, BuildSpecAware.class);
-		if (buildSpecAware != null) {
-			BuildSpec buildSpec = buildSpecAware.getBuildSpec();
-			if (buildSpec != null) {
-				JobAware jobAware = WicketUtils.findInnermost(component, JobAware.class);
-				if (jobAware != null) {
-					Job job = jobAware.getJob();
-					if (job != null) {
-						RevCommit commit;
-						if (page.getBlobIdent().revision != null)
-							commit = page.getCommit();
-						else
-							commit = null;
-						suggestions.addAll(SuggestionUtils.suggestVariables(
-								page.getProject(), commit, buildSpec, job, matchWith));
-					}
-				}
-			}
-		}
-		return suggestions;
-	}
-	
-	@Editable(order=120, name="Commands", description="Specify content of Linux shell script or Windows command batch to execute "
-			+ "in above image under the repository root")
-	@Interpolative
-	@Code(language = Code.SHELL, variableProvider="getVariables")
-	@Size(min=1, message="may not be empty")
-	public List<String> getCommands() {
-		return commands;
-	}
-
-	public void setCommands(List<String> commands) {
-		this.commands = commands;
-	}
 	
 	@SuppressWarnings("unused")
-	private static List<String> getVariables() {
-		List<String> variables = new ArrayList<>();
-		ProjectBlobPage page = (ProjectBlobPage) WicketUtils.getPage();
-		Project project = page.getProject();
-		ObjectId commitId = page.getCommit();
-		BuildSpec buildSpec = ComponentContext.get().getComponent().findParent(BuildSpecAware.class).getBuildSpec();
-		Job job = ComponentContext.get().getComponent().findParent(JobAware.class).getJob();
-		for (InputSuggestion suggestion: SuggestionUtils.suggestVariables(project, commitId, buildSpec, job, ""))  
-			variables.add(suggestion.getContent());
-		return variables;
+	private static List<InputCompletion> getNameSuggestions(InputStatus status) {
+		BuildSpec buildSpec = BuildSpec.get();
+		if (buildSpec != null) {
+			List<String> candidates = new ArrayList<>(buildSpec.getJobMap().keySet());
+			buildSpec.getJobs().forEach(it->candidates.remove(it.getName()));
+			return BuildSpec.suggestOverrides(candidates, status);
+		}
+		return new ArrayList<>();
+	}
+
+	@Editable(order=200)
+	@Size(min=1, max=1000, message="At least one step needs to be configured")
+	public List<Step> getSteps() {
+		return steps;
 	}
 	
-	@Editable(order=130, name="Parameter Specs", description="Optionally define parameter specifications of the job")
+	public void setSteps(List<Step> steps) {
+		this.steps = steps;
+	}
+
+	@Editable(order=300, name="Parameter Specs", group="Params & Triggers", description="Optionally define parameter specifications of the job")
 	@Valid
 	public List<ParamSpec> getParamSpecs() {
 		return paramSpecs;
@@ -203,7 +172,7 @@ public class Job implements Serializable, Validatable {
 		this.paramSpecs = paramSpecs;
 	}
 
-	@Editable(order=500, description="Use triggers to run the job automatically under certain conditions")
+	@Editable(order=500, group="Params & Triggers", description="Use triggers to run the job automatically under certain conditions")
 	@Valid
 	public List<JobTrigger> getTriggers() {
 		return triggers;
@@ -213,7 +182,7 @@ public class Job implements Serializable, Validatable {
 		this.triggers = triggers;
 	}
 
-	@Editable(order=9000, group="Source Retrieval", description="Whether or not to retrieve repository files")
+	@Editable(order=250, group="Source Retrieval", description="Whether or not to retrieve repository files")
 	public boolean isRetrieveSource() {
 		return retrieveSource;
 	}
@@ -222,7 +191,7 @@ public class Job implements Serializable, Validatable {
 		this.retrieveSource = retrieveSource;
 	}
 	
-	@Editable(order=9050, group="Source Retrieval", description="Optionally specify depth for a shallow clone in order "
+	@Editable(order=251, group="Source Retrieval", description="Optionally specify depth for a shallow clone in order "
 			+ "to speed up source retrieval")
 	@ShowCondition("isRetrieveSourceEnabled")
 	public Integer getCloneDepth() {
@@ -233,7 +202,7 @@ public class Job implements Serializable, Validatable {
 		this.cloneDepth = cloneDepth;
 	}
 
-	@Editable(order=9060, group="Source Retrieval", description="By default code is cloned via an auto-generated credential, "
+	@Editable(order=252, group="Source Retrieval", description="By default code is cloned via an auto-generated credential, "
 			+ "which only has read permission over current project. In case the job needs to <a href='$docRoot/pages/push-in-job.md' target='_blank'>push code to server</a>, or want "
 			+ "to <a href='$docRoot/pages/clone-submodules-via-ssh.md' target='_blank'>clone private submodules</a>, you should supply custom credential with appropriate permissions here")
 	@ShowCondition("isRetrieveSourceEnabled")
@@ -273,14 +242,29 @@ public class Job implements Serializable, Validatable {
 		this.projectDependencies = projectDependencies;
 	}
 
-	@Editable(order=9114, group="Dependencies & Services", description="Optionally define services used by this job")
-	@Valid
-	public List<JobService> getServices() {
-		return services;
+	@Editable(order=9114, group="Dependencies & Services", description="Optionally specify services required by this job")
+	@ChoiceProvider("getServiceChoices")
+	public List<String> getRequiredServices() {
+		return requiredServices;
 	}
 
-	public void setServices(List<JobService> services) {
-		this.services = services;
+	public void setRequiredServices(List<String> requiredServices) {
+		this.requiredServices = requiredServices;
+	}
+	
+	@SuppressWarnings("unused")
+	private static List<String> getServiceChoices() {
+		List<String> choices = new ArrayList<>();
+		Component component = ComponentContext.get().getComponent();
+		BuildSpecAware buildSpecAware = WicketUtils.findInnermost(component, BuildSpecAware.class);
+		if (buildSpecAware != null) {
+			BuildSpec buildSpec = buildSpecAware.getBuildSpec();
+			if (buildSpec != null) { 
+				choices.addAll(buildSpec.getServiceMap().values().stream()
+						.map(it->it.getName()).collect(Collectors.toList()));
+			}
+		}
+		return choices;
 	}
 
 	@Editable(order=9115, group="Artifacts & Reports", description="Optionally specify files to publish as job artifacts relative to "
@@ -306,7 +290,7 @@ public class Job implements Serializable, Validatable {
 		this.reports = reports;
 	}
 
-	@Editable(order=9400, group="Retry Upon Failure", description="Specify condition to retry build upon failure")
+	@Editable(order=9400, group="More Settings", description="Specify condition to retry build upon failure")
 	@NotEmpty
 	@RetryCondition
 	public String getRetryCondition() {
@@ -317,7 +301,7 @@ public class Job implements Serializable, Validatable {
 		this.retryCondition = retryCondition;
 	}
 
-	@Editable(order=9410, group="Retry Upon Failure", description="Maximum of retries before giving up")
+	@Editable(order=9410, group="More Settings", description="Maximum of retries before giving up")
 	@Min(value=1, message="This value should not be less than 1")
 	public int getMaxRetries() {
 		return maxRetries;
@@ -327,7 +311,7 @@ public class Job implements Serializable, Validatable {
 		this.maxRetries = maxRetries;
 	}
 
-	@Editable(order=9420, group="Retry Upon Failure", description="Delay for the first retry in seconds. "
+	@Editable(order=9420, group="More Settings", description="Delay for the first retry in seconds. "
 			+ "Delay of subsequent retries will be calculated using an exponential back-off "
 			+ "based on this delay")
 	@Min(value=1, message="This value should not be less than 1")
@@ -339,7 +323,7 @@ public class Job implements Serializable, Validatable {
 		this.retryDelay = retryDelay;
 	}
 	
-	@Editable(order=9200, name="CPU Requirement", group="Resource Requirements", description="Specify CPU requirement of the job. "
+	@Editable(order=10050, name="CPU Requirement", group="More Settings", description="Specify CPU requirement of the job. "
 			+ "Refer to <a href='https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/#meaning-of-cpu' target='_blank'>kubernetes documentation</a> for details")
 	@Interpolative(variableSuggester="suggestVariables")
 	@NotEmpty
@@ -351,7 +335,7 @@ public class Job implements Serializable, Validatable {
 		this.cpuRequirement = cpuRequirement;
 	}
 
-	@Editable(order=9300, group="Resource Requirements", description="Specify memory requirement of the job. "
+	@Editable(order=10060, group="More Settings", description="Specify memory requirement of the job. "
 			+ "Refer to <a href='https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/#meaning-of-memory' target='_blank'>kubernetes documentation</a> for details")
 	@Interpolative(variableSuggester="suggestVariables")
 	@NotEmpty
@@ -406,46 +390,77 @@ public class Job implements Serializable, Validatable {
 
 	@Override
 	public boolean isValid(ConstraintValidatorContext context) {
+		boolean isValid = true;
+		
 		Set<String> keys = new HashSet<>();
 		Set<String> paths = new HashSet<>();
-		
-		boolean isValid = true;
 		for (CacheSpec cache: caches) {
-			if (keys.contains(cache.getKey())) {
+			if (!keys.add(cache.getKey())) {
 				isValid = false;
-				context.buildConstraintViolationWithTemplate("Duplicate key: " + cache.getKey())
+				context.buildConstraintViolationWithTemplate("Duplicate key (" + cache.getKey() + ")")
 						.addPropertyNode("caches").addConstraintViolation();
-			} else {
-				keys.add(cache.getKey());
 			}
-			if (paths.contains(cache.getPath())) {
+			if (!paths.add(cache.getPath())) {
 				isValid = false;
-				context.buildConstraintViolationWithTemplate("Duplicate path: " + cache.getPath())
+				context.buildConstraintViolationWithTemplate("Duplicate path (" + cache.getPath() + ")")
 						.addPropertyNode("caches").addConstraintViolation();
-			} else {
-				paths.add(cache.getPath());
-			}
+			} 
 		}
 
-		Set<String> dependencyJobs = new HashSet<>();
+		Set<String> dependencyJobNames = new HashSet<>();
 		for (JobDependency dependency: jobDependencies) {
-			if (dependencyJobs.contains(dependency.getJobName())) {
+			if (!dependencyJobNames.add(dependency.getJobName())) {
 				isValid = false;
-				context.buildConstraintViolationWithTemplate("Duplicate dependency: " + dependency.getJobName())
-						.addPropertyNode("dependencies").addConstraintViolation();
-			} else {
-				dependencyJobs.add(dependency.getJobName());
+				context.buildConstraintViolationWithTemplate("Duplicate dependency (" + dependency.getJobName() + ")")
+						.addPropertyNode("jobDependencies").addConstraintViolation();
+			} 
+		}
+		
+		Set<String> dependencyProjectNames = new HashSet<>();
+		for (ProjectDependency dependency: projectDependencies) {
+			if (!dependencyProjectNames.add(dependency.getProjectName())) {
+				isValid = false;
+				context.buildConstraintViolationWithTemplate("Duplicate dependency (" + dependency.getProjectName() + ")")
+						.addPropertyNode("projectDependencies").addConstraintViolation();
 			}
 		}
 		
 		Set<String> paramSpecNames = new HashSet<>();
 		for (ParamSpec paramSpec: paramSpecs) {
-			if (paramSpecNames.contains(paramSpec.getName())) {
+			if (!paramSpecNames.add(paramSpec.getName())) {
 				isValid = false;
-				context.buildConstraintViolationWithTemplate("Duplicate parameter spec: " + paramSpec.getName())
+				context.buildConstraintViolationWithTemplate("Duplicate parameter spec (" + paramSpec.getName() + ")")
 						.addPropertyNode("paramSpecs").addConstraintViolation();
-			} else {
-				paramSpecNames.add(paramSpec.getName());
+			} 
+		}
+		
+		if (getRetryCondition() != null) { 
+			try {
+				io.onedev.server.buildspec.job.retrycondition.RetryCondition.parse(this, getRetryCondition());
+			} catch (Exception e) {
+				String message = e.getMessage();
+				if (message == null)
+					message = "Malformed retry condition";
+				context.buildConstraintViolationWithTemplate(message)
+						.addPropertyNode(PROP_RETRY_CONDITION)
+						.addConstraintViolation();
+				isValid = false;
+			}
+		}
+		
+		if (isValid) {
+			for (int triggerIndex=0; triggerIndex<getTriggers().size(); triggerIndex++) {
+				JobTrigger trigger = getTriggers().get(triggerIndex);
+				try {
+					ParamUtils.validateParams(getParamSpecs(), trigger.getParams());
+				} catch (Exception e) {
+					String errorMessage = String.format("Error validating job parameters (item: #%s, error message: %s)", 
+							(triggerIndex+1), e.getMessage());
+					context.buildConstraintViolationWithTemplate(errorMessage)
+							.addPropertyNode(PROP_TRIGGERS)
+							.addConstraintViolation();
+					isValid = false;
+				}
 			}
 		}
 		
@@ -457,7 +472,7 @@ public class Job implements Serializable, Validatable {
 	
 	public Map<String, ParamSpec> getParamSpecMap() {
 		if (paramSpecMap == null)
-			paramSpecMap = ParamSupply.getParamSpecMap(paramSpecs);
+			paramSpecMap = ParamUtils.getParamSpecMap(paramSpecs);
 		return paramSpecMap;
 	}
 	
@@ -496,10 +511,8 @@ public class Job implements Serializable, Validatable {
 		if (buildSpecAware != null) {
 			BuildSpec buildSpec = buildSpecAware.getBuildSpec();
 			if (buildSpec != null) {
-				for (Job eachJob: buildSpec.getJobs()) {
-					if (eachJob.getName() != null)
-						choices.add(eachJob.getName());
-				}
+				choices.addAll(buildSpec.getJobMap().values().stream()
+						.map(it->it.getName()).collect(Collectors.toList()));
 			}
 			JobAware jobAware = WicketUtils.findInnermost(component, JobAware.class);
 			if (jobAware != null) {
@@ -518,6 +531,11 @@ public class Job implements Serializable, Validatable {
 			return bearer.substring(KubernetesHelper.BEARER.length() + 1);
 		else
 			return null;
+	}
+	
+	@SuppressWarnings("unused")
+	private static List<InputSuggestion> suggestVariables(String matchWith) {
+		return BuildSpec.suggestVariables(matchWith);
 	}
 	
 }

@@ -9,7 +9,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.eclipse.jgit.lib.ObjectId;
 
+import io.onedev.k8shelper.Action;
 import io.onedev.k8shelper.CloneInfo;
+import io.onedev.server.buildspec.Service;
 import io.onedev.server.util.SimpleLogger;
 import io.onedev.server.util.patternset.PatternSet;
 
@@ -21,11 +23,9 @@ public abstract class JobContext {
 	
 	private final File projectGitDir;
 	
-	private final String image;
-	
 	private final File serverWorkspace;
 	
-	private final List<String> commands;
+	private final List<Action> actions;
 	
 	private final boolean retrieveSource;
 	
@@ -43,7 +43,7 @@ public abstract class JobContext {
 	
 	private final PatternSet collectFiles;
 	
-	private final List<JobService> services;
+	private final List<Service> services;
 	
 	private final int cacheTTL;
 	
@@ -56,17 +56,16 @@ public abstract class JobContext {
 	private final Map<String, Integer> cacheCounts = new ConcurrentHashMap<>();
 	
 	public JobContext(String projectName, Long buildNumber, 
-			File projectGitDir, String image, File workspace, List<String> commands, 
+			File projectGitDir, List<Action> actions, File workspace,  
 			boolean retrieveSource, Integer cloneDepth, CloneInfo cloneInfo, 
 			String cpuRequirement, String memoryRequirement, ObjectId commitId, 
 			Collection<CacheSpec> caches, PatternSet collectFiles, int cacheTTL, 
-			int retried, List<JobService> services, SimpleLogger logger) {
+			int retried, List<Service> services, SimpleLogger logger) {
 		this.projectName = projectName;
 		this.buildNumber = buildNumber;
 		this.projectGitDir = projectGitDir;
-		this.image = image;
+		this.actions = actions;
 		this.serverWorkspace = workspace;
-		this.commands = commands;
 		this.retrieveSource = retrieveSource;
 		this.cloneDepth = cloneDepth;
 		this.cloneInfo = cloneInfo;
@@ -80,7 +79,7 @@ public abstract class JobContext {
 		this.services = services;
 		this.logger = logger;
 	}
-
+	
 	public String getProjectName() {
 		return projectName;
 	}
@@ -93,16 +92,12 @@ public abstract class JobContext {
 		return projectGitDir;
 	}
 
-	public String getImage() {
-		return image;
+	public List<Action> getActions() {
+		return actions;
 	}
 
 	public File getServerWorkspace() {
 		return serverWorkspace;
-	}
-
-	public List<String> getCommands() {
-		return commands;
 	}
 
 	public ObjectId getCommitId() {
@@ -153,7 +148,7 @@ public abstract class JobContext {
 		return allocatedCaches;
 	}
 
-	public List<JobService> getServices() {
+	public List<Service> getServices() {
 		return services;
 	}
 

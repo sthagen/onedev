@@ -1,6 +1,18 @@
 onedev.server.codeSupport = {
-	onEditorDomReady: function(inputId, modeName, varQueryCallback) {
-		var cm = CodeMirror.fromTextArea(document.getElementById(inputId), {
+	adjustHeight: function($input) {
+		var maxHeight = $input.parent().data("maxHeight");
+		var minHeight = $input.parent().data("minHeight");
+		
+		var height = $input.next().find(".CodeMirror-sizer").outerHeight();
+		
+		if (height > maxHeight)
+			height = maxHeight;
+		if (height < minHeight)
+			height = minHeight;
+		$input.parent().height(height + 20);
+	},
+	onEditorLoad: function(inputId, modeName, varQueryCallback) {
+		let cm = CodeMirror.fromTextArea(document.getElementById(inputId), {
 			indentWithTabs: true,
 			indentUnit: 4,
 			tabSize: 4,
@@ -16,11 +28,19 @@ onedev.server.codeSupport = {
 		});
 		onedev.server.codemirror.setModeByName(cm, modeName);
 		
-		var $input = $("#" + inputId);
+		let $input = $("#" + inputId);
+		$input.parent().data("minHeight", parseInt($input.parent().css("min-height"), 10));
+		$input.parent().data("maxHeight", parseInt($input.parent().css("max-height"), 10));
+		
 		cm.on("change", function() {
 			cm.save();
 			onedev.server.form.markDirty($input.closest("form"));
+			setTimeout(function() {
+				onedev.server.codeSupport.adjustHeight($input);				
+			}, 0);
 		});
+		
+		onedev.server.codeSupport.adjustHeight($input);
 		
 		cm.on("keypress", function(cm, event) {
 			if (event.key == "@") {
@@ -50,8 +70,6 @@ onedev.server.codeSupport = {
 		$input.on("beforeDelete", function() {
 			cm.toTextArea();
 		});
-		
-	    onedev.server.codeSupport.trackWidth(inputId);
     },
     showVariables: function(inputId, variables, line, start) {
     	var $input = $("#" + inputId);
@@ -62,7 +80,7 @@ onedev.server.codeSupport = {
     		to: CodeMirror.Pos(line, cm.getCursor().ch)
     	});
     },
-	onViewerDomReady: function(inputId, modeName) {
+	onViewerLoad: function(inputId, modeName) {
 		var cm = CodeMirror.fromTextArea(document.getElementById(inputId), {
 			readOnly: true,
 			indentWithTabs: true,
@@ -80,22 +98,6 @@ onedev.server.codeSupport = {
         });
 
         onedev.server.codemirror.setModeByName(cm, modeName);
-
-        onedev.server.codeSupport.trackWidth(inputId);
-		$("#" + inputId).trigger("resized");
-	},
-    trackWidth: function(inputId) {
-		var $input = $("#" + inputId); 
-		$input.on("resized", function() {
-			setTimeout(function() {
-	            var $cm = $input.next();
-	            if ($cm.length != 0) {
-					$cm.hide();
-		            $cm[0].CodeMirror.setSize($cm.parent().width(), null);
-					$cm.show();
-					$cm[0].CodeMirror.refresh();
-	            }
-			}, 0);
-		});
-    }
+		onedev.server.codeSupport.adjustHeight($("#" + inputId));
+	}
 }
