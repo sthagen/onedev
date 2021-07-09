@@ -1,0 +1,108 @@
+<wicket:extend>
+	<div wicket:id="title" class="title"></div>
+	<div wicket:id="description" class="alert alert-notice alert-light mb-4"></div>
+	<div class="method-detail border-top pt-3">
+		<dl class="content">
+			<dt>Http Method</dt>
+			<dd wicket:id="method"></dd>
+			<dt>End Point</dt>
+			<dd>
+				<div wicket:id="path"></div>
+				<wicket:enclosure child="pathPlaceholders">
+				<table class="table mt-4">
+					<thead>
+						<tr>
+							<td>Placeholder</td>
+							<td>Description</td>
+							<td>Example</td>
+						</tr>
+					</thead>
+					<tbody>
+						<tr wicket:id="pathPlaceholders">
+							<td wicket:id="name"></td>
+							<td wicket:id="description"></td>
+							<td wicket:id="example"></td>
+						</tr>
+					</tbody>
+				</table>
+				</wicket:enclosure>
+			</dd>
+			<wicket:enclosure child="queryParams">
+			<dt>Query Parameters</dt>
+			<dd>
+			<table class="table">
+				<thead>
+					<tr>
+						<td>Parameter</td>
+						<td>Description</td>
+						<td>Required</td>
+						<td>Example</td>
+					</tr>
+				</thead>
+				<tbody>
+					<tr wicket:id="queryParams">
+						<td wicket:id="name"></td>
+						<td wicket:id="description"></td>
+						<td wicket:id="required"></td>
+						<td wicket:id="example"></td>
+					</tr>
+				</tbody>
+			</table>
+			</dd>
+			</wicket:enclosure>
+			<wicket:enclosure child="requestBodyExample">
+			<dt>Request Body</dt>
+			<dd>
+				<dl>
+					<dt>Content Type</dt>
+					<dd>application/json</dd>
+					<dt>Example <a wicket:id="copyRequestBodyExample" class="ml-1" title="Copy to clipboard"><wicket:svg href="copy" class="icon icon-sm"/></a></dt>
+					<dd wicket:id="requestBodyExample"></dd>
+				</dl>
+			</dd>
+			</wicket:enclosure>
+			<dt>Response</dt>
+			<dd>
+				<dl>
+					<dt>Operation Successful</dt>
+					<dd>
+						<dl>
+							<dt>Status Code</dt>
+							<dd>200</dd>
+							<dt>Response Body</dt>
+							<dd wicket:id="successResponseBody"></dd>
+						</dl>
+					</dd>
+					<dt>Operation Failed</dt>
+					<dd>
+						<dl>
+							<dt>Status code</dt>
+							<dd>Status code other than 200 indicating the error type</dd>
+							<dt>Response Body</dt>
+							<dd>Error detail of content type &quot;text/plain&quot;</dd>
+						</dl>
+					</dd>
+				</dl>
+			</dd>
+			<dt>cURL Example <a wicket:id="copyCurlExample" class="ml-1" title="Copy to clipboard"><wicket:svg href="copy" class="icon icon-sm"/></a></dt>
+			<dd>
+				<code wicket:id="curlExample"></code>
+			</dd>
+		</dl>
+	</div>
+	<wicket:fragment wicket:id="topbarTitleFrag">
+		<a wicket:id="resources">Resources</a> 
+		<span class="dot"></span> 
+		<a wicket:id="resource"><span wicket:id="label"></span></a>
+		<span class="dot"></span> 
+		<span wicket:id="method"></span>
+	</wicket:fragment>
+	<wicket:fragment wicket:id="hasResponseBodyFrag">
+		<dl>
+			<dt>Content Type</dt>
+			<dd>application/json</dd>
+			<dt>Example <a wicket:id="copyExample" class="ml-1" title="Copy to clipboard"><wicket:svg href="copy" class="icon icon-sm"/></a></dt>
+			<dd wicket:id="example"></dd>
+		</dl>
+	</wicket:fragment>
+</wicket:extend>

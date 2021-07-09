@@ -3,8 +3,6 @@ package io.onedev.server.web.page.simple.security;
 import static io.onedev.server.web.page.admin.sso.SsoProcessPage.MOUNT_PATH;
 import static io.onedev.server.web.page.admin.sso.SsoProcessPage.STAGE_INITIATE;
 
-import java.util.List;
-
 import org.apache.shiro.SecurityUtils;
 import org.apache.shiro.authc.AuthenticationException;
 import org.apache.shiro.authc.IncorrectCredentialsException;
@@ -159,16 +157,15 @@ public class LoginPage extends SimplePage {
 
 		String serverUrl = settingManager.getSystemSetting().getServerUrl();
 		
-		List<SsoConnector> ssoConnectors = settingManager.getSsoConnectors();
 		RepeatingView ssoButtonsView = new RepeatingView("ssoButtons");
-		for (SsoConnector connector: ssoConnectors) {
+		for (SsoConnector connector: settingManager.getSsoConnectors()) {
 			ExternalLink ssoButton = new ExternalLink(ssoButtonsView.newChildId(), 
 					Model.of(serverUrl + "/" + MOUNT_PATH + "/" + STAGE_INITIATE + "/" + connector.getName()));
 			ssoButton.add(new ExternalImage("image", connector.getButtonImageUrl()));
 			ssoButton.add(new Label("label", "Login with " + connector.getName()));
 			ssoButtonsView.add(ssoButton);
 		}
-		add(ssoButtonsView.setVisible(!ssoConnectors.isEmpty()));
+		add(ssoButtonsView.setVisible(!settingManager.getSsoConnectors().isEmpty()));
 	}
 
 	@Override

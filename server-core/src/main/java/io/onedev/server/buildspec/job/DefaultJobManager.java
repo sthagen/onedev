@@ -1,6 +1,10 @@
 package io.onedev.server.buildspec.job;
 
+import static io.onedev.k8shelper.KubernetesHelper.BUILD_VERSION;
+import static io.onedev.k8shelper.KubernetesHelper.replacePlaceholders;
+
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -11,7 +15,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
@@ -23,6 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 import javax.annotation.Nullable;
 import javax.inject.Inject;
@@ -52,23 +56,30 @@ import io.onedev.commons.utils.FileUtils;
 import io.onedev.commons.utils.LockUtils;
 import io.onedev.k8shelper.Action;
 import io.onedev.k8shelper.CacheInstance;
-import io.onedev.k8shelper.CloneInfo;
+import io.onedev.k8shelper.CompositeExecutable;
+import io.onedev.k8shelper.Executable;
+import io.onedev.k8shelper.LeafExecutable;
+import io.onedev.k8shelper.LeafVisitor;
+import io.onedev.k8shelper.ServerExecutable;
 import io.onedev.server.OneDev;
 import io.onedev.server.buildspec.BuildSpec;
 import io.onedev.server.buildspec.Service;
 import io.onedev.server.buildspec.job.action.PostBuildAction;
 import io.onedev.server.buildspec.job.action.condition.ActionCondition;
 import io.onedev.server.buildspec.job.log.LogManager;
+import io.onedev.server.buildspec.job.projectdependency.ProjectDependency;
 import io.onedev.server.buildspec.job.retrycondition.RetryCondition;
 import io.onedev.server.buildspec.job.trigger.JobTrigger;
 import io.onedev.server.buildspec.job.trigger.ScheduleTrigger;
 import io.onedev.server.buildspec.param.ParamUtils;
 import io.onedev.server.buildspec.param.spec.ParamSpec;
 import io.onedev.server.buildspec.param.spec.SecretParam;
+import io.onedev.server.buildspec.step.ServerStep;
 import io.onedev.server.buildspec.step.Step;
 import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.entitymanager.BuildParamManager;
 import io.onedev.server.entitymanager.ProjectManager;
+import io.onedev.server.entitymanager.PullRequestManager;
 import io.onedev.server.entitymanager.SettingManager;
 import io.onedev.server.entitymanager.UserManager;
 import io.onedev.server.event.ProjectCreated;
@@ -82,6 +93,7 @@ import io.onedev.server.event.build.BuildRunning;
 import io.onedev.server.event.build.BuildSubmitted;
 import io.onedev.server.event.entity.EntityPersisted;
 import io.onedev.server.event.entity.EntityRemoved;
+import io.onedev.server.event.pullrequest.PullRequestEvent;
 import io.onedev.server.event.system.SystemStarted;
 import io.onedev.server.event.system.SystemStopping;
 import io.onedev.server.git.GitUtils;
@@ -90,6 +102,7 @@ import io.onedev.server.model.Build.Status;
 import io.onedev.server.model.BuildDependence;
 import io.onedev.server.model.BuildParam;
 import io.onedev.server.model.Project;
+import io.onedev.server.model.PullRequest;
 import io.onedev.server.model.Setting;
 import io.onedev.server.model.Setting.Key;
 import io.onedev.server.model.User;
@@ -105,6 +118,7 @@ import io.onedev.server.security.permission.AccessBuild;
 import io.onedev.server.security.permission.JobPermission;
 import io.onedev.server.security.permission.ProjectPermission;
 import io.onedev.server.util.CommitAware;
+import io.onedev.server.util.JobSecretAuthorizationContext;
 import io.onedev.server.util.MatrixRunner;
 import io.onedev.server.util.SimpleLogger;
 import io.onedev.server.util.interpolative.VariableInterpolator;
@@ -113,6 +127,8 @@ import io.onedev.server.util.schedule.SchedulableTask;
 import io.onedev.server.util.schedule.TaskScheduler;
 import io.onedev.server.util.script.identity.JobIdentity;
 import io.onedev.server.util.script.identity.ScriptIdentity;
+import io.onedev.server.web.editable.EditableStringTransformer;
+import io.onedev.server.web.editable.annotation.Interpolative;
 
 @Singleton
 public class DefaultJobManager implements JobManager, Runnable, CodePullAuthorizationSource {
@@ -147,6 +163,8 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 	
 	private final BuildParamManager buildParamManager;
 	
+	private final PullRequestManager pullRequestManager;
+	
 	private final TaskScheduler taskScheduler;
 	
 	private final Validator validator;
@@ -159,7 +177,8 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 	public DefaultJobManager(BuildManager buildManager, UserManager userManager, ListenerRegistry listenerRegistry, 
 			SettingManager settingManager, TransactionManager transactionManager, LogManager logManager, 
 			ExecutorService executorService, SessionManager sessionManager, BuildParamManager buildParamManager, 
-			ProjectManager projectManager, Validator validator, TaskScheduler taskScheduler) {
+			PullRequestManager pullRequestManager, ProjectManager projectManager, Validator validator, 
+			TaskScheduler taskScheduler) {
 		this.settingManager = settingManager;
 		this.buildManager = buildManager;
 		this.userManager = userManager;
@@ -170,14 +189,15 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 		this.sessionManager = sessionManager;
 		this.buildParamManager = buildParamManager;
 		this.projectManager = projectManager;
+		this.pullRequestManager = pullRequestManager;
 		this.validator = validator;
 		this.taskScheduler = taskScheduler;
 	}
 
-	private void validate(Project project, ObjectId commitId) {
+	private void validateBuildSpec(Project project, ObjectId commitId, BuildSpec buildSpec) {
 		Project.push(project);
 		try {
-	    	for (ConstraintViolation<?> violation: validator.validate(project.getBuildSpec(commitId))) {
+	    	for (ConstraintViolation<?> violation: validator.validate(buildSpec)) {
 	    		String message = String.format("Error validating build spec (project: %s, commit: %s, location: %s, message: %s)", 
 	    				project.getName(), commitId.name(), violation.getPropertyPath(), violation.getMessage());
 	    		throw new ExplicitException(message);
@@ -201,21 +221,36 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
     		
     	});
     	
-		// Lock to guarantee uniqueness of build (by project, commit, job and parameters)
+    	JobSecretAuthorizationContext.push(new JobSecretAuthorizationContext(project, commitId, reason.getPullRequest()));
     	try {
+    		// Lock to guarantee uniqueness of build (by project, commit, job and parameters)
         	lock.lockInterruptibly();
         	
-        	validate(project, commitId);
+        	BuildSpec buildSpec = project.getBuildSpec(commitId);
+        	if (buildSpec == null) {
+        		throw new ExplicitException(String.format(
+        				"Build spec not defined (project: %s, commit: %s)", 
+        				project.getName(), commitId.name()));
+        	}
+
+        	validateBuildSpec(project, commitId, buildSpec);
+        	
+        	if (!buildSpec.getJobMap().containsKey(jobName)) {
+        		throw new ExplicitException(String.format(
+        				"Job not found (project: %s, commit: %s, job: %s)", 
+        				project.getName(), commitId.name(), jobName));
+        	}
         	
 			return doSubmit(project, commitId, jobName, paramMap, reason); 
     	} catch (Throwable e) {
     		throw ExceptionUtils.unchecked(e);
+		} finally {
+			JobSecretAuthorizationContext.pop();
 		}
 	}
 	
 	private Build doSubmit(Project project, ObjectId commitId, String jobName, 
 			Map<String, List<String>> paramMap, SubmitReason reason) {
-
 		ScriptIdentity.push(new JobIdentity(project, commitId));
 		try {
 			Build build = new Build();
@@ -242,6 +277,32 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 					paramMapToQuery);
 			
 			if (builds.isEmpty()) {
+				Long projectId = project.getId();
+				Long pullRequestId;
+				if (reason.getPullRequest() != null)
+					pullRequestId = reason.getPullRequest().getId();
+				else
+					pullRequestId = null;
+				sessionManager.runAsync(new Runnable() {
+
+					@Override
+					public void run() {
+						ThreadContext.bind(userManager.getSystem().asSubject());
+						Project project = projectManager.load(projectId);
+						PullRequest pullRequest;
+						if (pullRequestId != null)
+							pullRequest = pullRequestManager.load(pullRequestId);
+						else
+							pullRequest = null;
+						for (Build unfinished: buildManager.queryUnfinished(project, jobName, reason.getRefName(), 
+								Optional.ofNullable(pullRequest), paramMapToQuery)) {
+							if (GitUtils.isMergedInto(project.getRepository(), null, unfinished.getCommitId(), commitId)) 
+								cancel(unfinished);
+						}
+					}
+					
+				});
+				
 				for (Map.Entry<String, List<String>> entry: paramMap.entrySet()) {
 					ParamSpec paramSpec = Preconditions.checkNotNull(build.getJob().getParamSpecMap().get(entry.getKey()));
 					if (!entry.getValue().isEmpty()) {
@@ -291,7 +352,7 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 	
 					Subject subject;
 					if (dependency.getAccessTokenSecret() != null) {
-						String accessToken = build.getSecretValue(dependency.getAccessTokenSecret());
+						String accessToken = build.getJobSecretAuthorizationContext().getSecretValue(dependency.getAccessTokenSecret());
 						User user = userManager.findByAccessToken(accessToken);
 						if (user == null) {
 							throw new ExplicitException("Unable to access dependency project '" 
@@ -301,19 +362,17 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 					} else {
 						subject = SecurityUtils.asSubject(0L);
 					}
-					String buildNumberStr = dependency.getBuildNumber();
-					if (buildNumberStr.startsWith("#"))
-						buildNumberStr = buildNumberStr.substring(1);
-					Long buildNumber = Long.parseLong(buildNumberStr);
-					Build dependencyBuild = buildManager.find(dependencyProject, buildNumber);
+					
+					Build dependencyBuild = dependency.getBuildProvider().getBuild(dependencyProject);
 					if (dependencyBuild == null) {
-						String errorMessage = String.format("Unable to find dependency build (project: %s, build number: %d)", 
-								dependency.getProjectName(), buildNumber);
+						String errorMessage = String.format("Unable to find dependency build in project '" 
+								+ dependencyProject.getName() + "'");
 						throw new ExplicitException(errorMessage);
 					}
 					
 					JobPermission jobPermission = new JobPermission(dependencyBuild.getJobName(), new AccessBuild());
-					if (!subject.isPermitted(new ProjectPermission(dependencyProject, jobPermission))) {
+					if (!dependencyProject.isPermittedByLoginUser(jobPermission) 
+							&& !subject.isPermitted(new ProjectPermission(dependencyProject, jobPermission))) {
 						throw new ExplicitException("Unable to access dependency build '" 
 								+ dependencyBuild.getFQN() + "': permission denied");
 					}
@@ -346,12 +405,13 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 	}
 
 	private JobExecution execute(Build build) {
+		JobSecretAuthorizationContext.push(build.getJobSecretAuthorizationContext());
 		Build.push(build);
 		try {
 			String jobToken = UUID.randomUUID().toString();
 			Collection<String> jobSecretsToMask = Sets.newHashSet(jobToken);
 			
-			BuildSpec buildSpec = build.getProject().getBuildSpec(build.getCommitId());
+			BuildSpec buildSpec = build.getSpec();
 			Job job = build.getJob();
 			
 			JobExecutor executor = getJobExecutor(build);
@@ -363,18 +423,13 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 				Long buildNumber = build.getNumber();
 				String projectName = build.getProject().getName();
 				File projectGitDir = build.getProject().getGitDir();
-				CloneInfo cloneInfo = job.getCloneCredential().newCloneInfo(build, jobToken);
-				
+
 				AtomicReference<JobExecution> executionRef = new AtomicReference<>(null);
 				executionRef.set(new JobExecution(executorService.submit(new Runnable() {
 
 					@Override
 					public void run() {
-						jobLogger.log("Creating server workspace...");
-						File serverWorkspace = FileUtils.createTempDir("server-workspace");
 						try {
-							Set<String> includeFiles = new HashSet<>();
-							Set<String> excludeFiles = new HashSet<>();
 							AtomicInteger maxRetries = new AtomicInteger(0);
 							AtomicInteger retryDelay = new AtomicInteger(0);
 							List<CacheSpec> caches = new ArrayList<>();
@@ -386,34 +441,14 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 								@Override
 								public void run() {
 									Build build = buildManager.load(buildId);
+									JobSecretAuthorizationContext.push(build.getJobSecretAuthorizationContext());
 									Build.push(build);
 									try {
-										jobLogger.log("Retrieving dependency artifacts...");
-										for (BuildDependence dependence: build.getDependencies()) {
-											if (dependence.getArtifacts() != null) {
-												build.retrieveArtifacts(dependence.getDependency(), 
-														dependence.getArtifacts(), serverWorkspace);
-											}
-										}
-										
 										VariableInterpolator interpolator = new VariableInterpolator(build, build.getParamCombination());
 
-										String artifacts = interpolator.interpolate(job.getArtifacts());
-										if (artifacts != null) {
-											PatternSet patternSet = PatternSet.parse(artifacts);
-											includeFiles.addAll(patternSet.getIncludes());
-											excludeFiles.addAll(patternSet.getExcludes());
-										}
-										for (JobReport report: job.getReports()) {
-											report = interpolator.interpolateProperties(report);
-											PatternSet patternSet = PatternSet.parse(report.getFilePatterns());
-											includeFiles.addAll(patternSet.getIncludes());
-											excludeFiles.addAll(patternSet.getExcludes());
-										}
-										
 										for (Step step: job.getSteps()) {
 											step = interpolator.interpolateProperties(step);
-											actions.add(step.getAction(build, build.getParamCombination()));
+											actions.add(step.getAction(build, jobToken, build.getParamCombination()));
 										}
 										
 										for (CacheSpec cache: job.getCaches()) 
@@ -427,6 +462,7 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 										retryDelay.set(job.getRetryDelay());
 									} finally {
 										Build.pop();
+										JobSecretAuthorizationContext.pop();
 									}
 								}
 								
@@ -440,13 +476,12 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 									public JobContext call() throws Exception {
 										Build build = buildManager.load(buildId);
 										Build.push(build);
+										JobSecretAuthorizationContext.push(build.getJobSecretAuthorizationContext());
 										try {
 											return new JobContext(projectName, buildNumber, projectGitDir, 
-													actions, serverWorkspace, job.isRetrieveSource(), 
-													job.getCloneDepth(), cloneInfo, job.getCpuRequirement(), 
-													job.getMemoryRequirement(), commitId, caches, 
-													new PatternSet(includeFiles, excludeFiles), executor.getCacheTTL(), 
-													retried.get(), services, jobLogger) {
+													actions, job.getCpuRequirement(), job.getMemoryRequirement(), 
+													commitId, caches, executor.getCacheTTL(), retried.get(), 
+													services, jobLogger) {
 												
 												@Override
 												public void notifyJobRunning() {
@@ -477,10 +512,87 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 														
 													});
 												}
+
+												@Override
+												public Map<String, byte[]> doRunServerStep(List<Integer> stepPosition, File filesDir, 
+														Map<String, String> placeholderValues, SimpleLogger logger) {
+													return sessionManager.call(new Callable<Map<String, byte[]>>() {
+
+														@Override
+														public Map<String, byte[]> call() {
+															Executable entryExecutable = new CompositeExecutable(getActions());
+															
+															LeafVisitor<LeafExecutable> visitor = new LeafVisitor<LeafExecutable>() {
+
+																@Override
+																public LeafExecutable visit(LeafExecutable executable, List<Integer> position) {
+																	if (position.equals(stepPosition))
+																		return executable;
+																	else
+																		return null;
+																}
+																
+															};															
+															
+															ServerExecutable serverExecutable = (ServerExecutable) entryExecutable.traverse(visitor, new ArrayList<>());
+															ServerStep serverStep = (ServerStep) serverExecutable.getStep();
+															
+															serverStep = new EditableStringTransformer(new Function<String, String>() {
+
+																@Override
+																public String apply(String t) {
+																	return replacePlaceholders(t, placeholderValues);
+																}
+																
+															}).transformProperties(serverStep, Interpolative.class);
+
+															return serverStep.run(buildManager.load(buildId), filesDir, logger);
+														}
+														
+													});
+												}
+
+												@Override
+												public void copyDependencies(File targetDir) {
+													sessionManager.run(new Runnable() {
+
+														@Override
+														public void run() {
+															Build build = buildManager.load(buildId);
+															for (BuildDependence dependence: build.getDependencies()) {
+																if (dependence.getArtifacts() != null) {
+																	Build dependency = dependence.getDependency();
+																	LockUtils.read(dependency.getArtifactsLockKey(), new Callable<Void>() {
+
+																		@Override
+																		public Void call() throws Exception {
+																			File artifactsDir = dependency.getArtifactsDir();
+																			if (artifactsDir.exists()) {
+																				PatternSet patternSet = PatternSet.parse(dependence.getArtifacts());
+																				int baseLen = artifactsDir.getAbsolutePath().length() + 1;
+																				for (File file: patternSet.listFiles(artifactsDir)) {
+																					try {
+																						FileUtils.copyFile(file, new File(targetDir, file.getAbsolutePath().substring(baseLen)));
+																					} catch (IOException e) {
+																						throw new RuntimeException(e);
+																					}
+																				}
+																			}
+																			return null;
+																		}
+																		
+																	});
+																}
+															}
+														}
+														
+													});
+												}
 												
 											};
 										} finally {
 											Build.pop();
+											JobSecretAuthorizationContext.pop();
 										}
 									}
 									
@@ -511,7 +623,7 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 											
 										})) {
 											log(e, jobLogger);
-											jobLogger.log("Job will be retried after a while...");
+											jobLogger.warning("Job will be retried after a while...");
 											transactionManager.run(new Runnable() {
 
 												@Override
@@ -553,41 +665,12 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 									}
 								} finally {
 									jobContexts.remove(jobToken);
+									jobContext.onJobFinished();
 								}
 							}
 						} catch (Throwable e) {
 							throw maskSecrets(e, jobSecretsToMask);
 						} finally {
-							try {
-								transactionManager.run(new Runnable() {
-	
-									@Override
-									public void run() {
-										Build build = buildManager.load(buildId);
-										Build.push(build);
-										VariableInterpolator interpolator = new VariableInterpolator(build, build.getParamCombination());
-										try {
-											String artifacts = interpolator.interpolate(job.getArtifacts());
-											if (artifacts != null) {
-												jobLogger.log("Publishing job artifacts...");
-												build.publishArtifacts(serverWorkspace, artifacts);
-											}
-
-											jobLogger.log("Processing job reports..."); 
-											for (JobReport report: job.getReports()) {
-												report = interpolator.interpolateProperties(report);
-												report.process(build, serverWorkspace, jobLogger);
-											}
-										} finally {
-											Build.pop();
-										}
-									}
-									
-								});
-								FileUtils.deleteDir(serverWorkspace);
-							} catch (Throwable e) {
-								throw maskSecrets(e, jobSecretsToMask);
-							} 
 							jobLogger.log("Job finished");
 						}
 					}
@@ -600,14 +683,15 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 			}
 		} finally {
 			Build.pop();
+			JobSecretAuthorizationContext.pop();
 		}
 	}
 	
 	private void log(Throwable e, SimpleLogger logger) {
 		if (e instanceof ExplicitException)
-			logger.log(e.getMessage());
+			logger.error(e.getMessage());
 		else
-			logger.log(e);
+			logger.error("Exception catched", e);
 	}
 	
 	private RuntimeException maskSecrets(Throwable e, Collection<String> jobSecretsToMask) {
@@ -644,10 +728,15 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 		if (event instanceof CommitAware) {
 			ObjectId commitId = ((CommitAware) event).getCommit().getCommitId();
 			if (!commitId.equals(ObjectId.zeroId())) {
+				PullRequest request = null;
+				if (event instanceof PullRequestEvent)
+					request = ((PullRequestEvent) event).getRequest();
+				JobSecretAuthorizationContext.push(new JobSecretAuthorizationContext(event.getProject(), commitId, request));
 				ScriptIdentity.push(new JobIdentity(event.getProject(), commitId));
 				try {
 					BuildSpec buildSpec = event.getProject().getBuildSpec(commitId);
 					if (buildSpec != null) {
+						validateBuildSpec(event.getProject(), commitId, buildSpec);
 						for (Job job: buildSpec.getJobMap().values()) {
 							JobTriggerMatch match = job.getTriggerMatch(event);
 							if (match != null) {
@@ -696,6 +785,7 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 					logger.error(message, e);
 				} finally {
 					ScriptIdentity.pop();
+					JobSecretAuthorizationContext.pop();
 				}
 			}
 		}
@@ -703,48 +793,67 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 	
 	@Transactional
 	@Override
-	public void resubmit(Build build, Map<String, List<String>> paramMap, String resubmitReason) {
+	public void resubmit(Build build, Map<String, List<String>> paramMap, String reason) {
 		if (build.isFinished()) {
-        	validate(build.getProject(), build.getCommitId());
-			
-			build.setStatus(Build.Status.WAITING);
-			build.setFinishDate(null);
-			build.setPendingDate(null);
-			build.setRetryDate(null);
-			build.setRunningDate(null);
-			build.setSubmitDate(new Date());
-			build.setSubmitter(SecurityUtils.getUser());
-			build.setSubmitReason(resubmitReason);
-			build.setCanceller(null);
-			build.setCancellerName(null);
-			
-			buildParamManager.deleteParams(build);
-			for (Map.Entry<String, List<String>> entry: paramMap.entrySet()) {
-				ParamSpec paramSpec = build.getJob().getParamSpecMap().get(entry.getKey());
-				Preconditions.checkNotNull(paramSpec);
-				String type = paramSpec.getType();
-				List<String> values = entry.getValue();
-				if (!values.isEmpty()) {
-					for (String value: values) {
+			JobSecretAuthorizationContext.push(build.getJobSecretAuthorizationContext());
+			try {
+				BuildSpec buildSpec = build.getSpec();
+
+				if (buildSpec == null) {
+	        		throw new ExplicitException(String.format(
+	        				"Build spec not defined (project: %s, commit: %s)", 
+	        				build.getProject().getName(), build.getCommitHash()));
+	        	}
+
+	        	validateBuildSpec(build.getProject(), build.getCommitId(), buildSpec);
+	        	
+	        	if (!buildSpec.getJobMap().containsKey(build.getJobName())) {
+	        		throw new ExplicitException(String.format(
+	        				"Job not found (project: %s, commit: %s, job: %s)", 
+	        				build.getProject().getName(), build.getCommitId().name(), build.getJobName()));
+	        	}
+				
+				build.setStatus(Build.Status.WAITING);
+				build.setFinishDate(null);
+				build.setPendingDate(null);
+				build.setRetryDate(null);
+				build.setRunningDate(null);
+				build.setSubmitDate(new Date());
+				build.setSubmitter(SecurityUtils.getUser());
+				build.setSubmitReason(reason);
+				build.setCanceller(null);
+				build.setCancellerName(null);
+				
+				buildParamManager.deleteParams(build);
+				for (Map.Entry<String, List<String>> entry: paramMap.entrySet()) {
+					ParamSpec paramSpec = build.getJob().getParamSpecMap().get(entry.getKey());
+					Preconditions.checkNotNull(paramSpec);
+					String type = paramSpec.getType();
+					List<String> values = entry.getValue();
+					if (!values.isEmpty()) {
+						for (String value: values) {
+							BuildParam param = new BuildParam();
+							param.setBuild(build);
+							param.setName(entry.getKey());
+							param.setType(type);
+							param.setValue(value);
+							build.getParams().add(param);
+							buildParamManager.save(param);
+						}
+					} else {
 						BuildParam param = new BuildParam();
 						param.setBuild(build);
-						param.setName(entry.getKey());
+						param.setName(paramSpec.getName());
 						param.setType(type);
-						param.setValue(value);
 						build.getParams().add(param);
 						buildParamManager.save(param);
 					}
-				} else {
-					BuildParam param = new BuildParam();
-					param.setBuild(build);
-					param.setName(paramSpec.getName());
-					param.setType(type);
-					build.getParams().add(param);
-					buildParamManager.save(param);
 				}
+				buildManager.save(build);
+				listenerRegistry.post(new BuildSubmitted(build));
+			} finally {
+				JobSecretAuthorizationContext.pop();
 			}
-			buildManager.save(build);
-			listenerRegistry.post(new BuildSubmitted(build));
 		} else {
 			throw new ExplicitException("Build #" + build.getNumber() + " not finished yet");
 		}
@@ -870,21 +979,27 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 			if (defaultBranch != null) {
 				ObjectId commitId = project.getObjectId(defaultBranch, false);
 				if (commitId != null) {
-					BuildSpec buildSpec = project.getBuildSpec(commitId);
-					if (buildSpec != null) {
-						ScheduledTimeReaches event = new ScheduledTimeReaches(project);
-						for (Job job: buildSpec.getJobMap().values()) {
-							for (JobTrigger trigger: job.getTriggers()) {
-								if (trigger instanceof ScheduleTrigger) {
-									ScheduleTrigger scheduledTrigger = (ScheduleTrigger) trigger;
-									SubmitReason reason = trigger.matches(event, job);
-									if (reason != null) {
-										String taskId = taskScheduler.schedule(newSchedulableTask(project, commitId, job, scheduledTrigger, reason));
-										tasksOfProject.add(taskId);
+					JobSecretAuthorizationContext.push(new JobSecretAuthorizationContext(project, commitId, null));
+					try {
+						BuildSpec buildSpec = project.getBuildSpec(commitId);
+						if (buildSpec != null) {
+							validateBuildSpec(project, commitId, buildSpec);
+							ScheduledTimeReaches event = new ScheduledTimeReaches(project);
+							for (Job job: buildSpec.getJobMap().values()) {
+								for (JobTrigger trigger: job.getTriggers()) {
+									if (trigger instanceof ScheduleTrigger) {
+										ScheduleTrigger scheduledTrigger = (ScheduleTrigger) trigger;
+										SubmitReason reason = trigger.matches(event, job);
+										if (reason != null) {
+											String taskId = taskScheduler.schedule(newSchedulableTask(project, commitId, job, scheduledTrigger, reason));
+											tasksOfProject.add(taskId);
+										}
 									}
 								}
 							}
 						}
+					} finally {
+						JobSecretAuthorizationContext.pop();
 					}
 				}
 			}
@@ -1062,9 +1177,12 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 					@Override
 					public void run() {
 						Build build = OneDev.getInstance(BuildManager.class).load(buildId);
+						JobSecretAuthorizationContext.push(build.getJobSecretAuthorizationContext());
 						Build.push(build);
 						try {
 							VariableInterpolator interpolator = new VariableInterpolator(build, build.getParamCombination());
+							Map<String, String> placeholderValues = new HashMap<>();
+							placeholderValues.put(BUILD_VERSION, build.getVersion());
 							for (PostBuildAction action: build.getJob().getPostBuildActions()) {
 								action = interpolator.interpolateProperties(action); 
 								if (ActionCondition.parse(build.getJob(), action.getCondition()).matches(build))
@@ -1076,6 +1194,7 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 							logger.error(message, e);
 						} finally {
 							Build.pop();
+							JobSecretAuthorizationContext.pop();
 						}
 					}
 				});
@@ -1183,4 +1302,10 @@ public class DefaultJobManager implements JobManager, Runnable, CodePullAuthoriz
 		}
 	}
 
+	@Override
+	public Map<String, byte[]> runServerStep(String jobToken, List<Integer> stepPosition, 
+			File filesDir, Map<String, String> placeholderValues, SimpleLogger logger) {
+		return getJobContext(jobToken, true).runServerStep(stepPosition, filesDir, placeholderValues, logger);
+	}
+	
 }

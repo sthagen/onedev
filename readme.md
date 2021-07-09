@@ -20,11 +20,11 @@ Trivial to set up a build farm to run massive CI builds as pods in Kubernetes. N
 
 ![Job Executor](doc/images/job-executor.png)
 
-### Create Build Spec in a Breeze
+### Set up CI/CD  in a Breeze
 
-Build spec is defined in a yaml file together with your code, and OneDev provides a GUI to create the build spec without any learning curve.
+CI/CD configuration is defined in a yaml file together with your code, and OneDev provides a GUI to generate the file without any learning curve.
 
-![Cispec](doc/images/cispec.gif)
+![Cispec](doc/images/build-spec.gif)
 
 ### Flexible Build Workflow and Pipeline
 

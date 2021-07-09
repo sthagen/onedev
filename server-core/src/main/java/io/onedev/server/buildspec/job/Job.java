@@ -22,7 +22,6 @@ import javax.servlet.http.HttpServletRequest;
 import javax.validation.ConstraintValidatorContext;
 import javax.validation.Valid;
 import javax.validation.constraints.Min;
-import javax.validation.constraints.NotNull;
 import javax.validation.constraints.Size;
 import javax.ws.rs.core.HttpHeaders;
 
@@ -33,33 +32,28 @@ import org.hibernate.validator.constraints.NotEmpty;
 import io.onedev.commons.codeassist.InputCompletion;
 import io.onedev.commons.codeassist.InputStatus;
 import io.onedev.commons.codeassist.InputSuggestion;
+import io.onedev.k8shelper.CloneInfo;
 import io.onedev.k8shelper.KubernetesHelper;
 import io.onedev.server.buildspec.BuildSpec;
 import io.onedev.server.buildspec.BuildSpecAware;
 import io.onedev.server.buildspec.NamedElement;
 import io.onedev.server.buildspec.job.action.PostBuildAction;
-import io.onedev.server.buildspec.job.gitcredential.DefaultCredential;
-import io.onedev.server.buildspec.job.gitcredential.GitCredential;
+import io.onedev.server.buildspec.job.projectdependency.ProjectDependency;
 import io.onedev.server.buildspec.job.trigger.JobTrigger;
 import io.onedev.server.buildspec.param.ParamUtils;
 import io.onedev.server.buildspec.param.spec.ParamSpec;
-import io.onedev.server.buildspec.step.CommandStep;
 import io.onedev.server.buildspec.step.Step;
 import io.onedev.server.event.ProjectEvent;
 import io.onedev.server.git.GitUtils;
 import io.onedev.server.model.PullRequest;
 import io.onedev.server.util.ComponentContext;
-import io.onedev.server.util.EditContext;
 import io.onedev.server.util.criteria.Criteria;
 import io.onedev.server.util.validation.Validatable;
 import io.onedev.server.util.validation.annotation.ClassValidating;
 import io.onedev.server.web.editable.annotation.ChoiceProvider;
 import io.onedev.server.web.editable.annotation.Editable;
 import io.onedev.server.web.editable.annotation.Interpolative;
-import io.onedev.server.web.editable.annotation.NameOfEmptyValue;
-import io.onedev.server.web.editable.annotation.Patterns;
 import io.onedev.server.web.editable.annotation.RetryCondition;
-import io.onedev.server.web.editable.annotation.ShowCondition;
 import io.onedev.server.web.editable.annotation.SuggestionProvider;
 import io.onedev.server.web.util.WicketUtils;
 
@@ -89,22 +83,12 @@ public class Job implements NamedElement, Serializable, Validatable {
 	
 	private List<ParamSpec> paramSpecs = new ArrayList<>();
 	
-	private boolean retrieveSource = true;
-	
-	private Integer cloneDepth;
-	
-	private GitCredential cloneCredential = new DefaultCredential();
-
 	private List<JobDependency> jobDependencies = new ArrayList<>();
 	
 	private List<ProjectDependency> projectDependencies = new ArrayList<>();
 	
 	private List<String> requiredServices = new ArrayList<>();
 	
-	private String artifacts;
-	
-	private List<JobReport> reports = new ArrayList<>();
-
 	private List<JobTrigger> triggers = new ArrayList<>();
 	
 	private List<CacheSpec> caches = new ArrayList<>();
@@ -124,10 +108,6 @@ public class Job implements NamedElement, Serializable, Validatable {
 	private int retryDelay = 30;
 	
 	private transient Map<String, ParamSpec> paramSpecMap;
-	
-	public Job() {
-		steps.add(new CommandStep());
-	}
 	
 	@Editable(order=100, description="Specify name of the job")
 	@SuggestionProvider("getNameSuggestions")
@@ -152,7 +132,7 @@ public class Job implements NamedElement, Serializable, Validatable {
 		return new ArrayList<>();
 	}
 
-	@Editable(order=200)
+	@Editable(order=200, description="Steps will be executed serially on same node, sharing the same <a href='$docRoot/pages/concepts.md#job-workspace'>job workspace</a>")
 	@Size(min=1, max=1000, message="At least one step needs to be configured")
 	public List<Step> getSteps() {
 		return steps;
@@ -162,7 +142,7 @@ public class Job implements NamedElement, Serializable, Validatable {
 		this.steps = steps;
 	}
 
-	@Editable(order=300, name="Parameter Specs", group="Params & Triggers", description="Optionally define parameter specifications of the job")
+	@Editable(order=400, name="Parameter Specs", group="Params & Triggers", description="Optionally define parameter specifications of the job")
 	@Valid
 	public List<ParamSpec> getParamSpecs() {
 		return paramSpecs;
@@ -180,44 +160,6 @@ public class Job implements NamedElement, Serializable, Validatable {
 
 	public void setTriggers(List<JobTrigger> triggers) {
 		this.triggers = triggers;
-	}
-
-	@Editable(order=250, group="Source Retrieval", description="Whether or not to retrieve repository files")
-	public boolean isRetrieveSource() {
-		return retrieveSource;
-	}
-
-	public void setRetrieveSource(boolean retrieveSource) {
-		this.retrieveSource = retrieveSource;
-	}
-	
-	@Editable(order=251, group="Source Retrieval", description="Optionally specify depth for a shallow clone in order "
-			+ "to speed up source retrieval")
-	@ShowCondition("isRetrieveSourceEnabled")
-	public Integer getCloneDepth() {
-		return cloneDepth;
-	}
-
-	public void setCloneDepth(Integer cloneDepth) {
-		this.cloneDepth = cloneDepth;
-	}
-
-	@Editable(order=252, group="Source Retrieval", description="By default code is cloned via an auto-generated credential, "
-			+ "which only has read permission over current project. In case the job needs to <a href='$docRoot/pages/push-in-job.md' target='_blank'>push code to server</a>, or want "
-			+ "to <a href='$docRoot/pages/clone-submodules-via-ssh.md' target='_blank'>clone private submodules</a>, you should supply custom credential with appropriate permissions here")
-	@ShowCondition("isRetrieveSourceEnabled")
-	@NotNull
-	public GitCredential getCloneCredential() {
-		return cloneCredential;
-	}
-
-	public void setCloneCredential(GitCredential cloneCredential) {
-		this.cloneCredential = cloneCredential;
-	}
-
-	@SuppressWarnings("unused")
-	private static boolean isRetrieveSourceEnabled() {
-		return (boolean) EditContext.get().getInputValue("retrieveSource");
 	}
 
 	@Editable(name="Job Dependencies", order=9110, group="Dependencies & Services", description="Job dependencies determines the order and "
@@ -265,29 +207,6 @@ public class Job implements NamedElement, Serializable, Validatable {
 			}
 		}
 		return choices;
-	}
-
-	@Editable(order=9115, group="Artifacts & Reports", description="Optionally specify files to publish as job artifacts relative to "
-			+ "repository root. Use * or ? for pattern match")
-	@Interpolative(variableSuggester="suggestVariables")
-	@Patterns(path=true)
-	@NameOfEmptyValue("No artifacts")
-	public String getArtifacts() {
-		return artifacts;
-	}
-
-	public void setArtifacts(String artifacts) {
-		this.artifacts = artifacts;
-	}
-
-	@Editable(order=9120, group="Artifacts & Reports", description="Add job reports here")
-	@Valid
-	public List<JobReport> getReports() {
-		return reports;
-	}
-
-	public void setReports(List<JobReport> reports) {
-		this.reports = reports;
 	}
 
 	@Editable(order=9400, group="More Settings", description="Specify condition to retry build upon failure")
@@ -526,16 +445,18 @@ public class Job implements NamedElement, Serializable, Validatable {
 
 	@Nullable
 	public static String getToken(HttpServletRequest request) {
-		String bearer = request.getHeader(HttpHeaders.AUTHORIZATION);
-		if (bearer != null && bearer.startsWith(KubernetesHelper.BEARER + " "))
-			return bearer.substring(KubernetesHelper.BEARER.length() + 1);
+		String authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
+		if (authHeader == null)
+			authHeader = request.getHeader(CloneInfo.ONEDEV_AUTHORIZATION);
+		if (authHeader != null && authHeader.startsWith(KubernetesHelper.BEARER + " "))
+			return authHeader.substring(KubernetesHelper.BEARER.length() + 1);
 		else
 			return null;
 	}
 	
 	@SuppressWarnings("unused")
 	private static List<InputSuggestion> suggestVariables(String matchWith) {
-		return BuildSpec.suggestVariables(matchWith);
+		return BuildSpec.suggestVariables(matchWith, false, false);
 	}
 	
 }

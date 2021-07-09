@@ -2,14 +2,18 @@ package io.onedev.server.entitymanager.impl;
 
 import java.io.Serializable;
 import java.util.List;
+import java.util.Map;
 
+import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import javax.validation.Validator;
 
 import org.hibernate.criterion.Restrictions;
 
 import com.google.common.base.Preconditions;
 
+import io.onedev.server.OneDev;
 import io.onedev.server.entitymanager.SettingManager;
 import io.onedev.server.maintenance.DataManager;
 import io.onedev.server.model.Setting;
@@ -32,6 +36,7 @@ import io.onedev.server.persistence.annotation.Transactional;
 import io.onedev.server.persistence.dao.BaseEntityManager;
 import io.onedev.server.persistence.dao.Dao;
 import io.onedev.server.persistence.dao.EntityCriteria;
+import io.onedev.server.web.page.layout.ContributedAdministrationSetting;
 
 @Singleton
 public class DefaultSettingManager extends BaseEntityManager<Setting> implements SettingManager {
@@ -63,6 +68,8 @@ public class DefaultSettingManager extends BaseEntityManager<Setting> implements
     private volatile Long sshSettingId;
     
     private volatile Long ssoConnectorsId;
+    
+    private volatile Long contributedSettingsId;
 	
 	@Inject
 	public DefaultSettingManager(Dao dao, DataManager dataManager) {
@@ -105,7 +112,7 @@ public class DefaultSettingManager extends BaseEntityManager<Setting> implements
 	public Setting getSetting(Key key) {
 		return find(EntityCriteria.of(Setting.class).add(Restrictions.eq("key", key)));
 	}
-
+	
 	@Sessional
 	@Override
 	public MailSetting getMailSetting() {
@@ -420,6 +427,56 @@ public class DefaultSettingManager extends BaseEntityManager<Setting> implements
 		}
 		setting.setValue((Serializable) ssoProviders);
 		dao.persist(setting);
+	}
+
+	@SuppressWarnings("unchecked")
+	@Override
+	public Map<String, ContributedAdministrationSetting> getContributedSettings() {
+        Setting setting;
+        if (contributedSettingsId == null) {
+    		setting = getSetting(Key.CONTRIBUTED_SETTINGS);
+    		Preconditions.checkNotNull(setting);
+    		contributedSettingsId = setting.getId();
+        } else {
+            setting = load(contributedSettingsId);
+        }
+        return (Map<String, ContributedAdministrationSetting>) setting.getValue();
+	}
+
+	@Transactional
+	@Override
+	public void saveContributedSettings(Map<String, ContributedAdministrationSetting> contributedSettings) {
+		Setting setting = getSetting(Key.CONTRIBUTED_SETTINGS);
+		if (setting == null) {
+			setting = new Setting();
+			setting.setKey(Key.CONTRIBUTED_SETTINGS);
+		}
+		setting.setValue((Serializable) contributedSettings);
+		dao.persist(setting);
+	}
+ 
+	@Nullable
+	@SuppressWarnings("unchecked")
+	public <T extends ContributedAdministrationSetting> T getContributedSetting(Class<T> settingClass) {
+		T contributedSetting = (T) getContributedSettings().get(settingClass.getName());
+		if (contributedSetting == null) {
+			try {
+				T value = settingClass.newInstance();
+				if (OneDev.getInstance(Validator.class).validate(value).isEmpty()) 
+					contributedSetting = value;
+			} catch (InstantiationException | IllegalAccessException e) {
+				throw new RuntimeException(e);
+			}
+		}
+		
+		return contributedSetting;
+	}
+
+	public void saveContributedSetting(Class<? extends ContributedAdministrationSetting> settingClass, 
+			@Nullable ContributedAdministrationSetting setting) {
+		Map<String, ContributedAdministrationSetting> contributedSettings = getContributedSettings();
+		contributedSettings.put(settingClass.getName(), setting);
+		saveContributedSettings(contributedSettings);
 	}
 	
 }

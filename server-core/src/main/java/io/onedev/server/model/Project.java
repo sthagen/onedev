@@ -4,8 +4,10 @@ import static io.onedev.server.model.Project.PROP_NAME;
 import static io.onedev.server.model.Project.PROP_UPDATE_DATE;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -13,6 +15,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -33,8 +36,10 @@ import javax.persistence.Lob;
 import javax.persistence.ManyToOne;
 import javax.persistence.OneToMany;
 import javax.persistence.Table;
+import javax.validation.Validator;
 
 import org.apache.commons.lang3.SerializationUtils;
+import org.apache.shiro.authz.Permission;
 import org.eclipse.jgit.api.CreateBranchCommand;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.TagCommand;
@@ -59,13 +64,14 @@ import org.hibernate.annotations.CacheConcurrencyStrategy;
 import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.validator.constraints.NotEmpty;
 
-import com.fasterxml.jackson.annotation.JsonView;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import io.onedev.commons.launcher.loader.ListenerRegistry;
+import io.onedev.commons.utils.ExceptionUtils;
 import io.onedev.commons.utils.FileUtils;
 import io.onedev.commons.utils.LinearRange;
 import io.onedev.commons.utils.LockUtils;
@@ -108,12 +114,14 @@ import io.onedev.server.model.support.pullrequest.ProjectPullRequestSetting;
 import io.onedev.server.persistence.SessionManager;
 import io.onedev.server.persistence.TransactionManager;
 import io.onedev.server.security.SecurityUtils;
+import io.onedev.server.storage.AttachmentStorageManager;
 import io.onedev.server.storage.StorageManager;
+import io.onedev.server.util.AttachmentTooLargeException;
 import io.onedev.server.util.CollectionUtils;
 import io.onedev.server.util.ComponentContext;
+import io.onedev.server.util.NameAware;
 import io.onedev.server.util.StatusInfo;
 import io.onedev.server.util.diff.WhitespaceOption;
-import io.onedev.server.util.jackson.DefaultView;
 import io.onedev.server.util.match.Matcher;
 import io.onedev.server.util.match.PathMatcher;
 import io.onedev.server.util.patternset.PatternSet;
@@ -122,6 +130,7 @@ import io.onedev.server.util.usermatch.UserMatch;
 import io.onedev.server.util.validation.annotation.ProjectName;
 import io.onedev.server.web.editable.annotation.Editable;
 import io.onedev.server.web.editable.annotation.Markdown;
+import io.onedev.server.web.page.project.setting.ContributedProjectSetting;
 import io.onedev.server.web.util.ProjectAware;
 import io.onedev.server.web.util.WicketUtils;
 
@@ -132,9 +141,15 @@ import io.onedev.server.web.util.WicketUtils;
 //use dynamic update in order not to overwrite other edits while background threads change update date
 @DynamicUpdate 
 @Editable
-public class Project extends AbstractEntity {
+public class Project extends AbstractEntity implements NameAware {
 
 	private static final long serialVersionUID = 1L;
+	
+	public static final int MAX_DESCRIPTION_LEN = 15000;
+	
+	public static final int MAX_ATTACHMENT_SIZE = 25*1024*1024; // mega bytes
+	
+	private static final int BUFFER_SIZE = 1024*64;
 	
 	public static final String NAME_NAME = "Name";
 	
@@ -188,28 +203,29 @@ public class Project extends AbstractEntity {
 	@JoinColumn(nullable=true)
 	private Project forkedFrom;
 	
-	@ManyToOne(fetch=FetchType.LAZY)
-	@JoinColumn
-	private User owner;
-	
 	@Column(nullable=false, unique=true)
 	private String name;
 	
-	@Column(length=15000)
+	@Column(length=MAX_DESCRIPTION_LEN)
 	private String description;
 	
     @OneToMany(mappedBy="project")
     private Collection<Build> builds = new ArrayList<>();
     
+    @JsonIgnore
 	@Lob
 	@Column(nullable=false, length=65535)
-	@JsonView(DefaultView.class)
 	private ArrayList<BranchProtection> branchProtections = new ArrayList<>();
 	
+    @JsonIgnore
 	@Lob
 	@Column(nullable=false, length=65535)
-	@JsonView(DefaultView.class)
 	private ArrayList<TagProtection> tagProtections = new ArrayList<>();
+
+    @JsonIgnore
+    @Lob
+    @Column(nullable=false, length=65535)
+	private LinkedHashMap<String, ContributedProjectSetting> contributedSettings = new LinkedHashMap<>();
 	
 	@Column(nullable=false)
 	private Date createDate = new Date();
@@ -265,34 +281,34 @@ public class Project extends AbstractEntity {
 	
 	private boolean issueManagementEnabled = true;
 	
+	@JsonIgnore
 	@Lob
 	@Column(length=65535, nullable=false)
-	@JsonView(DefaultView.class)
 	private ProjectIssueSetting issueSetting = new ProjectIssueSetting();
 	
+	@JsonIgnore
 	@Lob
 	@Column(length=65535, nullable=false)
-	@JsonView(DefaultView.class)
 	private ProjectBuildSetting buildSetting = new ProjectBuildSetting();
 	
+	@JsonIgnore
 	@Lob
 	@Column(length=65535, nullable=false)
-	@JsonView(DefaultView.class)
 	private ProjectPullRequestSetting pullRequestSetting = new ProjectPullRequestSetting();
 	
+	@JsonIgnore
 	@Lob
 	@Column(length=65535)
-	@JsonView(DefaultView.class)
 	private ArrayList<NamedCommitQuery> namedCommitQueries;
 	
+	@JsonIgnore
 	@Lob
 	@Column(length=65535)
-	@JsonView(DefaultView.class)
 	private ArrayList<NamedCodeCommentQuery> namedCodeCommentQueries;
 	
+	@JsonIgnore
 	@Lob
 	@Column(length=65535, nullable=false)
-	@JsonView(DefaultView.class)
 	private ArrayList<WebHook> webHooks = new ArrayList<>();
 	
 	private transient Repository repository;
@@ -328,6 +344,7 @@ public class Project extends AbstractEntity {
 	@Editable(order=100)
 	@ProjectName
 	@NotEmpty
+	@Override
 	public String getName() {
 		return name;
 	}
@@ -343,7 +360,7 @@ public class Project extends AbstractEntity {
 	}
 
 	public void setDescription(String description) {
-		this.description = description;
+		this.description = StringUtils.abbreviate(description, MAX_DESCRIPTION_LEN);
 	}
 
 	public ArrayList<BranchProtection> getBranchProtections() {
@@ -1032,7 +1049,7 @@ public class Project extends AbstractEntity {
 		this.codeComments = codeComments;
 	}
 	
-	@Editable(order=300, name="Issue management", description="Whether or not to provide issue management for the project")
+	@Editable(order=300, name="Issue management", description="Whether or not to enable issue management for the project")
 	public boolean isIssueManagementEnabled() {
 		return issueManagementEnabled;
 	}
@@ -1482,6 +1499,83 @@ public class Project extends AbstractEntity {
 			}
 			return null;
 		}
+	}
+	
+	public String getAttachmentUrlPath(String attachmentGroup, String attachmentName) {
+		return String.format("/projects/%s/attachment/%s/%s", getName(), attachmentGroup, attachmentName);
+	}
+	
+	public String saveAttachment(String attachmentGroup, String suggestedAttachmentName, InputStream attachmentStream) {
+		String attachmentName = suggestedAttachmentName;
+		File attachmentDir = OneDev.getInstance(AttachmentStorageManager.class).getAttachmentGroupDir(this, attachmentGroup);
+
+		FileUtils.createDir(attachmentDir);
+		int index = 2;
+		while (new File(attachmentDir, attachmentName).exists()) {
+			if (suggestedAttachmentName.contains(".")) {
+				String nameBeforeExt = StringUtils.substringBeforeLast(suggestedAttachmentName, ".");
+				String ext = StringUtils.substringAfterLast(suggestedAttachmentName, ".");
+				attachmentName = nameBeforeExt + "_" + index + "." + ext;
+			} else {
+				attachmentName = suggestedAttachmentName + "_" + index;
+			}
+			index++;
+		}
+		
+		Exception ex = null;
+		File file = new File(attachmentDir, attachmentName);
+		try (OutputStream os = new FileOutputStream(file)) {
+			byte[] buffer = new byte[BUFFER_SIZE];
+	        long count = 0;
+	        int n = 0;
+	        while (-1 != (n = attachmentStream.read(buffer))) {
+	            count += n;
+		        if (count > MAX_ATTACHMENT_SIZE) {
+		        	throw new AttachmentTooLargeException("Upload must be less than " 
+		        			+ FileUtils.byteCountToDisplaySize(MAX_ATTACHMENT_SIZE));
+		        }
+	            os.write(buffer, 0, n);
+	        }
+		} catch (Exception e) {
+			ex = e;
+		} 
+		if (ex != null) {
+			if (file.exists())
+				FileUtils.deleteFile(file);
+			throw ExceptionUtils.unchecked(ex);
+		} else {
+			return file.getName();
+		}
+	}
+	
+	public boolean isPermittedByLoginUser(Permission permission) {
+		return getDefaultRole() != null && getDefaultRole().implies(permission);
+	}
+	
+	public LinkedHashMap<String, ContributedProjectSetting> getContributedSettings() {
+		return contributedSettings;
+	}
+	
+	@Nullable
+	@SuppressWarnings("unchecked")
+	public <T extends ContributedProjectSetting> T getContributedSetting(Class<T> settingClass) {
+		T contributedSetting = (T) contributedSettings.get(settingClass.getName());
+		if (contributedSetting == null) {
+			try {
+				T value = settingClass.newInstance();
+				if (OneDev.getInstance(Validator.class).validate(value).isEmpty()) 
+					contributedSetting = value;
+			} catch (InstantiationException | IllegalAccessException e) {
+				throw new RuntimeException(e);
+			}
+		}
+		
+		return contributedSetting;
+	}
+
+	public void setContributedSetting(Class<? extends ContributedProjectSetting> settingClass, 
+			@Nullable ContributedProjectSetting setting) {
+		contributedSettings.put(settingClass.getName(), setting);
 	}
 	
 }

@@ -1,6 +1,7 @@
 package io.onedev.server.entitymanager;
 
 import java.util.List;
+import java.util.Map;
 
 import javax.annotation.Nullable;
 
@@ -19,6 +20,7 @@ import io.onedev.server.model.support.administration.authenticator.Authenticator
 import io.onedev.server.model.support.administration.jobexecutor.JobExecutor;
 import io.onedev.server.model.support.administration.sso.SsoConnector;
 import io.onedev.server.persistence.dao.EntityManager;
+import io.onedev.server.web.page.layout.ContributedAdministrationSetting;
 
 public interface SettingManager extends EntityManager<Setting> {
 	
@@ -134,5 +136,15 @@ public interface SettingManager extends EntityManager<Setting> {
     List<SsoConnector> getSsoConnectors();
     
     void saveSsoConnectors(List<SsoConnector> ssoConnectors);
+    
+    Map<String, ContributedAdministrationSetting> getContributedSettings();
+    
+    void saveContributedSettings(Map<String, ContributedAdministrationSetting> contributedSettings);
+
+    @Nullable
+    <T extends ContributedAdministrationSetting> T getContributedSetting(Class<T> settingClass);
+    
+    void saveContributedSetting(Class<? extends ContributedAdministrationSetting> settingClass, 
+    		@Nullable ContributedAdministrationSetting setting);
     
 }

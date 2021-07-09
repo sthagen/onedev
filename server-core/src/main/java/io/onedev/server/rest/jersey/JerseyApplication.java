@@ -14,7 +14,7 @@ import org.jvnet.hk2.guice.bridge.api.GuiceIntoHK2Bridge;
 import io.onedev.commons.launcher.loader.AppLoader;
 
 public class JerseyApplication extends ResourceConfig {
-
+	
 	@Inject
 	public JerseyApplication(ServiceLocator serviceLocator) {
 		GuiceBridge.getGuiceBridge().initializeGuiceBridge(serviceLocator);
@@ -26,15 +26,20 @@ public class JerseyApplication extends ResourceConfig {
                 getConfiguration().getRuntimeType());
         property(disableMoxy, true);
         property(ServerProperties.BV_SEND_ERROR_IN_RESPONSE, true);
-
+        
+        // Add this in order to send build log entries as soon as possible in 
+        // KubernetesResource.runServerStep
+        property(ServerProperties.OUTBOUND_CONTENT_LENGTH_BUFFER, 0);
+        
         // add the default Jackson exception mappers
         register(JacksonFeature.class);
         
-        packages(JerseyApplication.class.getPackage().getName());
+        packages(JerseyApplication.class.getPackage().getName(), "io.swagger.v3.jaxrs2.integration.resources");
         
 	    for (JerseyConfigurator configurator: AppLoader.getExtensions(JerseyConfigurator.class)) {
 	    	configurator.configure(this);
 	    }
+	    
 	}
 	
 }

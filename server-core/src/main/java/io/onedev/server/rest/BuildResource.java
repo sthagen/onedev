@@ -1,31 +1,37 @@
 package io.onedev.server.rest;
 
 import java.util.Collection;
+import java.util.List;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import javax.ws.rs.Consumes;
+import javax.ws.rs.DELETE;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
-import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
-import javax.ws.rs.core.UriInfo;
 
 import org.apache.shiro.authz.UnauthorizedException;
-import org.hibernate.criterion.Restrictions;
 
 import io.onedev.server.entitymanager.BuildManager;
 import io.onedev.server.model.Build;
-import io.onedev.server.persistence.dao.EntityCriteria;
-import io.onedev.server.rest.jersey.ValidQueryParams;
+import io.onedev.server.model.BuildDependence;
+import io.onedev.server.model.BuildParam;
+import io.onedev.server.rest.annotation.Api;
+import io.onedev.server.rest.jersey.InvalidParamException;
+import io.onedev.server.rest.support.RestConstants;
+import io.onedev.server.search.entity.build.BuildQuery;
 import io.onedev.server.security.SecurityUtils;
 
+@Api(order=4000, description="In most cases, build resource is operated with build id, which is different from build number. "
+		+ "To get build id of a particular build number, use the <a href='/help/api/io.onedev.server.rest.BuildResource/queryBasicInfo'>Query Basic Info</a> operation with query for "
+		+ "instance <code>&quot;Number&quot; is &quot;projectName#100&quot;</code>")
 @Path("/builds")
-@Consumes(MediaType.WILDCARD)
+@Consumes(MediaType.APPLICATION_JSON)
 @Produces(MediaType.APPLICATION_JSON)
 @Singleton
 public class BuildResource {
@@ -36,44 +42,86 @@ public class BuildResource {
 	public BuildResource(BuildManager buildManager) {
 		this.buildManager = buildManager;
 	}
-	
-	@ValidQueryParams
-	@GET
-    public Response query(@QueryParam("job") String jobName, @QueryParam("commit") String commit, 
-    		@QueryParam("number") Long number, @QueryParam("offset") Integer offset, 
-    		@QueryParam("count") Integer count, @Context UriInfo uriInfo) {
-		EntityCriteria<Build> criteria = buildManager.newCriteria();
-		if (jobName != null)
-			criteria.add(Restrictions.eq("jobName", jobName));
-		if (commit != null)
-			criteria.add(Restrictions.eq("commit", commit));
-		if (number != null)
-			criteria.add(Restrictions.eq("number", number));
-		
-    	if (offset == null)
-    		offset = 0;
-    	
-    	if (count == null || count > RestConstants.PAGE_SIZE) 
-    		count = RestConstants.PAGE_SIZE;
 
-    	Collection<Build> builds = buildManager.query(criteria, offset, count);
-		for (Build build: builds) {
-			if (!SecurityUtils.canAccess(build.getProject()))
-				throw new UnauthorizedException("Unable to access project '" + build.getProject().getName() + "'");
-		}
-		
-		return Response.ok(builds, RestConstants.JSON_UTF8).build();
-		
-    }
-    
+	@Api(order=100)
 	@Path("/{buildId}")
     @GET
-    public Build get(@PathParam("buildId") Long buildId) {
+    public Build getBasicInfo(@PathParam("buildId") Long buildId) {
+		Build build = buildManager.load(buildId);
+    	if (!SecurityUtils.canAccess(build)) 
+			throw new UnauthorizedException();
+    	return build;
+    }
+
+	@Api(order=200)
+	@Path("/{buildId}/params")
+    @GET
+    public Collection<BuildParam> getParams(@PathParam("buildId") Long buildId) {
+		Build build = buildManager.load(buildId);
+    	if (!SecurityUtils.canAccess(build)) 
+			throw new UnauthorizedException();
+    	return build.getParams();
+    }
+	
+	@Api(order=300)
+	@Path("/{buildId}/dependencies")
+    @GET
+    public Collection<BuildDependence> getDependencies(@PathParam("buildId") Long buildId) {
+		Build build = buildManager.load(buildId);
+    	if (!SecurityUtils.canAccess(build)) 
+			throw new UnauthorizedException();
+    	return build.getDependencies();
+    }
+	
+	@Api(order=400)
+	@Path("/{buildId}/dependents")
+    @GET
+    public Collection<BuildDependence> getDependents(@PathParam("buildId") Long buildId) {
+		Build build = buildManager.load(buildId);
+    	if (!SecurityUtils.canAccess(build)) 
+			throw new UnauthorizedException();
+    	return build.getDependents();
+    }
+	
+	@Api(order=500)
+	@Path("/{buildId}/fixed-issue-numbers")
+    @GET
+    public Collection<Long> getFixedIssueNumbers(@PathParam("buildId") Long buildId) {
+		Build build = buildManager.load(buildId);
+    	if (!SecurityUtils.canAccess(build)) 
+			throw new UnauthorizedException();
+    	return build.getFixedIssueNumbers();
+    }
+	
+	@Api(order=600)
+	@GET
+    public List<Build> queryBasicInfo(
+    		@QueryParam("query") @Api(description="Syntax of this query is the same as query box in <a href='/builds'>builds page</a>", example="\"Number\" is \"projectName#100\"") String query, 
+    		@QueryParam("offset") @Api(example="0") int offset, 
+    		@QueryParam("count") @Api(example="100") int count) {
+		
+    	if (count > RestConstants.MAX_PAGE_SIZE)
+    		throw new InvalidParamException("Count should not be greater than " + RestConstants.MAX_PAGE_SIZE);
+
+    	BuildQuery parsedQuery;
+		try {
+			parsedQuery = BuildQuery.parse(null, query, true, true);
+		} catch (Exception e) {
+			throw new InvalidParamException("Error parsing query", e);
+		}
+    	
+    	return buildManager.query(null, parsedQuery, offset, count);
+    }
+	
+	@Api(order=700)
+	@Path("/{buildId}")
+    @DELETE
+    public Response delete(@PathParam("buildId") Long buildId) {
     	Build build = buildManager.load(buildId);
-    	if (!SecurityUtils.canAccess(build.getProject()))
-			throw new UnauthorizedException("Unauthorized access to project " + build.getProject().getName());
-    	else
-    		return build;
+    	if (!SecurityUtils.canManage(build))
+			throw new UnauthorizedException();
+    	buildManager.delete(build);
+    	return Response.ok().build();
     }
 	
 }

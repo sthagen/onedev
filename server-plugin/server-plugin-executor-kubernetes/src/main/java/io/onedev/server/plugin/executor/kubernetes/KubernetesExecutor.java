@@ -3,7 +3,7 @@ package io.onedev.server.plugin.executor.kubernetes;
 import static io.onedev.k8shelper.KubernetesHelper.ENV_JOB_TOKEN;
 import static io.onedev.k8shelper.KubernetesHelper.ENV_SERVER_URL;
 import static io.onedev.k8shelper.KubernetesHelper.LOG_END_MESSAGE;
-import static io.onedev.k8shelper.KubernetesHelper.describe;
+import static io.onedev.k8shelper.KubernetesHelper.stringifyPosition;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -52,14 +52,17 @@ import io.onedev.commons.utils.command.ExecutionResult;
 import io.onedev.commons.utils.command.LineConsumer;
 import io.onedev.k8shelper.Action;
 import io.onedev.k8shelper.CommandExecutable;
-import io.onedev.k8shelper.CommandVisitor;
 import io.onedev.k8shelper.CompositeExecutable;
 import io.onedev.k8shelper.ExecuteCondition;
+import io.onedev.k8shelper.KubernetesHelper;
+import io.onedev.k8shelper.LeafExecutable;
+import io.onedev.k8shelper.LeafVisitor;
 import io.onedev.server.OneDev;
 import io.onedev.server.buildspec.Service;
 import io.onedev.server.buildspec.job.CacheSpec;
 import io.onedev.server.buildspec.job.EnvVar;
 import io.onedev.server.buildspec.job.JobContext;
+import io.onedev.server.buildspec.job.log.StyleBuilder;
 import io.onedev.server.entitymanager.SettingManager;
 import io.onedev.server.model.support.RegistryLogin;
 import io.onedev.server.model.support.administration.jobexecutor.JobExecutor;
@@ -85,7 +88,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 
 	private static final long serialVersionUID = 1L;
 	
-	private static final int POD_WATCH_TIMEOUT = 120;
+	private static final int POD_WATCH_TIMEOUT = 60;
 	
 	private static final Logger logger = LoggerFactory.getLogger(KubernetesExecutor.class);
 	
@@ -236,7 +239,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 
 				@Override
 				public void consume(String line) {
-					jobLogger.log("Kubernetes: " + line);
+					jobLogger.error("Kubernetes: " + line);
 				}
 				
 			}).checkReturnCode();
@@ -265,7 +268,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 	
 				@Override
 				public void consume(String line) {
-					jobLogger.log("Kubernetes: " + line);
+					jobLogger.error("Kubernetes: " + line);
 				}
 				
 			}).checkReturnCode();
@@ -273,7 +276,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 			if (ExceptionUtils.find(e, TimeoutException.class) == null)
 				throw ExceptionUtils.unchecked(e);
 			else
-				jobLogger.log("Timed out deleting namespace");
+				jobLogger.error("Timed out deleting namespace");
 		}
 	}
 	
@@ -291,7 +294,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 
 			@Override
 			public void consume(String line) {
-				jobLogger.log("Kubernetes: " + line);
+				jobLogger.error("Kubernetes: " + line);
 			}
 			
 		}).checkReturnCode();
@@ -313,7 +316,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 
 			@Override
 			public void consume(String line) {
-				jobLogger.log("Kubernetes: " + line);
+				jobLogger.error("Kubernetes: " + line);
 			}
 			
 		}).checkReturnCode();
@@ -334,7 +337,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 
 			@Override
 			public void consume(String line) {
-				jobLogger.log("Kubernetes: " + line);
+				jobLogger.error("Kubernetes: " + line);
 			}
 			
 		}).checkReturnCode();
@@ -403,7 +406,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 
 			@Override
 			public void consume(String line) {
-				jobLogger.log("Kubernetes: " + line);
+				jobLogger.error("Kubernetes: " + line);
 			}
 			
 		}).checkReturnCode();
@@ -479,7 +482,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 
 			@Override
 			public void consume(String line) {
-				jobLogger.log("Kubernetes: " + line);
+				jobLogger.error("Kubernetes: " + line);
 			}
 			
 		}).checkReturnCode();
@@ -618,7 +621,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 
 				@Override
 				public void consume(String line) {
-					jobLogger.log("Kubernetes: " + line);
+					jobLogger.error("Kubernetes: " + line);
 				}
 				
 			}).checkReturnCode();
@@ -633,7 +636,9 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 			checkConditions(statusNode, jobLogger);
 			
 			List<JsonNode> containerStatusNodes = new ArrayList<>();
-			containerStatusNodes.add(statusNode.get("containerStatuses").iterator().next());				
+			JsonNode containerStatusesNode = statusNode.get("containerStatuses");
+			if (containerStatusesNode != null)
+				containerStatusNodes.add(containerStatusesNode.iterator().next());				
 			
 			Map<String, ContainerError> containerErrors = getContainerErrors(containerStatusNodes);
 			if (!containerErrors.isEmpty()) {
@@ -690,6 +695,15 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 		for (NodeSelectorEntry entry: nodeSelector)
 			map.put(entry.getLabelName(), entry.getLabelValue());
 		return map;
+	}
+	
+	private String getContainerDisplayName(CompositeExecutable entryExecutable, String containerName) {
+		if (containerName.startsWith("step-")) {
+			List<Integer> position = KubernetesHelper.parsePosition(containerName.substring("step-".length()));
+			return "Step \"" + entryExecutable.getNamesAsString(position) + "\"";
+		} else {
+			return containerName;
+		}
 	}
 	
 	private void execute(String jobToken, SimpleLogger jobLogger, Object executionContext) {
@@ -810,30 +824,55 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 					List<Action> actions = new ArrayList<>();
 					CommandExecutable executable = new CommandExecutable((String) executionContext, 
 							Lists.newArrayList("this does not matter"));
-					actions.add(new Action(executable, ExecuteCondition.ALWAYS));
+					actions.add(new Action("test", executable, ExecuteCondition.ALWAYS));
 					entryExecutable = new CompositeExecutable(actions);
 				}
 				
 				List<String> containerNames = Lists.newArrayList("init");
 				
-				entryExecutable.traverse(new CommandVisitor<Void>() {
+				String helperImageVersion;
+				try (InputStream is = KubernetesExecutor.class.getClassLoader().getResourceAsStream("k8s-helper-version.properties")) {
+					ByteArrayOutputStream baos = new ByteArrayOutputStream();
+					IOUtils.copy(is, baos);
+					helperImageVersion = baos.toString();
+				} catch (IOException e) {
+					throw new RuntimeException(e);
+				}
+				
+				List<Map<Object, Object>> envs = new ArrayList<>();
+				envs.add(CollectionUtils.newLinkedHashMap(
+						"name", ENV_SERVER_URL, 
+						"value", getServerUrl()));
+				envs.add(CollectionUtils.newLinkedHashMap(
+						"name", ENV_JOB_TOKEN, 
+						"value", jobToken));
+
+				entryExecutable.traverse(new LeafVisitor<Void>() {
 
 					@Override
-					public Void visit(CommandExecutable executable, List<Integer> position) {
+					public Void visit(LeafExecutable executable, List<Integer> position) {
 						String containerName = getContainerName(position);
 						containerNames.add(containerName);
+						String image;
+						if (executable instanceof CommandExecutable)
+							image = ((CommandExecutable)executable).getImage();
+						else 
+							image = "1dev/k8s-helper-" + baselineOsInfo.getHelperImageSuffix() + ":" + helperImageVersion;
+						
 						Map<Object, Object> stepContainerSpec = CollectionUtils.newHashMap(
 								"name", containerName, 
-								"image", executable.getImage());
-				
+								"image", image);
+
+						String positionStr = stringifyPosition(position);
 						if (baselineOsInfo.isLinux()) {
 							stepContainerSpec.put("command", Lists.newArrayList("sh"));
-							stepContainerSpec.put("args", Lists.newArrayList(containerCommandHome + "/" + describe(position) + ".sh"));
+							stepContainerSpec.put("args", Lists.newArrayList(containerCommandHome + "/" + positionStr + ".sh"));
 						} else {
 							stepContainerSpec.put("command", Lists.newArrayList("cmd"));
-							stepContainerSpec.put("args", Lists.newArrayList("/c", containerCommandHome + "\\" + describe(position) + ".bat"));
+							stepContainerSpec.put("args", Lists.newArrayList("/c", containerCommandHome + "\\" + positionStr + ".bat"));
 						}
-						
+
+						stepContainerSpec.put("env", envs);
 						stepContainerSpec.put("volumeMounts", volumeMounts);
 						containerSpecs.add(stepContainerSpec);
 						
@@ -860,23 +899,6 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 					initArgs.add("test");
 				}
 				
-				String helperImageVersion;
-				try (InputStream is = KubernetesExecutor.class.getClassLoader().getResourceAsStream("k8s-helper-version.properties")) {
-					ByteArrayOutputStream baos = new ByteArrayOutputStream();
-					IOUtils.copy(is, baos);
-					helperImageVersion = baos.toString();
-				} catch (IOException e) {
-					throw new RuntimeException(e);
-				}
-				
-				List<Map<Object, Object>> envs = new ArrayList<>();
-				envs.add(CollectionUtils.newLinkedHashMap(
-						"name", ENV_SERVER_URL, 
-						"value", getServerUrl()));
-				envs.add(CollectionUtils.newLinkedHashMap(
-						"name", ENV_JOB_TOKEN, 
-						"value", jobToken));
-
 				Map<Object, Object> initContainerSpec = CollectionUtils.newHashMap(
 						"name", "init", 
 						"image", "1dev/k8s-helper-" + baselineOsInfo.getHelperImageSuffix() + ":" + helperImageVersion, 
@@ -1001,10 +1023,12 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 								 * without an exception, and will continue to collect the container log which 
 								 * might contain error details
 								 */
-								if (error.isFatal())
-									return new Abort(containerName + ": " + error.getMessage());
-								else
+								if (error.isFatal()) {
+									return new Abort(getContainerDisplayName(entryExecutable, containerName) 
+											+ ": " + error.getMessage());
+								} else {
 									return new Abort(null);
+								}
 							} else if (getStartedContainers(containerStatusNodes).contains(containerName)) {
 								return new Abort(null);
 							} else {
@@ -1028,7 +1052,8 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 						public Abort check(String nodeName, Collection<JsonNode> containerStatusNodes) {
 							ContainerError error = getContainerErrors(containerStatusNodes).get(containerName);
 							if (error != null) {
-								String errorMessage = containerName + ": " + error.getMessage();
+								String errorMessage = getContainerDisplayName(entryExecutable, containerName) 
+										+ ": " + error.getMessage();
 								errorMessages.add(errorMessage);
 								/*
 								 * We abort the watch with an exception for two reasons:
@@ -1067,7 +1092,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 	}
 	
 	private String getContainerName(List<Integer> stepPosition) {
-		return "step-" + describe(stepPosition);
+		return "step-" + stringifyPosition(stepPosition);
 	}
 	
 	private Map<String, ContainerError> getContainerErrors(Collection<JsonNode> containerStatusNodes) {
@@ -1161,7 +1186,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 
 			@Override
 			public void consume(String line) {
-				jobLogger.log("Kubernetes: " + line);
+				jobLogger.error("Kubernetes: " + line);
 			}
 			
 		}).checkReturnCode();
@@ -1214,7 +1239,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 				public void consume(String line) {
 					if (line.startsWith("label") && line.endsWith("not found."))
 						labelNotFound.set(true);
-					jobLogger.log("Kubernetes: " + line);
+					jobLogger.error("Kubernetes: " + line);
 				}
 				
 			});
@@ -1230,7 +1255,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 				if (conditionNode.get("type").asText().equals("PodScheduled") 
 						&& conditionNode.get("status").asText().equals("False")
 						&& conditionNode.get("reason").asText().equals("Unschedulable")) {
-					jobLogger.log("Kubernetes: " + conditionNode.get("message").asText());
+					jobLogger.warning("Kubernetes: " + conditionNode.get("message").asText());
 				}
 			}
 		}
@@ -1308,7 +1333,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 		
 					@Override
 					public void consume(String line) {
-						jobLogger.log("Kubernetes: " + line);
+						jobLogger.error("Kubernetes: " + line);
 					}
 					
 				}).checkReturnCode();
@@ -1329,7 +1354,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 			}		
 		}
 	}
-	
+
 	private void collectContainerLog(String namespace, String podName, String containerName, 
 			@Nullable String logEndMessage, SimpleLogger jobLogger) {
 		Thread thread = Thread.currentThread();
@@ -1343,8 +1368,10 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 			if (lastInstantRef.get() != null)
 				kubectl.addArgs("--since-time=" + DateTimeFormatter.ISO_INSTANT.format(lastInstantRef.get()));
 			
-			LineConsumer logConsumer = new LineConsumer() {
+			class Logger extends LineConsumer {
 
+				private final StyleBuilder styleBuilder = new StyleBuilder();
+				
 				@Override
 				public void consume(String line) {
 					if (line.contains("rpc error:") && line.contains("No such container:") 
@@ -1352,9 +1379,11 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 						logger.debug(line);
 					} else if (logEndMessage != null && line.contains(logEndMessage)) {
 						endOfLogSeenRef.set(true);
+						String lastLogMessage = StringUtils.substringBefore(line, logEndMessage);
+						if (StringUtils.substringAfter(lastLogMessage, " ").length() != 0)
+							consume(lastLogMessage);
 					} else if (line.startsWith("Error from server") || line.startsWith("error:")) {
-						System.out.println(line);
-						jobLogger.log(line);
+						jobLogger.error(line);
 						if (!abortError.get()) {
 							abortError.set(true);
 							thread.interrupt();
@@ -1365,19 +1394,19 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 							Instant instant = Instant.from(DateTimeFormatter.ISO_INSTANT.parse(timestamp));
 							if (lastInstantRef.get() == null || lastInstantRef.get().isBefore(instant))
 								lastInstantRef.set(instant);
-							jobLogger.log(StringUtils.substringAfter(line, " "));
+							jobLogger.log(StringUtils.substringAfter(line, " "), styleBuilder);
 						} catch (DateTimeParseException e) {
-							jobLogger.log(line);
+							jobLogger.log(line, styleBuilder);
 						}
 					} else {
-						jobLogger.log(line);
+						jobLogger.log(line, styleBuilder);
 					}
 				}
 				
 			};
 			
 			try {
-				kubectl.execute(logConsumer, logConsumer).checkReturnCode();
+				kubectl.execute(new Logger(), new Logger()).checkReturnCode();
 			} catch (Exception e) {
 				if (!abortError.get()) 
 					throw ExceptionUtils.unchecked(e);
@@ -1460,26 +1489,28 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 
 	private static class OsInfo {
 		
-		private static final Map<String, Integer> WINDOWS_VERSIONS = new LinkedHashMap<>();
+		private static final Map<Integer, String> WINDOWS_VERSIONS = new LinkedHashMap<>();
 		
 		static {
 			// update this according to 
 			// https://docs.microsoft.com/en-us/virtualization/windowscontainers/deploy-containers/version-compatibility
-			WINDOWS_VERSIONS.put(".18363.", 1909);
-			WINDOWS_VERSIONS.put(".18362.", 1903);
-			WINDOWS_VERSIONS.put(".17763.", 1809);
-			WINDOWS_VERSIONS.put(".17134.", 1803); 
-			WINDOWS_VERSIONS.put(".16299.", 1709); 
-			WINDOWS_VERSIONS.put(".14393.", 1607);
+			WINDOWS_VERSIONS.put(14393, "1607");
+			WINDOWS_VERSIONS.put(16299, "1709"); 
+			WINDOWS_VERSIONS.put(17134, "1803"); 
+			WINDOWS_VERSIONS.put(17763, "1809");
+			WINDOWS_VERSIONS.put(18362, "1903");
+			WINDOWS_VERSIONS.put(18363, "1909");
+			WINDOWS_VERSIONS.put(19041, "2004");
+			WINDOWS_VERSIONS.put(19042, "20H2");
 		}
 		
 		private final String osName;
 		
-		private final String kernelVersion;
+		private final String osVersion;
 		
-		public OsInfo(String osName, String kernelVersion) {
+		public OsInfo(String osName, String osVersion) {
 			this.osName = osName;
-			this.kernelVersion = kernelVersion;
+			this.osVersion = osVersion;
 		}
 
 		public boolean isLinux() {
@@ -1488,6 +1519,12 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 		
 		public boolean isWindows() {
 			return osName.equalsIgnoreCase("windows");
+		}
+		
+		public int getWindowsBuildNumber() {
+			Preconditions.checkState(isWindows());
+			List<String> fields = Splitter.on(".").splitToList(osVersion);
+			return Integer.parseInt(fields.get(fields.size()-2));
 		}
 		
 		public String getCacheHome() {
@@ -1509,7 +1546,7 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 				for (OsInfo osInfo: osInfos) {
 					if (!osInfo.isWindows())
 						throw new ExplicitException("Windows and non-windows nodes should not be included in same executor");
-					if (baseline == null || baseline.getWindowsVersion() > osInfo.getWindowsVersion())
+					if (baseline == null || baseline.getWindowsBuildNumber() > osInfo.getWindowsBuildNumber())
 						baseline = osInfo;
 				}
 				return baseline;
@@ -1518,20 +1555,20 @@ public class KubernetesExecutor extends JobExecutor implements Testable<TestData
 			}
 		}
 		
-		public int getWindowsVersion() {
-			Preconditions.checkState(isWindows());
-			for (Map.Entry<String, Integer> entry: WINDOWS_VERSIONS.entrySet()) {
-				if (kernelVersion.contains(entry.getKey()))
-					return entry.getValue();
-			}
-			throw new ExplicitException("Unsupported windows kernel version: " + kernelVersion);
+		public String getWindowsVersion() {
+			int buildNumber = getWindowsBuildNumber();
+			String windowsVersion = WINDOWS_VERSIONS.get(buildNumber);
+			if (windowsVersion != null)
+				return windowsVersion;
+			else
+				throw new ExplicitException("Unsupported windows build number: " + buildNumber);
 		}
 		
 		public String getHelperImageSuffix() {
 			if (isLinux())  
 				return "linux";
 			else 
-				return "windows-" + getWindowsVersion();
+				return "windows-" + getWindowsVersion().toLowerCase();
 		}
 		
 	}

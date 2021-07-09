@@ -6,12 +6,18 @@
 	<parent>
 		<groupId>io.onedev</groupId>
 		<artifactId>server-plugin</artifactId>
-		<version>4.3.0</version>
+		<version>4.7.0</version>
 	</parent>
 	<dependencies>
 		<dependency>
 			<groupId>com.nimbusds</groupId>
 			<artifactId>oauth2-oidc-sdk</artifactId>
+			<exclusions>
+				<exclusion>
+				    <groupId>javax.mail</groupId>
+				    <artifactId>mail</artifactId>
+				</exclusion>
+			</exclusions>
 		</dependency>
 	</dependencies>
 	<properties>

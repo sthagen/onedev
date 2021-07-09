@@ -49,11 +49,12 @@ import org.hibernate.annotations.OptimisticLock;
 import org.hibernate.criterion.Criterion;
 import org.hibernate.criterion.Restrictions;
 
-import com.fasterxml.jackson.annotation.JsonView;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import io.onedev.server.OneDev;
+import io.onedev.server.entitymanager.PullRequestManager;
 import io.onedev.server.entitymanager.UserManager;
 import io.onedev.server.git.GitUtils;
 import io.onedev.server.infomanager.PullRequestInfoManager;
@@ -64,6 +65,7 @@ import io.onedev.server.model.support.LastUpdate;
 import io.onedev.server.model.support.pullrequest.CloseInfo;
 import io.onedev.server.model.support.pullrequest.MergePreview;
 import io.onedev.server.model.support.pullrequest.MergeStrategy;
+import io.onedev.server.rest.annotation.Api;
 import io.onedev.server.security.SecurityUtils;
 import io.onedev.server.storage.AttachmentStorageSupport;
 import io.onedev.server.util.CollectionUtils;
@@ -72,8 +74,6 @@ import io.onedev.server.util.IssueUtils;
 import io.onedev.server.util.ProjectAndBranch;
 import io.onedev.server.util.ProjectScopedNumber;
 import io.onedev.server.util.Referenceable;
-import io.onedev.server.util.jackson.DefaultView;
-import io.onedev.server.util.jackson.RestView;
 import io.onedev.server.web.util.PullRequestAware;
 import io.onedev.server.web.util.WicketUtils;
 
@@ -94,6 +94,10 @@ import io.onedev.server.web.util.WicketUtils;
 public class PullRequest extends AbstractEntity implements Referenceable, AttachmentStorageSupport {
 
 	private static final long serialVersionUID = 1L;
+	
+	public static final int MAX_TITLE_LEN = 255;
+	
+	public static final int MAX_DESCRIPTION_LEN = 12000;
 	
 	public static final String PROP_NUMBER_SCOPE = "numberScope";
 	
@@ -207,11 +211,12 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 	@Embedded
 	private CloseInfo closeInfo;
 
-	@Column(nullable=false)
+	@Api(order=100)
+	@Column(nullable=false, length=MAX_TITLE_LEN)
 	@OptimisticLock(excluded=true)
 	private String title;
 	
-	@Column(length=12000)
+	@Column(length=MAX_DESCRIPTION_LEN)
 	@OptimisticLock(excluded=true)
 	private String description;
 	
@@ -249,10 +254,11 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 
 	// used for title search in markdown editor
 	@Column(nullable=false)
-	@JsonView(DefaultView.class)
+	@JsonIgnore
 	@OptimisticLock(excluded=true)
 	private String noSpaceTitle;
 	
+	@JsonIgnore
 	@Embedded
 	private MergePreview lastMergePreview;
 	
@@ -283,6 +289,7 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 	 * after pull request is discarded 
 	 */
 	@Version
+	@JsonIgnore
 	private int revision;
 	
 	@OneToMany(mappedBy="request", cascade=CascadeType.REMOVE)
@@ -338,8 +345,8 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 	}
 
 	public void setTitle(String title) {
-		this.title = title;
-		noSpaceTitle = StringUtils.deleteWhitespace(title);
+		this.title = StringUtils.abbreviate(title, MAX_TITLE_LEN);
+		noSpaceTitle = StringUtils.deleteWhitespace(this.title);
 	}
 
 	public String getDescription() {
@@ -347,7 +354,7 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 	}
 
 	public void setDescription(String description) {
-		this.description = description;
+		this.description = StringUtils.abbreviate(description, MAX_DESCRIPTION_LEN);
 	}
 	
 	/**
@@ -559,7 +566,6 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 	 * 			it will trigger a re-calculation, and client should call this method later 
 	 * 			to get the calculated result 
 	 */
-	@JsonView(RestView.class)
 	@Nullable
 	public MergePreview getMergePreview() {
 		if (isOpen()) {
@@ -614,24 +620,20 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 		this.mergeStrategy = mergeStrategy;
 	}
 
-	@JsonView(RestView.class)
 	public PullRequestUpdate getLatestUpdate() {
 		return getSortedUpdates().get(getSortedUpdates().size()-1);
 	}
 	
-	@JsonView(RestView.class)
 	public String getBaseRef() {
 		Preconditions.checkNotNull(getId());
 		return PullRequest.REFS_PREFIX + getNumber() + "/base";
 	}
 
-	@JsonView(RestView.class)
 	public String getMergeRef() {
 		Preconditions.checkNotNull(getId());
 		return PullRequest.REFS_PREFIX + getNumber() + "/merge";
 	}
 
-	@JsonView(RestView.class)
 	public String getHeadRef() {
 		Preconditions.checkNotNull(getId());
 		return PullRequest.REFS_PREFIX + getNumber() + "/head";
@@ -964,7 +966,7 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 	
 	
 	@Override
-	public String getAttachmentStorageUUID() {
+	public String getAttachmentGroup() {
 		return uuid;
 	}
 	
@@ -1050,7 +1052,7 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 	}
 	
 	@Override
-	public String getPrefix() {
+	public String getType() {
 		return "pull request";
 	}
 	
@@ -1104,6 +1106,84 @@ public class PullRequest extends AbstractEntity implements Referenceable, Attach
 			}
 		}
 		return requiredJobs;
+	}
+	
+	@Nullable
+	public String checkMerge() {
+    	if (!isOpen())
+    		return "Pull request already closed";
+    	String checkError = getCheckError();
+    	if (checkError != null)
+    		return "Pull request is in error: " + checkError;
+    	MergePreview preview = getMergePreview();
+    	if (preview == null)
+    		return "Merge preview not calculated yet";
+    	if (preview.getMergeCommitHash() == null)
+    		return "There are merge conflicts";
+    	if (!isAllReviewsApproved())
+    		return "Waiting for approvals";
+    	if (!isRequiredBuildsSuccessful())
+    		return "Some required builds not passed";
+    	return null;
+	}
+
+	@Nullable
+	public String checkReopen() {
+		if (isOpen())
+			return "Pull request already opened";
+		if (getTarget().getObjectName(false) == null)
+			return "Target branch no longer exists";
+		if (getSourceProject() == null)
+			return "Source project no longer exists";
+		if (getSource().getObjectName(false) == null)
+			return "Source branch no longer exists";
+		PullRequestManager manager = OneDev.getInstance(PullRequestManager.class);
+		PullRequest request = manager.findEffective(getTarget(), getSource());
+		if (request != null) {
+			if (request.isOpen())
+				return "Another pull request already open for this change";
+			else
+				return "Change already merged";
+		}
+		
+		if (GitUtils.isMergedInto(getTargetProject().getRepository(), null,
+						getSource().getObjectId(), getTarget().getObjectId())) {
+			return "Source branch already merged into target branch";
+		}
+		
+		return null;
+	}
+	
+	@Nullable
+	public String checkDeleteSourceBranch() {
+		if (!isMerged())
+			return "Pull request not merged";
+		if (getSourceProject() == null)
+			return "Source project no longer exists";
+		if (getSource().getObjectName(false) == null)
+			return "Source branch no longer exists";
+		if (getSource().isDefault())
+			return "Source branch is default branch";
+		MergePreview preview = getMergePreview();
+		if (preview == null)
+			return "Merge preview not calculated yet";
+		if (!getSource().getObjectName().equals(preview.getHeadCommitHash()) 
+				&& !getSource().getObjectName().equals(preview.getMergeCommitHash())) {
+			return "Change not updated yet";
+		}
+		PullRequestManager manager = OneDev.getInstance(PullRequestManager.class);
+		if (!manager.queryOpenTo(getSource()).isEmpty())
+			return "Some other pull requests are opening to this branch";
+		return null;
+	}
+	
+	@Nullable
+	public String checkRestoreSourceBranch() {
+		if (getSourceProject() == null)
+			return "Source project no longer exists";
+		if (getSource().getObjectName(false) != null)
+			return "Source branch already exists";
+		return null;
 	}
 	
 }

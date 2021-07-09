@@ -10,7 +10,6 @@ import java.util.UUID;
 import javax.servlet.http.HttpServletRequest;
 
 import org.apache.shiro.authc.AuthenticationException;
-import org.apache.wicket.Component;
 import org.apache.wicket.Session;
 import org.apache.wicket.request.cycle.RequestCycle;
 import org.apache.wicket.request.flow.RedirectToUrlException;
@@ -62,7 +61,7 @@ import io.onedev.server.web.page.admin.sso.SsoProcessPage;
 import net.minidev.json.JSONArray;
 import net.minidev.json.JSONObject;
 
-@Editable(name="OpenID (Generic)", order=10000, description="Refer to this <a href='$docRoot/pages/okta-sso.md' target='_blank'>usage scenario</a> for an example setup")
+@Editable(name="OpenID", order=10000, description="Refer to this <a href='$docRoot/pages/okta-sso.md' target='_blank'>usage scenario</a> for an example setup")
 public class OpenIdConnector extends SsoConnector {
 
 	private static final long serialVersionUID = 1L;
@@ -85,7 +84,7 @@ public class OpenIdConnector extends SsoConnector {
 	
 	@Override
 	public boolean isManagingMemberships() {
-		return groupsClaim != null;
+		return getGroupsClaim() != null;
 	}
 
 	@Editable(order=100, description="Name of the provider will serve two purpose: "
@@ -290,22 +289,17 @@ public class OpenIdConnector extends SsoConnector {
 	}
 
 	@Override
-	public Component renderAdditionalInfo(String componentId) {
-		return new CallbackUrlPanel(componentId, getCallbackUri().toString());
-	}
-
-	@Override
 	public void initiateLogin() {
 		try {
-			ClientID clientID = new ClientID(clientId);
+			ClientID clientID = new ClientID(getClientId());
 			
-			State state = new State(UUID.randomUUID().toString());
+			State state = new State("OIDC-" + UUID.randomUUID().toString());
 			Session.get().setAttribute(SESSION_ATTR_STATE, state.getValue());
 			Session.get().setAttribute(SESSION_ATTR_PROVIDER_METADATA, discoverProviderMetadata());
 			
 			String scopes = "openid email profile";
-			if (groupsClaim != null)
-				scopes = scopes + " " + groupsClaim;
+			if (getGroupsClaim() != null)
+				scopes = scopes + " " + getGroupsClaim();
 			
 			AuthenticationRequest request = new AuthenticationRequest(
 					new URI(getCachedProviderMetadata().getAuthorizationEndpoint()),
@@ -344,7 +338,8 @@ public class OpenIdConnector extends SsoConnector {
 		return metadata;
 	}
 	
-	private URI getCallbackUri() {
+	@Override
+	public URI getCallbackUri() {
 		String serverUrl = OneDev.getInstance(SettingManager.class).getSystemSetting().getServerUrl();
 		try {
 			return new URI(serverUrl + "/" + SsoProcessPage.MOUNT_PATH + "/" 
@@ -353,4 +348,5 @@ public class OpenIdConnector extends SsoConnector {
 			throw new RuntimeException(e);
 		}
 	}
+
 }

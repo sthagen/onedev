@@ -1,6 +1,7 @@
 package io.onedev.server.buildspec.job;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -10,10 +11,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.eclipse.jgit.lib.ObjectId;
 
 import io.onedev.k8shelper.Action;
-import io.onedev.k8shelper.CloneInfo;
 import io.onedev.server.buildspec.Service;
 import io.onedev.server.util.SimpleLogger;
-import io.onedev.server.util.patternset.PatternSet;
 
 public abstract class JobContext {
 	
@@ -23,15 +22,7 @@ public abstract class JobContext {
 	
 	private final File projectGitDir;
 	
-	private final File serverWorkspace;
-	
 	private final List<Action> actions;
-	
-	private final boolean retrieveSource;
-	
-	private final Integer cloneDepth;
-	
-	private final CloneInfo cloneInfo;
 	
 	private final String cpuRequirement;
 	
@@ -40,8 +31,6 @@ public abstract class JobContext {
 	private final ObjectId commitId;
 	
 	private final Collection<CacheSpec> cacheSpecs; 
-	
-	private final PatternSet collectFiles;
 	
 	private final List<Service> services;
 	
@@ -55,25 +44,20 @@ public abstract class JobContext {
 	
 	private final Map<String, Integer> cacheCounts = new ConcurrentHashMap<>();
 	
-	public JobContext(String projectName, Long buildNumber, 
-			File projectGitDir, List<Action> actions, File workspace,  
-			boolean retrieveSource, Integer cloneDepth, CloneInfo cloneInfo, 
-			String cpuRequirement, String memoryRequirement, ObjectId commitId, 
-			Collection<CacheSpec> caches, PatternSet collectFiles, int cacheTTL, 
+	protected final Collection<Thread> serverStepThreads = new ArrayList<>();
+	
+	public JobContext(String projectName, Long buildNumber, File projectGitDir, 
+			List<Action> actions, String cpuRequirement, String memoryRequirement, 
+			ObjectId commitId, Collection<CacheSpec> caches, int cacheTTL, 
 			int retried, List<Service> services, SimpleLogger logger) {
 		this.projectName = projectName;
 		this.buildNumber = buildNumber;
 		this.projectGitDir = projectGitDir;
 		this.actions = actions;
-		this.serverWorkspace = workspace;
-		this.retrieveSource = retrieveSource;
-		this.cloneDepth = cloneDepth;
-		this.cloneInfo = cloneInfo;
 		this.cpuRequirement = cpuRequirement;
 		this.memoryRequirement = memoryRequirement;
 		this.commitId = commitId;
 		this.cacheSpecs = caches;
-		this.collectFiles = collectFiles;
 		this.cacheTTL = cacheTTL;
 		this.retried = retried;
 		this.services = services;
@@ -96,24 +80,8 @@ public abstract class JobContext {
 		return actions;
 	}
 
-	public File getServerWorkspace() {
-		return serverWorkspace;
-	}
-
 	public ObjectId getCommitId() {
 		return commitId;
-	}
-
-	public boolean isRetrieveSource() {
-		return retrieveSource;
-	}
-
-	public Integer getCloneDepth() {
-		return cloneDepth;
-	}
-
-	public CloneInfo getCloneInfo() {
-		return cloneInfo;
 	}
 
 	public String getCpuRequirement() {
@@ -126,10 +94,6 @@ public abstract class JobContext {
 
 	public Collection<CacheSpec> getCacheSpecs() {
 		return cacheSpecs;
-	}
-
-	public PatternSet getCollectFiles() {
-		return collectFiles;
 	}
 
 	public SimpleLogger getLogger() {
@@ -155,9 +119,36 @@ public abstract class JobContext {
 	public Map<String, Integer> getCacheCounts() {
 		return cacheCounts;
 	}
-
+	
 	public abstract void notifyJobRunning();
 	
 	public abstract void reportJobWorkspace(String jobWorkspace);
+	
+	public Map<String, byte[]> runServerStep(List<Integer> stepPosition, 
+			File filesDir, Map<String, String> placeholderValues, SimpleLogger logger) {
+		Thread thread = Thread.currentThread();
+		synchronized (serverStepThreads) {
+			serverStepThreads.add(thread);
+		}
+		try {
+			return doRunServerStep(stepPosition, filesDir, placeholderValues, logger);
+		} finally {
+			synchronized (serverStepThreads) {
+				serverStepThreads.remove(thread);
+			}
+		}
+	}
+	
+	protected abstract Map<String, byte[]> doRunServerStep(List<Integer> stepPosition, 
+			File filesDir, Map<String, String> placeholderValues, SimpleLogger logger);
+	
+	public abstract void copyDependencies(File targetDir);
+	
+	public void onJobFinished() {
+		synchronized (serverStepThreads) {
+			for (Thread thread: serverStepThreads)
+				thread.interrupt();
+		}
+	}
 	
 }

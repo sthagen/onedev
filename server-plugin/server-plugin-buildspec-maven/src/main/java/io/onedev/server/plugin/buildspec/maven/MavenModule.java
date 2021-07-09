@@ -31,6 +31,7 @@ public class MavenModule extends AbstractPluginModule {
 			}
 			
 		});
+		
 	}
 
 }

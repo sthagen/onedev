@@ -28,6 +28,9 @@ public interface BuildManager extends EntityManager<Build> {
 
 	@Nullable
 	Build find(ProjectScopedNumber buildFQN);
+	
+	@Nullable
+	Build findLastFinished(Project project, String jobName);
 
 	@Nullable
 	Build findStreamPrevious(Build build, @Nullable Build.Status status);
@@ -47,7 +50,10 @@ public interface BuildManager extends EntityManager<Build> {
 	void create(Build build);
 
 	Collection<Build> queryUnfinished();
-
+	
+	Collection<Build> queryUnfinished(Project project, String jobName, @Nullable String refName, 
+			@Nullable Optional<PullRequest> request, Map<String, List<String>> params);
+	
 	List<Build> query(Project project, String term, int count);
 
 	List<Build> query(@Nullable Project project, EntityQuery<Build> buildQuery, int firstResult, int maxResults);

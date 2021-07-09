@@ -27,6 +27,7 @@ import io.onedev.server.web.page.admin.issuesetting.statespec.IssueStateListPage
 import io.onedev.server.web.page.admin.issuesetting.transitionspec.StateTransitionListPage;
 import io.onedev.server.web.page.admin.jobexecutor.JobExecutorsPage;
 import io.onedev.server.web.page.admin.mailsetting.MailSettingPage;
+import io.onedev.server.web.page.admin.pluginsettings.ContributedAdministrationSettingPage;
 import io.onedev.server.web.page.admin.role.NewRolePage;
 import io.onedev.server.web.page.admin.role.RoleDetailPage;
 import io.onedev.server.web.page.admin.role.RoleListPage;
@@ -46,6 +47,9 @@ import io.onedev.server.web.page.admin.user.password.UserPasswordPage;
 import io.onedev.server.web.page.admin.user.profile.UserProfilePage;
 import io.onedev.server.web.page.admin.user.ssh.UserSshKeysPage;
 import io.onedev.server.web.page.builds.BuildListPage;
+import io.onedev.server.web.page.help.MethodDetailPage;
+import io.onedev.server.web.page.help.ResourceDetailPage;
+import io.onedev.server.web.page.help.ResourceListPage;
 import io.onedev.server.web.page.issues.IssueListPage;
 import io.onedev.server.web.page.my.accesstoken.MyAccessTokenPage;
 import io.onedev.server.web.page.my.avatar.MyAvatarPage;
@@ -69,12 +73,14 @@ import io.onedev.server.web.page.project.commits.CommitDetailPage;
 import io.onedev.server.web.page.project.commits.ProjectCommitsPage;
 import io.onedev.server.web.page.project.compare.RevisionComparePage;
 import io.onedev.server.web.page.project.dashboard.ProjectDashboardPage;
+import io.onedev.server.web.page.project.imports.ProjectImportPage;
 import io.onedev.server.web.page.project.issues.boards.IssueBoardsPage;
 import io.onedev.server.web.page.project.issues.create.NewIssuePage;
 import io.onedev.server.web.page.project.issues.detail.IssueActivitiesPage;
 import io.onedev.server.web.page.project.issues.detail.IssueBuildsPage;
 import io.onedev.server.web.page.project.issues.detail.IssueCommitsPage;
 import io.onedev.server.web.page.project.issues.detail.IssuePullRequestsPage;
+import io.onedev.server.web.page.project.issues.imports.IssueImportPage;
 import io.onedev.server.web.page.project.issues.list.ProjectIssueListPage;
 import io.onedev.server.web.page.project.issues.milestones.MilestoneDetailPage;
 import io.onedev.server.web.page.project.issues.milestones.MilestoneEditPage;
@@ -94,6 +100,7 @@ import io.onedev.server.web.page.project.setting.build.BuildPreservationsPage;
 import io.onedev.server.web.page.project.setting.build.DefaultFixedIssueFiltersPage;
 import io.onedev.server.web.page.project.setting.build.JobSecretsPage;
 import io.onedev.server.web.page.project.setting.general.GeneralProjectSettingPage;
+import io.onedev.server.web.page.project.setting.pluginsettings.ContributedProjectSettingPage;
 import io.onedev.server.web.page.project.setting.tagprotection.TagProtectionsPage;
 import io.onedev.server.web.page.project.setting.webhook.WebHooksPage;
 import io.onedev.server.web.page.project.stats.ProjectContribsPage;
@@ -133,12 +140,17 @@ public class OneUrlMapper extends CompoundRequestMapper {
 		addMyPages();
 		addAdministrationPages();
 		addSecurityPages();
-				
 		addResources();
-		
+		addHelpPages();
 		addErrorPages();
 	}
 
+	private void addHelpPages() {
+		add(new DynamicPathPageMapper("help/api", ResourceListPage.class));
+		add(new DynamicPathPageMapper("help/api/${resource}", ResourceDetailPage.class));
+		add(new DynamicPathPageMapper("help/api/${resource}/${method}", MethodDetailPage.class));
+	}
+	
 	private void addMyPages() {
 		add(new DynamicPathPageMapper("my/profile", MyProfilePage.class));
 		add(new DynamicPathPageMapper("my/avatar", MyAvatarPage.class));
@@ -209,6 +221,8 @@ public class OneUrlMapper extends CompoundRequestMapper {
 		add(new DynamicPathPageMapper("administration/settings/issue-boards", DefaultBoardListPage.class));
 		add(new DynamicPathPageMapper("administration/settings/issue-templates", IssueTemplateListPage.class));
 		
+		add(new DynamicPathPageMapper("administration/settings/${setting}", ContributedAdministrationSettingPage.class));
+		
 		add(new DynamicPathPageMapper("administration/server-log", ServerLogPage.class));
 		add(new DynamicPathPageMapper("administration/server-information", ServerInformationPage.class));
 	}
@@ -216,6 +230,7 @@ public class OneUrlMapper extends CompoundRequestMapper {
 	private void addProjectPages() {
 		add(new DynamicPathPageMapper("projects", ProjectListPage.class));
 		add(new DynamicPathPageMapper("projects/new", NewProjectPage.class));
+		add(new DynamicPathPageMapper("projects/import/${importer}", ProjectImportPage.class));
 		add(new DynamicPathPageMapper("projects/${project}", ProjectDashboardPage.class));
 
 		add(new DynamicPathPageMapper("projects/${project}/blob/#{revision}/#{path}", ProjectBlobPage.class));
@@ -245,6 +260,7 @@ public class OneUrlMapper extends CompoundRequestMapper {
 		add(new DynamicPathPageMapper("projects/${project}/issues/${issue}/pull-requests", IssuePullRequestsPage.class));
 		add(new DynamicPathPageMapper("projects/${project}/issues/${issue}/builds", IssueBuildsPage.class));
 		add(new DynamicPathPageMapper("projects/${project}/issues/new", NewIssuePage.class));
+		add(new DynamicPathPageMapper("projects/${project}/issues/import/${importer}", IssueImportPage.class));
 		add(new DynamicPathPageMapper("projects/${project}/milestones", MilestoneListPage.class));
 		add(new DynamicPathPageMapper("projects/${project}/milestones/${milestone}", MilestoneDetailPage.class));
 		add(new DynamicPathPageMapper("projects/${project}/milestones/${milestone}/edit", MilestoneEditPage.class));
@@ -268,6 +284,7 @@ public class OneUrlMapper extends CompoundRequestMapper {
 		add(new DynamicPathPageMapper("projects/${project}/settings/build/build-preserve-rules", BuildPreservationsPage.class));
 		add(new DynamicPathPageMapper("projects/${project}/settings/build/default-fixed-issues-filter", DefaultFixedIssueFiltersPage.class));
 		add(new DynamicPathPageMapper("projects/${project}/settings/web-hooks", WebHooksPage.class));
+		add(new DynamicPathPageMapper("projects/${project}/settings/${setting}", ContributedProjectSettingPage.class));
 	}
 
 }

@@ -1,6 +1,8 @@
 package io.onedev.server.web.component.project.list;
 
+import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 
@@ -55,12 +57,17 @@ import io.onedev.server.web.component.datatable.OneDataTable;
 import io.onedev.server.web.component.floating.FloatingPanel;
 import io.onedev.server.web.component.link.ActionablePageLink;
 import io.onedev.server.web.component.link.DropdownLink;
+import io.onedev.server.web.component.menu.MenuItem;
+import io.onedev.server.web.component.menu.MenuLink;
 import io.onedev.server.web.component.orderedit.OrderEditPanel;
 import io.onedev.server.web.component.project.avatar.ProjectAvatar;
 import io.onedev.server.web.component.savedquery.SavedQueriesClosed;
 import io.onedev.server.web.component.savedquery.SavedQueriesOpened;
 import io.onedev.server.web.page.project.NewProjectPage;
 import io.onedev.server.web.page.project.dashboard.ProjectDashboardPage;
+import io.onedev.server.web.page.project.imports.ProjectImportPage;
+import io.onedev.server.web.page.project.imports.ProjectImporter;
+import io.onedev.server.web.page.project.imports.ProjectImporterContribution;
 import io.onedev.server.web.util.LoadableDetachableDataProvider;
 import io.onedev.server.web.util.PagingHistorySupport;
 import io.onedev.server.web.util.QuerySaveSupport;
@@ -229,6 +236,36 @@ public class ProjectListPanel extends Panel {
 					}
 					
 				});
+			}
+			
+		});
+		
+		add(new MenuLink("importProjects") {
+
+			@Override
+			protected List<MenuItem> getMenuItems(FloatingPanel dropdown) {
+				Collection<ProjectImporter<? extends Serializable, ? extends Serializable>> importers = new ArrayList<>();
+				for (ProjectImporterContribution contribution: OneDev.getExtensions(ProjectImporterContribution.class))
+					importers.addAll(contribution.getImporters());
+				
+				List<MenuItem> menuItems = new ArrayList<>();
+				for (ProjectImporter<? extends Serializable, ? extends Serializable> importer: importers) {
+					menuItems.add(new MenuItem() {
+
+						@Override
+						public String getLabel() {
+							return "From " + importer.getName();
+						}
+
+						@Override
+						public WebMarkupContainer newLink(String id) {
+							return new BookmarkablePageLink<Void>(id, ProjectImportPage.class, 
+									ProjectImportPage.paramsOf(importer.getName()));
+						}
+						
+					});
+				}
+				return menuItems;
 			}
 			
 		});

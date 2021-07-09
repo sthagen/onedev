@@ -1,5 +1,14 @@
 package io.onedev.server.plugin.docker;
 
+import static io.onedev.k8shelper.KubernetesHelper.cloneRepository;
+import static io.onedev.k8shelper.KubernetesHelper.getCacheInstances;
+import static io.onedev.k8shelper.KubernetesHelper.installGitCert;
+import static io.onedev.k8shelper.KubernetesHelper.preprocess;
+import static io.onedev.k8shelper.KubernetesHelper.readPlaceholderValues;
+import static io.onedev.k8shelper.KubernetesHelper.replacePlaceholders;
+import static io.onedev.k8shelper.KubernetesHelper.stringifyPosition;
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
@@ -7,6 +16,7 @@ import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
@@ -30,6 +40,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
+import com.google.common.base.Throwables;
 
 import io.onedev.commons.launcher.bootstrap.Bootstrap;
 import io.onedev.commons.launcher.loader.AppLoader;
@@ -42,25 +53,30 @@ import io.onedev.commons.utils.command.ExecutionResult;
 import io.onedev.commons.utils.command.LineConsumer;
 import io.onedev.commons.utils.command.ProcessKiller;
 import io.onedev.k8shelper.CacheInstance;
+import io.onedev.k8shelper.CheckoutExecutable;
+import io.onedev.k8shelper.CloneInfo;
 import io.onedev.k8shelper.CommandExecutable;
-import io.onedev.k8shelper.CommandHandler;
 import io.onedev.k8shelper.CompositeExecutable;
-import io.onedev.k8shelper.Executable;
-import io.onedev.k8shelper.KubernetesHelper;
+import io.onedev.k8shelper.LeafExecutable;
+import io.onedev.k8shelper.LeafHandler;
+import io.onedev.k8shelper.ServerExecutable;
 import io.onedev.k8shelper.SshCloneInfo;
 import io.onedev.server.OneDev;
 import io.onedev.server.buildspec.Service;
 import io.onedev.server.buildspec.job.EnvVar;
 import io.onedev.server.buildspec.job.JobContext;
 import io.onedev.server.buildspec.job.JobManager;
+import io.onedev.server.buildspec.job.log.StyleBuilder;
 import io.onedev.server.git.config.GitConfig;
 import io.onedev.server.model.support.RegistryLogin;
 import io.onedev.server.model.support.administration.jobexecutor.JobExecutor;
 import io.onedev.server.plugin.docker.DockerExecutor.TestData;
+import io.onedev.server.util.ExceptionUtils;
 import io.onedev.server.util.PKCS12CertExtractor;
 import io.onedev.server.util.ServerConfig;
 import io.onedev.server.util.SimpleLogger;
 import io.onedev.server.util.concurrent.CapacityRunner;
+import io.onedev.server.util.patternset.PatternSet;
 import io.onedev.server.util.validation.Validatable;
 import io.onedev.server.util.validation.annotation.ClassValidating;
 import io.onedev.server.web.editable.annotation.Editable;
@@ -317,7 +333,7 @@ public class DockerExecutor extends JobExecutor implements Testable<TestData>, V
 			StringBuilder builder = new StringBuilder();
 			docker.clearArgs();
 			docker.addArgs("inspect", containerName);
-			docker.execute(new LineConsumer(StandardCharsets.UTF_8.name()) {
+			docker.execute(new LineConsumer(UTF_8.name()) {
 
 				@Override
 				public void consume(String line) {
@@ -343,6 +359,7 @@ public class DockerExecutor extends JobExecutor implements Testable<TestData>, V
 			if (stateNode.get("Status").asText().equals("running")) {
 				docker.clearArgs();
 				docker.addArgs("exec", containerName);
+				
 				if (SystemUtils.IS_OS_WINDOWS) 
 					docker.addArgs("cmd", "/c", jobService.getReadinessCheckCommand());
 				else 
@@ -369,20 +386,20 @@ public class DockerExecutor extends JobExecutor implements Testable<TestData>, V
 				}
 			} else if (stateNode.get("Status").asText().equals("exited")) {
 				if (stateNode.get("OOMKilled").asText().equals("true"))  
-					jobLogger.log("Out of memory");
+					jobLogger.error("Out of memory");
 				else if (stateNode.get("Error").asText().length() != 0)  
-					jobLogger.log(stateNode.get("Error").asText());
+					jobLogger.error(stateNode.get("Error").asText());
 				
 				docker.clearArgs();
 				docker.addArgs("logs", containerName);
-				docker.execute(new LineConsumer(StandardCharsets.UTF_8.name()) {
+				docker.execute(new LineConsumer(UTF_8.name()) {
 
 					@Override
 					public void consume(String line) {
 						jobLogger.log(line);
 					}
 					
-				}, new LineConsumer(StandardCharsets.UTF_8.name()) {
+				}, new LineConsumer(UTF_8.name()) {
 
 					@Override
 					public void consume(String line) {
@@ -402,6 +419,30 @@ public class DockerExecutor extends JobExecutor implements Testable<TestData>, V
 		}		
 	}
 	
+	private LineConsumer newStyledLogger(SimpleLogger jobLogger) {
+		return new LineConsumer(StandardCharsets.UTF_8.name()) {
+
+			private final StyleBuilder styleBuilder = new StyleBuilder();
+			
+			@Override
+			public void consume(String line) {
+				jobLogger.log(line, styleBuilder);
+			}
+			
+		};
+	}
+	
+	private LineConsumer newErrorLogger(SimpleLogger jobLogger) {
+		return new LineConsumer(StandardCharsets.UTF_8.name()) {
+
+			@Override
+			public void consume(String line) {
+				jobLogger.warning(line);
+			}
+			
+		};
+	}
+	
 	@Override
 	public void execute(String jobToken, JobContext jobContext) {
 		File hostBuildHome = FileUtils.createTempDir("onedev-build");
@@ -409,7 +450,6 @@ public class DockerExecutor extends JobExecutor implements Testable<TestData>, V
 			SimpleLogger jobLogger = jobContext.getLogger();
 			getCapacityRunner().call(new Callable<Void>() {
 	
-				@SuppressWarnings("resource")
 				@Override
 				public Void call() {
 					String network = getName() + "-" + jobContext.getProjectName() + "-" 
@@ -423,9 +463,9 @@ public class DockerExecutor extends JobExecutor implements Testable<TestData>, V
 					FileUtils.createDir(hostCacheHome);
 					
 					jobLogger.log("Allocating job caches...") ;
-					Map<CacheInstance, Date> cacheInstances = KubernetesHelper.getCacheInstances(hostCacheHome);
+					Map<CacheInstance, Date> cacheInstances = getCacheInstances(hostCacheHome);
 					Map<CacheInstance, String> cacheAllocations = jobManager.allocateJobCaches(jobToken, new Date(), cacheInstances);
-					KubernetesHelper.preprocess(hostCacheHome, cacheAllocations, new Consumer<File>() {
+					preprocess(hostCacheHome, cacheAllocations, new Consumer<File>() {
 	
 						@Override
 						public void accept(File directory) {
@@ -460,166 +500,69 @@ public class DockerExecutor extends JobExecutor implements Testable<TestData>, V
 						}
 						
 						AtomicReference<File> hostHome = new AtomicReference<>(null);
-						try {
-							LineConsumer logger = new LineConsumer(StandardCharsets.UTF_8.name()) {
-
-								@Override
-								public void consume(String line) {
-									jobContext.getLogger().log(line);
-								}
-								
-							};
-
-							if (jobContext.isRetrieveSource()) {
-								jobLogger.log("Retrieving source code...");
-								hostHome.set(FileUtils.createTempDir());
-								Commandline git = new Commandline(AppLoader.getInstance(GitConfig.class).getExecutable());	
-								git.workingDir(hostWorkspace).environments().put("HOME", hostHome.get().getAbsolutePath());
-
-								jobContext.getCloneInfo().writeAuthData(hostHome.get(), git, logger, logger);
-								
-								List<String> trustCertContent = new ArrayList<>();
-								ServerConfig serverConfig = OneDev.getInstance(ServerConfig.class); 
-								File keystoreFile = serverConfig.getKeystoreFile();
-								if (keystoreFile != null) {
-									String password = serverConfig.getKeystorePassword();
-									for (Map.Entry<String, String> entry: new PKCS12CertExtractor(keystoreFile, password).extact().entrySet()) 
-										trustCertContent.addAll(Splitter.on('\n').trimResults().splitToList(entry.getValue()));
-								}
-								if (serverConfig.getTrustCertsDir() != null) {
-									for (File file: serverConfig.getTrustCertsDir().listFiles()) {
-										if (file.isFile()) 
-											trustCertContent.addAll(FileUtils.readLines(file, StandardCharsets.UTF_8));
-									}
-								}
-	
-								if (!trustCertContent.isEmpty()) {
-									KubernetesHelper.installGitCert(new File(hostHome.get(), "trust-cert.pem"), trustCertContent, 
-											git, logger, logger);
-								}
-
-								Integer cloneDepth = jobContext.getCloneDepth();
-								
-								KubernetesHelper.clone(hostWorkspace, jobContext.getProjectGitDir().getAbsolutePath(), 
-										jobContext.getCommitId().name(), cloneDepth, git, logger, logger);
-								
-								git.clearArgs();
-								git.addArgs("remote", "add", "origin", jobContext.getCloneInfo().getCloneUrl());
-								git.execute(logger, logger).checkReturnCode();
-								
-								if (new File(hostWorkspace, ".gitmodules").exists()) {
-									if (SystemUtils.IS_OS_WINDOWS || !(jobContext.getCloneInfo() instanceof SshCloneInfo)) {
-										jobLogger.log("Retrieving submodules...");
-										
-										git.clearArgs();
-										git.addArgs("submodule", "update", "--init", "--recursive", "--force", "--quiet");
-										if (cloneDepth != null)
-											git.addArgs("--depth=" + cloneDepth);						
-										git.execute(logger, logger).checkReturnCode();
-									} else {
-										/*
-										 * We need to update submodules within a helper image in order to use our own .ssh folder. 
-										 * Specifying HOME env to change ~/.ssh folder does not have effect on Linux 
-										 */
-										Commandline cmd = newDocker();
-										String containerName = network + "-submodule-update-helper";
-										String homeOuterPath = getOuterPath(hostHome.get().getAbsolutePath());
-										String workspaceOuterPath = getOuterPath(hostWorkspace.getAbsolutePath());
-										cmd.addArgs("run", "--name=" + containerName, "-v", homeOuterPath + ":/root", 
-												"-v", workspaceOuterPath+ ":/git", "--rm", "alpine/git", 
-												"submodule", "update", "--init", "--recursive", "--force", "--quiet");	
-										if (cloneDepth != null)
-											cmd.addArgs("--depth=" + cloneDepth);						
-	
-										jobLogger.log("Retrieving submodules with helper image...");
-										
-										cmd.execute(logger, logger, null, new ProcessKiller() {
-											
-											@Override
-											public void kill(Process process, String executionId) {
-												jobLogger.log("Stopping submodule update helper container...");
-												Commandline cmd = newDocker();
-												cmd.addArgs("stop", containerName);
-												cmd.execute(new LineConsumer() {
-			
-													@Override
-													public void consume(String line) {
-														DockerExecutor.logger.debug(line);
-													}
-													
-												}, new LineConsumer() {
-			
-													@Override
-													public void consume(String line) {
-														jobLogger.log(line);
-													}
-													
-												}).checkReturnCode();
-											}
-											
-										}).checkReturnCode();
-									}
-								}								
-							}
-						
+						try {						
 							jobLogger.log("Copying job dependencies...");
-							try {
-								FileUtils.copyDirectory(jobContext.getServerWorkspace(), hostWorkspace);
-							} catch (IOException e) {
-								throw new RuntimeException(e);
-							}
+							jobContext.copyDependencies(hostWorkspace);
 	
 							String containerBuildHome;
 							String containerWorkspace;
 							String containerEntryPoint;
-							String[] containerCommand;
 							if (SystemUtils.IS_OS_WINDOWS) {
 								containerBuildHome = "C:\\onedev-build";
 								containerWorkspace = "C:\\onedev-build\\workspace";
 								containerEntryPoint = "cmd";
-								
-								if (hostHome.get() != null)
-									containerCommand = new String[] {"/c", "xcopy /Y /S /K /Q /H /R C:\\Users\\%USERNAME%\\onedev\\* C:\\Users\\%USERNAME% > nul && C:\\onedev-build\\job-commands.bat"};						
-								else
-									containerCommand = new String[] {"/c", "C:\\onedev-build\\job-commands.bat"};						
 							} else {
 								containerBuildHome = "/onedev-build";
 								containerWorkspace = "/onedev-build/workspace";
 								containerEntryPoint = "sh";
-								if (hostHome.get() != null)
-									containerCommand = new String[] {"-c", "cp -r -f -p /root/onedev/. /root && sh /onedev-build/job-commands.sh"};
-								else
-									containerCommand = new String[] {"/onedev-build/job-commands.sh"};
 							}
 							
 							jobContext.reportJobWorkspace(containerWorkspace);
-							Executable entryExecutable = new CompositeExecutable(jobContext.getActions());
-							try {
-								List<String> errorMessages = new ArrayList<>();
-								
-								entryExecutable.execute(new CommandHandler() {
-	
-									@Override
-									public boolean execute(CommandExecutable executable, List<Integer> position) {
+							CompositeExecutable entryExecutable = new CompositeExecutable(jobContext.getActions());
+							
+							List<String> errorMessages = new ArrayList<>();
+							
+							entryExecutable.execute(new LeafHandler() {
+
+								@Override
+								public boolean execute(LeafExecutable executable, List<Integer> position) {
+									String stepNames = entryExecutable.getNamesAsString(position);
+									jobLogger.log("Running step \"" + stepNames + "\"...");
+									
+									if (executable instanceof CommandExecutable) {
+										CommandExecutable commandExecutable = (CommandExecutable) executable;
+										String[] containerCommand;
 										if (SystemUtils.IS_OS_WINDOWS) {
+											if (hostHome.get() != null)
+												containerCommand = new String[] {"/c", "xcopy /Y /S /K /Q /H /R C:\\Users\\%USERNAME%\\onedev\\* C:\\Users\\%USERNAME% > nul && C:\\onedev-build\\job-commands.bat"};						
+											else
+												containerCommand = new String[] {"/c", "C:\\onedev-build\\job-commands.bat"};						
 											File scriptFile = new File(hostBuildHome, "job-commands.bat");
 											try {
-												FileUtils.writeLines(scriptFile, executable.getCommands(), "\r\n");
+												FileUtils.writeLines(
+														scriptFile, 
+														new ArrayList<>(replacePlaceholders(commandExecutable.getCommands(), hostBuildHome)), 
+														"\r\n");
 											} catch (IOException e) {
 												throw new RuntimeException(e);
 											}
 										} else {
+											if (hostHome.get() != null)
+												containerCommand = new String[] {"-c", "cp -r -f -p /root/onedev/. /root && sh /onedev-build/job-commands.sh"};
+											else
+												containerCommand = new String[] {"/onedev-build/job-commands.sh"};
 											File scriptFile = new File(hostBuildHome, "job-commands.sh");
 											try {
-												FileUtils.writeLines(scriptFile, executable.getCommands(), "\n");
+												FileUtils.writeLines(
+														scriptFile, 
+														new ArrayList<>(replacePlaceholders(commandExecutable.getCommands(), hostBuildHome)), 
+														"\n");
 											} catch (IOException e) {
 												throw new RuntimeException(e);
 											}
 										}
 										
-										String stepName = KubernetesHelper.describe(position);
-										
-										String containerName = network + "-step-" + stepName;
+										String containerName = network + "-step-" + stringifyPosition(position);
 										Commandline docker = newDocker();
 										docker.clearArgs();
 										docker.addArgs("run", "--name=" + containerName, "--network=" + network);
@@ -649,16 +592,14 @@ public class DockerExecutor extends JobExecutor implements Testable<TestData>, V
 												docker.addArgs("-v", outerPath + ":/root/onedev");
 											}
 										}
-										
+
 										docker.addArgs("-w", containerWorkspace, "--entrypoint=" + containerEntryPoint);
-										docker.addArgs(executable.getImage());
 										
+										docker.addArgs(commandExecutable.getImage());
 										docker.addArgs(containerCommand);
 										
-										jobLogger.log("Running step #" + stepName + "...");
-										
-										ExecutionResult result = docker.execute(logger, logger, null, new ProcessKiller() {
-					
+										ProcessKiller killer = new ProcessKiller() {
+											
 											@Override
 											public void kill(Process process, String executionId) {
 												jobLogger.log("Stopping step container...");
@@ -681,44 +622,178 @@ public class DockerExecutor extends JobExecutor implements Testable<TestData>, V
 												}).checkReturnCode();
 											}
 											
-										});
+										};
+										
+										ExecutionResult result = docker.execute(newStyledLogger(jobLogger), newErrorLogger(jobLogger), null, killer);
 										if (result.getReturnCode() != 0) {
-											errorMessages.add("Step #" + stepName + ": Command failed with exit code " + result.getReturnCode());
+											errorMessages.add("Step \"" + stepNames + "\": Command failed with exit code " + result.getReturnCode());
 											return false;
 										} else {
 											return true;
 										}
-									}
+									} else if (executable instanceof CheckoutExecutable) {
+										try {
+											CheckoutExecutable checkoutExecutable = (CheckoutExecutable) executable;
+											jobLogger.log("Checking out code...");
+											if (hostHome.get() == null)
+												hostHome.set(FileUtils.createTempDir());
+											Commandline git = new Commandline(AppLoader.getInstance(GitConfig.class).getExecutable());	
+											git.workingDir(hostWorkspace).environments().put("HOME", hostHome.get().getAbsolutePath());
 	
-									@Override
-									public void skip(CommandExecutable executable, List<Integer> position) {
-										jobLogger.log("Skipping step #" + KubernetesHelper.describe(position) + "...");
-									}
-									
-								}, new ArrayList<>());
+											CloneInfo cloneInfo = checkoutExecutable.getCloneInfo();
+											
+											cloneInfo.writeAuthData(hostHome.get(), git, newStyledLogger(jobLogger), newErrorLogger(jobLogger));
+											
+											List<String> trustCertContent = new ArrayList<>();
+											ServerConfig serverConfig = OneDev.getInstance(ServerConfig.class); 
+											File keystoreFile = serverConfig.getKeystoreFile();
+											if (keystoreFile != null) {
+												String password = serverConfig.getKeystorePassword();
+												for (Map.Entry<String, String> entry: new PKCS12CertExtractor(keystoreFile, password).extact().entrySet()) 
+													trustCertContent.addAll(Splitter.on('\n').trimResults().splitToList(entry.getValue()));
+											}
+											if (serverConfig.getTrustCertsDir() != null) {
+												for (File file: serverConfig.getTrustCertsDir().listFiles()) {
+													if (file.isFile()) 
+														trustCertContent.addAll(FileUtils.readLines(file, UTF_8));
+												}
+											}
+				
+											if (!trustCertContent.isEmpty()) {
+												installGitCert(new File(hostHome.get(), "trust-cert.pem"), trustCertContent, 
+														git, newStyledLogger(jobLogger), newErrorLogger(jobLogger));
+											}
+	
+											int cloneDepth = checkoutExecutable.getCloneDepth();
+											
+											cloneRepository(hostWorkspace, jobContext.getProjectGitDir().getAbsolutePath(), 
+													jobContext.getCommitId().name(), cloneDepth, git, 
+													newStyledLogger(jobLogger), newErrorLogger(jobLogger));
+											
+											git.clearArgs();
+											git.addArgs("remote", "add", "origin", cloneInfo.getCloneUrl());
+											git.execute(newStyledLogger(jobLogger), newErrorLogger(jobLogger)).checkReturnCode();
+											
+											if (new File(hostWorkspace, ".gitmodules").exists()) {
+												if (SystemUtils.IS_OS_WINDOWS || !(cloneInfo instanceof SshCloneInfo)) {
+													jobLogger.log("Retrieving submodules...");
+													
+													git.clearArgs();
+													git.addArgs("submodule", "update", "--init", "--recursive", "--force", "--quiet");
+													if (cloneDepth != 0)
+														git.addArgs("--depth=" + cloneDepth);						
+													git.execute(newStyledLogger(jobLogger), newErrorLogger(jobLogger)).checkReturnCode();
+												} else {
+													/*
+													 * We need to update submodules within a helper image in order to use our own .ssh folder. 
+													 * Specifying HOME env to change ~/.ssh folder does not have effect on Linux 
+													 */
+													Commandline cmd = newDocker();
+													String containerName = network + "-submodule-update-helper";
+													String homeOuterPath = getOuterPath(hostHome.get().getAbsolutePath());
+													String workspaceOuterPath = getOuterPath(hostWorkspace.getAbsolutePath());
+													cmd.addArgs("run", "--name=" + containerName, "-v", homeOuterPath + ":/root", 
+															"-v", workspaceOuterPath+ ":/git", "--rm", "alpine/git", 
+															"submodule", "update", "--init", "--recursive", "--force", "--quiet");	
+													if (cloneDepth != 0)
+														cmd.addArgs("--depth=" + cloneDepth);						
+				
+													jobLogger.log("Retrieving submodules with helper image...");
+													
+													cmd.execute(newStyledLogger(jobLogger), newErrorLogger(jobLogger), null, new ProcessKiller() {
+														
+														@Override
+														public void kill(Process process, String executionId) {
+															jobLogger.log("Stopping submodule update helper container...");
+															Commandline cmd = newDocker();
+															cmd.addArgs("stop", containerName);
+															cmd.execute(new LineConsumer() {
+						
+																@Override
+																public void consume(String line) {
+																	DockerExecutor.logger.debug(line);
+																}
+																
+															}, new LineConsumer() {
+						
+																@Override
+																public void consume(String line) {
+																	jobLogger.log(line);
+																}
+																
+															}).checkReturnCode();
+														}
+														
+													}).checkReturnCode();
+												}
+											}		
+											
+											return true;
+										} catch (Exception e) {
+											String errorMessage = ExceptionUtils.getExpectedError(e);
+											if (errorMessage == null) 
+												errorMessage = Throwables.getStackTraceAsString(e);
+											errorMessages.add("Step \"" + stepNames + "\" is failed: " + errorMessage);
+											return false;
+										}
+									} else {
+										ServerExecutable serverExecutable = (ServerExecutable) executable;
+										
+										File filesDir = FileUtils.createTempDir();
+										try {
+											Collection<String> placeholders = serverExecutable.getPlaceholders();
+											Map<String, String> placeholderValues = readPlaceholderValues(hostBuildHome, placeholders);
+											PatternSet filePatterns = new PatternSet(
+													new HashSet<>(replacePlaceholders(serverExecutable.getIncludeFiles(), placeholderValues)), 
+													new HashSet<>(replacePlaceholders(serverExecutable.getExcludeFiles(), placeholderValues)));
 
-								if (!errorMessages.isEmpty())
-									throw new ExplicitException(errorMessages.iterator().next());
-							} finally {
-								jobLogger.log("Sending job outcomes...");
-								
-								int baseLen = hostWorkspace.getAbsolutePath().length()+1;
-								for (File file: jobContext.getCollectFiles().listFiles(hostWorkspace)) {
-									try {
-										FileUtils.copyFile(file, new File(jobContext.getServerWorkspace(), file.getAbsolutePath().substring(baseLen)));
-									} catch (IOException e) {
-										throw new RuntimeException(e);
+											int baseLen = hostWorkspace.getAbsolutePath().length()+1;
+											for (File file: filePatterns.listFiles(hostWorkspace)) {
+												try {
+													FileUtils.copyFile(file, new File(filesDir, file.getAbsolutePath().substring(baseLen)));
+												} catch (IOException e) {
+													throw new RuntimeException(e);
+												}
+											}
+
+											Map<String, byte[]> outputFiles = jobContext.runServerStep(position, filesDir, placeholderValues, jobLogger);
+											
+											if (outputFiles != null) {
+												for (Map.Entry<String, byte[]> entry: outputFiles.entrySet()) {
+													FileUtils.writeByteArrayToFile(
+															new File(hostBuildHome, entry.getKey()), 
+															entry.getValue());
+												}
+											}
+											
+											return true;
+										} catch (Exception e) {
+											String errorMessage = ExceptionUtils.getExpectedError(e);
+											if (errorMessage == null) 
+												errorMessage = Throwables.getStackTraceAsString(e);
+											errorMessages.add("Step \"" + stepNames + "\" is failed: " + errorMessage);
+											return false;
+										} finally {
+											FileUtils.deleteDir(filesDir);
+										}
 									}
 								}
-							}
+
+								@Override
+								public void skip(LeafExecutable executable, List<Integer> position) {
+									jobLogger.log("Skipping step \"" + entryExecutable.getNamesAsString(position) + "\"...");
+								}
+								
+							}, new ArrayList<>());
+
+							if (!errorMessages.isEmpty())
+								throw new ExplicitException(errorMessages.iterator().next());
 							
 							jobLogger.log("Reporting job caches...");
 							
-							jobManager.reportJobCaches(jobToken, KubernetesHelper.getCacheInstances(hostCacheHome).keySet());
+							jobManager.reportJobCaches(jobToken, getCacheInstances(hostCacheHome).keySet());
 							
 							return null;
-						} catch (IOException e) {
-							throw new RuntimeException(e);
 						} finally {
 							if (hostHome.get() != null)
 								FileUtils.deleteDir(hostHome.get());
@@ -747,7 +822,7 @@ public class DockerExecutor extends JobExecutor implements Testable<TestData>, V
 				cmd.addArgs(login.getRegistryUrl());
 			ByteArrayInputStream input;
 			try {
-				input = new ByteArrayInputStream(login.getPassword().getBytes(StandardCharsets.UTF_8.name()));
+				input = new ByteArrayInputStream(login.getPassword().getBytes(UTF_8.name()));
 			} catch (UnsupportedEncodingException e) {
 				throw new RuntimeException(e);
 			}

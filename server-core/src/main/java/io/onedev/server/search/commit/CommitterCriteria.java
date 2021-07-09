@@ -30,10 +30,16 @@ public class CommitterCriteria extends CommitCriteria {
 	public void fill(Project project, RevListCommand command) {
 		for (String value: values) {
 			if (value == null) { // committed by me
-				if (SecurityUtils.getUser() != null)
-					command.committers().add("<" + SecurityUtils.getUser().getEmail() + ">");
-				else
+				User user = SecurityUtils.getUser();
+				if (user != null) {
+					command.committers().add("<" + user.getEmail() + ">");
+					if (user.getGitEmail() != null)
+						command.committers().add("<" + user.getGitEmail() + ">");
+					for (String email: user.getAlternateEmails())
+						command.committers().add("<" + email + ">");
+				} else {
 					throw new ExplicitException("Please login to perform this query");
+				}
 			} else {
 				command.committers().add(StringUtils.replace(value, "*", ".*"));
 			}
@@ -46,10 +52,14 @@ public class CommitterCriteria extends CommitCriteria {
 		String committerEmail = commit.getCommitterIdent().getEmailAddress();
 		for (String value: values) {
 			if (value == null) { // committed by me
-				if (User.get() == null)
+				User user = User.get();
+				if (user == null) {
 					throw new ExplicitException("Please login to perform this query");
-				else if (User.get().getEmail().equals(committerEmail)) 
+				} else if (user.getEmail().equals(committerEmail)  
+						|| user.getGitEmail() != null && user.getGitEmail().equals(committerEmail)
+						|| user.getAlternateEmails().contains(committerEmail)) { 
 					return true;
+				}
 			} else {
 				if (matches("*" + value + "*", commit.getCommitterIdent())) 
 					return true;

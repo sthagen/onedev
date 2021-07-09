@@ -299,7 +299,28 @@ public class DefaultProjectManager extends BaseEntityManager<Project>
         
         listenerRegistry.post(new ProjectCreated(to));
 	}
-
+    
+    @Transactional
+    @Override
+    public void clone(Project project, String repositoryUrl) {
+    	dao.persist(project);
+    	
+    	User user = SecurityUtils.getUser();
+       	UserAuthorization authorization = new UserAuthorization();
+       	authorization.setProject(project);
+       	authorization.setUser(user);
+       	authorization.setRole(roleManager.getOwner());
+       	project.getUserAuthorizations().add(authorization);
+       	user.getAuthorizations().add(authorization);
+       	userAuthorizationManager.save(authorization);
+    	
+        FileUtils.cleanDir(project.getGitDir());
+        new CloneCommand(project.getGitDir()).mirror(true).from(repositoryUrl).call();
+        checkSanity(project);
+        
+        listenerRegistry.post(new ProjectCreated(project));
+    }
+    
 	private boolean isGitHookValid(File gitDir, String hookName) {
         File hookFile = new File(gitDir, "hooks/" + hookName);
         if (!hookFile.exists()) 

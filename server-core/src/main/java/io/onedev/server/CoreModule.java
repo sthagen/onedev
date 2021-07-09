@@ -217,7 +217,7 @@ import io.onedev.server.persistence.annotation.Sessional;
 import io.onedev.server.persistence.annotation.Transactional;
 import io.onedev.server.persistence.dao.Dao;
 import io.onedev.server.persistence.dao.DefaultDao;
-import io.onedev.server.rest.RestConstants;
+import io.onedev.server.rest.ProjectResource;
 import io.onedev.server.rest.jersey.DefaultServletContainer;
 import io.onedev.server.rest.jersey.JerseyConfigurator;
 import io.onedev.server.rest.jersey.ResourceConfigProvider;
@@ -288,9 +288,13 @@ import io.onedev.server.web.editable.EditSupport;
 import io.onedev.server.web.editable.EditSupportLocator;
 import io.onedev.server.web.editable.EditSupportRegistry;
 import io.onedev.server.web.mapper.DynamicPathPageMapper;
+import io.onedev.server.web.page.layout.ContributedAdministrationSetting;
+import io.onedev.server.web.page.layout.AdministrationSettingContribution;
 import io.onedev.server.web.page.layout.DefaultMainMenuCustomization;
 import io.onedev.server.web.page.layout.MainMenuCustomization;
 import io.onedev.server.web.page.project.blob.render.BlobRendererContribution;
+import io.onedev.server.web.page.project.setting.ContributedProjectSetting;
+import io.onedev.server.web.page.project.setting.ProjectSettingContribution;
 import io.onedev.server.web.page.test.TestPage;
 import io.onedev.server.web.websocket.BuildEventBroadcaster;
 import io.onedev.server.web.websocket.CodeCommentEventBroadcaster;
@@ -511,6 +515,23 @@ public class CoreModule extends AbstractPluginModule {
 			}
 			
 		});
+		contribute(AdministrationSettingContribution.class, new AdministrationSettingContribution() {
+			
+			@Override
+			public List<Class<? extends ContributedAdministrationSetting>> getSettingClasses() {
+				return new ArrayList<>();
+			}
+			
+		});
+		contribute(ProjectSettingContribution.class, new ProjectSettingContribution() {
+			
+			@Override
+			public List<Class<? extends ContributedProjectSetting>> getSettingClasses() {
+				return new ArrayList<>();
+			}
+			
+		});
+		
 	}
 	
 	private void configureSsh() {
@@ -560,7 +581,7 @@ public class CoreModule extends AbstractPluginModule {
 
 			@Override
 			public void configure(FilterChainManager filterChainManager) {
-				filterChainManager.createChain("/rest/**", "noSessionCreation, authcBasic");
+				filterChainManager.createChain("/api/**", "noSessionCreation, authcBasic");
 			}
 			
 		});
@@ -569,10 +590,11 @@ public class CoreModule extends AbstractPluginModule {
 			
 			@Override
 			public void configure(ResourceConfig resourceConfig) {
-				resourceConfig.packages(RestConstants.class.getPackage().getName());
+				resourceConfig.packages(ProjectResource.class.getPackage().getName());
 			}
 			
 		});
+		
 	}
 
 	private void configureWeb() {
@@ -624,7 +646,8 @@ public class CoreModule extends AbstractPluginModule {
 			@Override
 			public Collection<Class<? extends Exception>> getExpectedExceptionClasses() {
 				return Sets.newHashSet(ConstraintViolationException.class, EntityNotFoundException.class, 
-						ObjectNotFoundException.class, StaleStateException.class, UnauthorizedException.class, 
+						ObjectNotFoundException.class, io.onedev.server.git.exception.ObjectNotFoundException.class, 
+						StaleStateException.class, UnauthorizedException.class, 
 						ExplicitException.class, ValidationException.class, PageExpiredException.class, 
 						StalePageException.class);
 			}

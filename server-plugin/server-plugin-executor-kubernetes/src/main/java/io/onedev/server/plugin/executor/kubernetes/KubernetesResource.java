@@ -1,5 +1,9 @@
 package io.onedev.server.plugin.executor.kubernetes;
 
+import static io.onedev.k8shelper.KubernetesHelper.readInt;
+import static io.onedev.k8shelper.KubernetesHelper.readString;
+
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -7,6 +11,7 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -30,14 +35,20 @@ import com.google.common.base.Splitter;
 import com.google.common.collect.Lists;
 
 import io.onedev.commons.utils.ExplicitException;
+import io.onedev.commons.utils.FileUtils;
 import io.onedev.commons.utils.StringUtils;
 import io.onedev.commons.utils.TarUtils;
 import io.onedev.k8shelper.CacheAllocationRequest;
 import io.onedev.k8shelper.CacheInstance;
+import io.onedev.k8shelper.KubernetesHelper;
 import io.onedev.server.buildspec.job.Job;
 import io.onedev.server.buildspec.job.JobContext;
 import io.onedev.server.buildspec.job.JobManager;
+import io.onedev.server.buildspec.job.log.StyleBuilder;
+import io.onedev.server.rest.annotation.Api;
+import io.onedev.server.util.SimpleLogger;
 
+@Api(internal=true)
 @Path("/k8s")
 @Consumes(MediaType.WILDCARD)
 @Singleton
@@ -64,13 +75,8 @@ public class KubernetesResource {
 			context.reportJobWorkspace(jobWorkspace);		
 		Map<String, Object> contextMap = new HashMap<>();
 		contextMap.put("actions", context.getActions());
-		contextMap.put("retrieveSource", context.isRetrieveSource());
-		contextMap.put("cloneDepth", context.getCloneDepth());
 		contextMap.put("projectName", context.getProjectName());
-		contextMap.put("cloneInfo", context.getCloneInfo());
 		contextMap.put("commitHash", context.getCommitId().name());
-		contextMap.put("collectFiles.includes", context.getCollectFiles().getIncludes());
-		contextMap.put("collectFiles.excludes", context.getCollectFiles().getExcludes());
 		return SerializationUtils.serialize((Serializable) contextMap);
     }
 	
@@ -94,6 +100,60 @@ public class KubernetesResource {
 		jobManager.reportJobCaches(getJobToken(), cacheInstances);
 	}
 	
+	@Path("/run-server-step")
+	@Consumes(MediaType.APPLICATION_OCTET_STREAM)
+	@POST
+	public Response runServerStep(InputStream is) {
+		StreamingOutput os = new StreamingOutput() {
+
+			@Override
+		   public void write(OutputStream output) throws IOException {
+				File filesDir = FileUtils.createTempDir();
+				try {
+					int length = readInt(is);
+					List<Integer> stepPosition = new ArrayList<>();
+					for (int i=0; i<length; i++) 
+						stepPosition.add(readInt(is));
+					
+					Map<String, String> placeholderValues = new HashMap<>();
+					length = readInt(is);
+					for (int i=0; i<length; i++) 
+						placeholderValues.put(readString(is), readString(is));
+					
+					TarUtils.untar(is, filesDir);
+					
+					Map<String, byte[]> outputFiles = jobManager.runServerStep(getJobToken(), stepPosition, 
+							filesDir, placeholderValues, new SimpleLogger() {
+
+						@Override
+						public void log(String message, StyleBuilder styleBuilder) {
+							// While testing, ngrok.io buffers response and build can not get log entries 
+							// timely. This won't happen on pagekite however
+							KubernetesHelper.writeInt(output, 1);
+							KubernetesHelper.writeString(output, message);
+							try {
+								output.flush();
+							} catch (IOException e) {
+								throw new RuntimeException(e);
+							}
+						}
+						
+					});
+					if (outputFiles == null)
+						outputFiles = new HashMap<>();
+					byte[] bytes = SerializationUtils.serialize((Serializable) outputFiles); 
+					KubernetesHelper.writeInt(output, 2);
+					KubernetesHelper.writeInt(output, bytes.length);
+					output.write(bytes);
+				} finally {
+					FileUtils.deleteDir(filesDir);
+				}						
+		   }				   
+		   
+		};
+		return Response.ok(os).build();
+	}
+	
 	@Path("/download-dependencies")
 	@Produces(MediaType.APPLICATION_OCTET_STREAM)
 	@GET
@@ -103,24 +163,20 @@ public class KubernetesResource {
 			@Override
 		   public void write(OutputStream output) throws IOException {
 				JobContext context = jobManager.getJobContext(getJobToken(), true);
-				TarUtils.tar(context.getServerWorkspace(), Lists.newArrayList("**"), 
-						new ArrayList<>(), output);
-				output.flush();
+				File tempDir = FileUtils.createTempDir();
+				try {
+					context.copyDependencies(tempDir);
+					TarUtils.tar(tempDir, Lists.newArrayList("**"), new ArrayList<>(), output);
+					output.flush();
+				} finally {
+					FileUtils.deleteDir(tempDir);
+				}
 		   }				   
 		   
 		};
 		return Response.ok(os).build();
 	}
-	
-	@POST
-	@Path("/upload-outcomes")
-	@Consumes(MediaType.APPLICATION_OCTET_STREAM)	
-	public Response uploadOutcomes(InputStream is) {
-		JobContext context = jobManager.getJobContext(getJobToken(), true);
-		TarUtils.untar(is, context.getServerWorkspace());
-		return Response.ok().build();
-	}
-	
+	 
 	@GET
 	@Path("/test")
 	public Response test() {

@@ -6,7 +6,7 @@ import java.util.List;
 import org.apache.wicket.Component;
 import org.apache.wicket.model.IModel;
 
-import io.onedev.server.buildspec.job.ProjectDependency;
+import io.onedev.server.buildspec.job.projectdependency.ProjectDependency;
 import io.onedev.server.util.ReflectionUtils;
 import io.onedev.server.web.editable.EditSupport;
 import io.onedev.server.web.editable.EmptyValueLabel;
@@ -21,7 +21,7 @@ public class ProjectDependencyListEditSupport implements EditSupport {
 	@Override
 	public PropertyContext<?> getEditContext(PropertyDescriptor descriptor) {
 		if (List.class.isAssignableFrom(descriptor.getPropertyClass())) {
-			Class<?> elementClass = ReflectionUtils.getCollectionElementType(descriptor.getPropertyGetter().getGenericReturnType());
+			Class<?> elementClass = ReflectionUtils.getCollectionElementClass(descriptor.getPropertyGetter().getGenericReturnType());
 			if (elementClass == ProjectDependency.class) {
 				return new PropertyContext<List<Serializable>>(descriptor) {
 

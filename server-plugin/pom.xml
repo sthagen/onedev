@@ -6,7 +6,7 @@
 	<parent>
 		<groupId>io.onedev</groupId>
 		<artifactId>server</artifactId>
-		<version>4.3.0</version>
+		<version>4.7.0</version>
 	</parent>
 	<dependencies>
 		<dependency>
@@ -26,7 +26,9 @@
 	    <module>server-plugin-sso-openid</module>
     	<module>server-plugin-report-markdown</module>
    		<module>server-plugin-report-jest</module>
-    <module>server-plugin-report-clover</module>
-    <module>server-plugin-report-checkstyle</module>
+	    <module>server-plugin-report-clover</module>
+	    <module>server-plugin-report-checkstyle</module>
+	    <module>server-plugin-import-github</module>
+    <module>server-plugin-import-youtrack</module>
   </modules>
 </project>

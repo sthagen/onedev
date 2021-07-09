@@ -22,6 +22,7 @@ import javax.validation.Validator;
 
 import org.apache.commons.lang3.SerializationUtils;
 import org.apache.wicket.Component;
+import org.eclipse.jgit.revwalk.RevCommit;
 import org.yaml.snakeyaml.DumperOptions.FlowStyle;
 import org.yaml.snakeyaml.nodes.MappingNode;
 import org.yaml.snakeyaml.nodes.Node;
@@ -42,6 +43,7 @@ import io.onedev.commons.codeassist.InputSuggestion;
 import io.onedev.commons.utils.ExceptionUtils;
 import io.onedev.commons.utils.LinearRange;
 import io.onedev.commons.utils.StringUtils;
+import io.onedev.commons.utils.WordUtils;
 import io.onedev.server.OneDev;
 import io.onedev.server.buildspec.job.Job;
 import io.onedev.server.buildspec.job.JobDependency;
@@ -53,6 +55,7 @@ import io.onedev.server.buildspec.step.UseTemplateStep;
 import io.onedev.server.migration.VersionedYamlDoc;
 import io.onedev.server.migration.XmlBuildSpecMigrator;
 import io.onedev.server.util.ComponentContext;
+import io.onedev.server.util.JobSecretAuthorizationContext;
 import io.onedev.server.util.validation.Validatable;
 import io.onedev.server.util.validation.annotation.ClassValidating;
 import io.onedev.server.web.editable.annotation.Editable;
@@ -176,8 +179,15 @@ public class BuildSpec implements Serializable, Validatable {
 					Collection<String> newProjectChain = new HashSet<>(projectChain);
 					newProjectChain.add(aImport.getProjectName());
 					try {
-						importedBuildSpecs.addAll(aImport.getBuildSpec().getImportedBuildSpecs(newProjectChain));
-						importedBuildSpecs.add(aImport.getBuildSpec());
+						BuildSpec importedBuildSpec = aImport.getBuildSpec();
+						RevCommit commit = aImport.getProject().getRevCommit(aImport.getTag(), true);
+						JobSecretAuthorizationContext.push(new JobSecretAuthorizationContext(aImport.getProject(), commit, null));
+						try {
+							importedBuildSpecs.addAll(importedBuildSpec.getImportedBuildSpecs(newProjectChain));
+						} finally {
+							JobSecretAuthorizationContext.pop();
+						}
+						importedBuildSpecs.add(importedBuildSpec);
 					} catch (Exception e) {
 						// Ignore here as we rely on this method to show viewer/editor 
 						// Errors relating to this will be shown when validated
@@ -543,13 +553,15 @@ public class BuildSpec implements Serializable, Validatable {
 			return null;
 	}
 	
-	public static List<InputSuggestion> suggestVariables(String matchWith) {
+	public static List<InputSuggestion> suggestVariables(String matchWith, 
+			boolean withBuildVersion, boolean withFiles) {
 		List<InputSuggestion> suggestions = new ArrayList<>();
 		BuildSpec buildSpec = get();
 		if (buildSpec != null) {
 			ProjectBlobPage page = (ProjectBlobPage) WicketUtils.getPage();
 			suggestions.addAll(SuggestionUtils.suggestVariables(
-					page.getProject(), buildSpec, ParamSpec.list(), matchWith));
+					page.getProject(), buildSpec, ParamSpec.list(), 
+					matchWith, withBuildVersion, withFiles));
 		}
 		return suggestions;
 	}
@@ -751,5 +763,242 @@ public class BuildSpec implements Serializable, Validatable {
 					new SequenceNode(Tag.SEQ, newServiceNodes, FlowStyle.BLOCK)));
 		}
 	}
+	
+	@SuppressWarnings("unused")
+	private void migrate6(VersionedYamlDoc doc, Stack<Integer> versions) {
+		for (NodeTuple specTuple: doc.getValue()) {
+			if (((ScalarNode)specTuple.getKeyNode()).getValue().equals("jobs")) {
+				SequenceNode jobsNode = (SequenceNode) specTuple.getValueNode();
+				for (Node jobsNodeItem: jobsNode.getValue()) {
+					MappingNode jobNode = (MappingNode) jobsNodeItem;
+					boolean retrieveSource = false;
+					Node cloneCredentialNode = null;
+					Node cloneDepthNode = null;
+					Node artifactsNode = null;
+					SequenceNode reportsNode = null;
+					SequenceNode stepsNode = null;
+					List<MappingNode> actionNodes = new ArrayList<>();
+					for (Iterator<NodeTuple> itJobTuple = jobNode.getValue().iterator(); itJobTuple.hasNext();) {
+						NodeTuple jobTuple = itJobTuple.next();
+						String jobTupleKey = ((ScalarNode)jobTuple.getKeyNode()).getValue();
+						if (jobTupleKey.equals("retrieveSource")) {
+							retrieveSource = ((ScalarNode)jobTuple.getValueNode()).getValue().equals("true");
+							itJobTuple.remove();
+						} else if (jobTupleKey.equals("cloneCredential")) {
+							cloneCredentialNode = jobTuple.getValueNode();
+							itJobTuple.remove();
+						} else if (jobTupleKey.equals("cloneDepth")) { 
+							cloneDepthNode = jobTuple.getValueNode();
+							itJobTuple.remove();
+						} else if (jobTupleKey.equals("artifacts")) { 
+							artifactsNode = jobTuple.getValueNode();
+							itJobTuple.remove();
+						} else if (jobTupleKey.equals("reports")) {
+							reportsNode = (SequenceNode) jobTuple.getValueNode();
+							itJobTuple.remove();
+						} else if (jobTupleKey.equals("steps")) {
+							stepsNode = (SequenceNode) jobTuple.getValueNode();
+						} else if (jobTupleKey.equals("postBuildActions")) {
+							SequenceNode actionsNode = (SequenceNode) jobTuple.getValueNode();
+							for (Iterator<Node> itActionNode = actionsNode.getValue().iterator(); itActionNode.hasNext();) {
+								MappingNode actionNode = (MappingNode) itActionNode.next();
+								String tagName = actionNode.getTag().getValue();
+								if (tagName.equals("!CreateTagAction") || tagName.equals("!CloseMilestoneAction")) { 
+									actionNodes.add(actionNode);
+									itActionNode.remove();
+								}
+							}
+							if (actionsNode.getValue().isEmpty())
+								itJobTuple.remove();
+						}
+					}
+					Preconditions.checkState(cloneCredentialNode != null && stepsNode != null);
+					if (retrieveSource) {
+						List<NodeTuple> stepTuples = new ArrayList<>();
+						stepTuples.add(new NodeTuple(new ScalarNode(Tag.STR, "cloneCredential"), cloneCredentialNode));
+						if (cloneDepthNode != null)
+							stepTuples.add(new NodeTuple(new ScalarNode(Tag.STR, "cloneDepth"), cloneDepthNode));
+						stepTuples.add(new NodeTuple(
+								new ScalarNode(Tag.STR, "condition"), 
+								new ScalarNode(Tag.STR, "ALL_PREVIOUS_STEPS_WERE_SUCCESSFUL")));
+						Node stepNode = new MappingNode(new Tag("!CheckoutStep"), stepTuples, FlowStyle.BLOCK);
+						stepsNode.getValue().add(0, stepNode);
+					}
+					if (artifactsNode != null) {
+						List<NodeTuple> stepTuples = new ArrayList<>();
+						stepTuples.add(new NodeTuple(new ScalarNode(Tag.STR, "artifacts"), artifactsNode));
+						stepTuples.add(new NodeTuple(
+								new ScalarNode(Tag.STR, "condition"), 
+								new ScalarNode(Tag.STR, "ALL_PREVIOUS_STEPS_WERE_SUCCESSFUL")));
+						Node stepNode = new MappingNode(new Tag("!PublishArtifactStep"), stepTuples, FlowStyle.BLOCK);
+						stepsNode.getValue().add(stepNode);
+					}
+					if (reportsNode != null) {
+						for (Node reportsNodeItem: reportsNode.getValue()) {
+							MappingNode reportNode = (MappingNode) reportsNodeItem;
+							List<NodeTuple> stepTuples = new ArrayList<>();
+							stepTuples.addAll(reportNode.getValue());
+							stepTuples.add(new NodeTuple(
+									new ScalarNode(Tag.STR, "condition"), 
+									new ScalarNode(Tag.STR, "ALWAYS")));
+							String tagName = reportNode.getTag().getValue();
+							tagName = tagName.replaceFirst("Job", "Publish") + "Step";
+							Node stepNode = new MappingNode(new Tag(tagName), stepTuples, FlowStyle.BLOCK);
+							stepsNode.getValue().add(stepNode);
+						}
+					}
+					for (MappingNode actionNode: actionNodes) {
+						String tagName = actionNode.getTag().getValue().replace("Action", "Step");
+						List<NodeTuple> stepTuples = new ArrayList<>();
+						for (NodeTuple tuple: actionNode.getValue()) {
+							String key = ((ScalarNode)tuple.getKeyNode()).getValue();
+							if (!key.equals("condition"))
+								stepTuples.add(tuple);
+						}
+						stepTuples.add(new NodeTuple(
+								new ScalarNode(Tag.STR, "condition"), 
+								new ScalarNode(Tag.STR, "ALL_PREVIOUS_STEPS_WERE_SUCCESSFUL")));
+						Node stepNode = new MappingNode(new Tag(tagName), stepTuples, FlowStyle.BLOCK);
+						stepsNode.getValue().add(stepNode);
+					}
+				}
+			}
+		}
+		
+		for (NodeTuple specTuple: doc.getValue()) {
+			String specObjectKey = ((ScalarNode)specTuple.getKeyNode()).getValue();
+			if (specObjectKey.equals("jobs")) {
+				SequenceNode jobsNode = (SequenceNode) specTuple.getValueNode();
+				for (Node jobsNodeItem: jobsNode.getValue()) {
+					MappingNode jobNode = (MappingNode) jobsNodeItem;
+					for (NodeTuple jobTuple: jobNode.getValue()) {
+						String jobTupleKey = ((ScalarNode)jobTuple.getKeyNode()).getValue();
+						if (jobTupleKey.equals("steps")) {
+							SequenceNode stepsNode = (SequenceNode) jobTuple.getValueNode();
+							for (Node stepsNodeItem: stepsNode.getValue()) {
+								MappingNode stepNode = (MappingNode) stepsNodeItem;
+								String tagName = stepNode.getTag().getValue();
+								String stepName = WordUtils.uncamel(tagName.substring(1).replace("Step", "")).toLowerCase();
+								stepNode.getValue().add(new NodeTuple(new ScalarNode(Tag.STR, "name"), 
+										new ScalarNode(Tag.STR, stepName)));
+							}
+						}
+					}
+				}
+			} else if (specObjectKey.equals("stepTemplates")) {
+				SequenceNode stepTemplatesNode = (SequenceNode) specTuple.getValueNode();
+				for (Node stepTemplatesNodeItem: stepTemplatesNode.getValue()) {
+					MappingNode stepTemplateNode = (MappingNode) stepTemplatesNodeItem;
+					for (NodeTuple stepTemplateTuple: stepTemplateNode.getValue()) {
+						String stepTemplateTupleKey = ((ScalarNode)stepTemplateTuple.getKeyNode()).getValue();
+						if (stepTemplateTupleKey.equals("steps")) {
+							SequenceNode stepsNode = (SequenceNode) stepTemplateTuple.getValueNode();
+							for (Node stepsNodeItem: stepsNode.getValue()) {
+								MappingNode stepNode = (MappingNode) stepsNodeItem;
+								String tagName = stepNode.getTag().getValue();
+								String stepName = WordUtils.uncamel(tagName.substring(1).replace("Step", "")).toLowerCase();
+								stepNode.getValue().add(new NodeTuple(new ScalarNode(Tag.STR, "name"), 
+										new ScalarNode(Tag.STR, stepName)));
+							}
+						}
+					}
+				}				
+			}
+		}			
+	}	
+
+	@SuppressWarnings("unused")
+	private void migrate7(VersionedYamlDoc doc, Stack<Integer> versions) {
+		for (NodeTuple specTuple: doc.getValue()) {
+			String specKey = ((ScalarNode)specTuple.getKeyNode()).getValue();
+			if (specKey.equals("jobs")) {
+				SequenceNode jobsNode = (SequenceNode) specTuple.getValueNode();
+				for (Node jobsNodeItem: jobsNode.getValue()) {
+					MappingNode jobNode = (MappingNode) jobsNodeItem;
+					for (NodeTuple jobTuple: jobNode.getValue()) {
+						String jobTupleKey = ((ScalarNode)jobTuple.getKeyNode()).getValue();
+						if (jobTupleKey.equals("paramSpecs")) {
+							SequenceNode paramsNode = (SequenceNode) jobTuple.getValueNode();
+							for (Node paramsNodeItem: paramsNode.getValue()) {
+								MappingNode paramNode = (MappingNode) paramsNodeItem;
+								String paramType = paramNode.getTag().getValue();
+								if (paramType.equals("!NumberParam")) {
+									paramNode.setTag(new Tag("!IntegerParam"));
+								} else if (paramType.equals("!TextParam")) {
+									NodeTuple multilineTuple = new NodeTuple(
+											new ScalarNode(Tag.STR, "multiline"), 
+											new ScalarNode(Tag.STR, "false"));
+									paramNode.getValue().add(multilineTuple);
+								}
+							}
+						}
+					}
+				}
+			} else if (specKey.equals("stepTemplates")) {
+				SequenceNode stepTemplatesNode = (SequenceNode) specTuple.getValueNode();
+				for (Node stepTemplatesNodeItem: stepTemplatesNode.getValue()) {
+					MappingNode stepTemplateNode = (MappingNode) stepTemplatesNodeItem;
+					for (NodeTuple stepTemplateTuple: stepTemplateNode.getValue()) {
+						String stemTemplateTupleKey = ((ScalarNode)stepTemplateTuple.getKeyNode()).getValue();
+						if (stemTemplateTupleKey.equals("paramSpecs")) {
+							SequenceNode paramsNode = (SequenceNode) stepTemplateTuple.getValueNode();
+							for (Node paramsNodeItem: paramsNode.getValue()) {
+								MappingNode paramNode = (MappingNode) paramsNodeItem;
+								String paramType = paramNode.getTag().getValue();
+								if (paramType.equals("!NumberParam")) {
+									paramNode.setTag(new Tag("!IntegerParam"));
+								} else if (paramType.equals("!TextParam")) {
+									NodeTuple multilineTuple = new NodeTuple(
+											new ScalarNode(Tag.STR, "multiline"), 
+											new ScalarNode(Tag.STR, "false"));
+									paramNode.getValue().add(multilineTuple);
+								}
+							}
+						}
+					}
+				}
+			}
+		}			
+	}	
+	
+	@SuppressWarnings("unused")
+	private void migrate8(VersionedYamlDoc doc, Stack<Integer> versions) {
+		for (NodeTuple specTuple: doc.getValue()) {
+			String specKey = ((ScalarNode)specTuple.getKeyNode()).getValue();
+			if (specKey.equals("jobs")) {
+				SequenceNode jobsNode = (SequenceNode) specTuple.getValueNode();
+				for (Node jobsNodeItem: jobsNode.getValue()) {
+					MappingNode jobNode = (MappingNode) jobsNodeItem;
+					for (NodeTuple jobTuple: jobNode.getValue()) {
+						String jobTupleKey = ((ScalarNode)jobTuple.getKeyNode()).getValue();
+						if (jobTupleKey.equals("projectDependencies")) {
+							SequenceNode projectDependenciesNode = (SequenceNode) jobTuple.getValueNode();
+							for (Node projectDependenciesNodeItem: projectDependenciesNode.getValue()) {
+								MappingNode projectDependencyNode = (MappingNode) projectDependenciesNodeItem;
+								String buildNumber = null;
+								for (Iterator<NodeTuple> itProjectDependencyTuple = projectDependencyNode.getValue().iterator(); itProjectDependencyTuple.hasNext();) {
+									NodeTuple projectDependencyTuple = itProjectDependencyTuple.next();
+									String projectDependencyTupleKey = ((ScalarNode)projectDependencyTuple.getKeyNode()).getValue();
+									if (projectDependencyTupleKey.equals("buildNumber")) {
+										buildNumber = ((ScalarNode)projectDependencyTuple.getValueNode()).getValue();
+										itProjectDependencyTuple.remove();
+										break;
+									}
+								}
+								Preconditions.checkNotNull(buildNumber);
+								
+								List<NodeTuple> buildProviderTuples = new ArrayList<>();
+								buildProviderTuples.add(new NodeTuple(
+										new ScalarNode(Tag.STR, "buildNumber"), 
+										new ScalarNode(Tag.STR, buildNumber)));
+								Node buildProviderNode = new MappingNode(new Tag("!SpecifiedBuild"), buildProviderTuples, FlowStyle.BLOCK);
+								projectDependencyNode.getValue().add(new NodeTuple(new ScalarNode(Tag.STR, "buildProvider"), buildProviderNode));
+							}
+						}
+					}
+				}
+			}
+		}			
+	}	
 	
 }
