@@ -33,10 +33,13 @@ public interface PullRequestManager extends EntityManager<PullRequest> {
     PullRequest find(Project targetProject, long number);
     
     @Nullable
-    PullRequest find(String pullRequestFQN);
+    PullRequest findByFQN(String fqn);
     
     @Nullable
-    PullRequest find(ProjectScopedNumber pullRequestFQN);
+    PullRequest findByUUID(String uuid);
+    
+    @Nullable
+    PullRequest find(ProjectScopedNumber fqn);
     
 	@Nullable
 	PullRequest findLatest(Project targetProject);
@@ -67,5 +70,7 @@ public interface PullRequestManager extends EntityManager<PullRequest> {
 	int count(@Nullable Project targetProject, EntityCriteria<PullRequest> requestCriteria);
 	
 	List<PullRequest> query(Project targetProject, String term, int count);
+
+	void delete(Collection<PullRequest> requests);
 	
 }

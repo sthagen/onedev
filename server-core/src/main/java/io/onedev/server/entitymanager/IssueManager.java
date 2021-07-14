@@ -25,10 +25,13 @@ public interface IssueManager extends EntityManager<Issue> {
     Issue find(Project project, long number);
     
     @Nullable
-    Issue find(ProjectScopedNumber issueFQN);
+    Issue find(ProjectScopedNumber fqn);
     
     @Nullable
-    Issue find(String issueFQN);
+    Issue findByFQN(String fqn);
+
+    @Nullable
+    Issue findByUUID(String uuid);
     
 	void open(Issue issue);
 	
@@ -58,6 +61,10 @@ public interface IssueManager extends EntityManager<Issue> {
 	void delete(Issue issue);
 	
 	Collection<Long> getIssueNumbers(Long projectId);
+	
+	void move(Project targetProject, Collection<Issue> issues);
+	
+	void delete(Collection<Issue> issues);
 	
 	Collection<MilestoneAndState> queryMilestoneAndStates(Project project, Collection<Milestone> milestones);
 }

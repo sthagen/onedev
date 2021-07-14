@@ -249,15 +249,15 @@ public class CodeComment extends AbstractEntity implements AttachmentStorageSupp
 	}
 	
 	@Override
+	public Project getAttachmentProject() {
+		return project;
+	}
+	
+	@Override
 	public String getAttachmentGroup() {
 		return uuid;
 	}
 
-	@Override
-	public Project getAttachmentProject() {
-		return getProject();
-	}
-	
 	public Collection<User> getParticipants() {
 		if (participants == null) {
 			participants = new LinkedHashSet<>();

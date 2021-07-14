@@ -57,32 +57,49 @@ public class DefaultAttachmentStorageManager implements AttachmentStorageManager
 	}
 	
 	@Override
-	public File getAttachmentGroupDir(Project project, String attachmentGroup) {
-		File attachmentBaseDir = storageManager.getProjectAttachmentDir(project.getId());
-		File attachmentGroupDir = getPermanentAttachmentGroupDir(attachmentBaseDir, attachmentGroup);
-		if (attachmentGroupDir.exists())
-			return attachmentGroupDir;
+	public File getGroupDir(Project project, String group) {
+		File baseDir = storageManager.getProjectAttachmentDir(project.getId());
+		File groupDir = getPermanentGroupDir(baseDir, group);
+		if (groupDir.exists())
+			return groupDir;
 		else
-			return new File(attachmentBaseDir, TEMP + "/" + attachmentGroup); 
+			return new File(baseDir, TEMP + "/" + group); 
 	}
 
-	private File getPermanentAttachmentGroupDir(File attachmentBase, String attachmentGroup) {
-		String prefix = attachmentGroup.substring(0, 2);
-		return new File(attachmentBase, PERMANENT + "/" + prefix + "/" + attachmentGroup);
+	@Override
+	public void moveGroupDir(Project fromProject, Project toProject, String group) {
+		File fromBaseDir = storageManager.getProjectAttachmentDir(fromProject.getId());
+		File fromGroupDir = getPermanentGroupDir(fromBaseDir, group);
+		
+		File toBaseDir = storageManager.getProjectAttachmentDir(toProject.getId());
+		File toGroupDir = getPermanentGroupDir(toBaseDir, group);
+		
+		FileUtils.createDir(toGroupDir.getParentFile());
+		
+		try {
+			FileUtils.moveDirectory(fromGroupDir, toGroupDir);
+		} catch (IOException e) {
+			throw new RuntimeException(e);
+		}
+	}
+
+	private File getPermanentGroupDir(File base, String group) {
+		String prefix = group.substring(0, 2);
+		return new File(base, PERMANENT + "/" + prefix + "/" + group);
 	}
 	
-	private void permanentizeAttachmentGroup(File attachmentBase, String attachmentGroup) {
-		File permanentAttachmentStorage = getPermanentAttachmentGroupDir(attachmentBase, attachmentGroup);
-		if (!permanentAttachmentStorage.exists()) {
-			File tempAttachmentStorage = new File(attachmentBase, TEMP + "/" + attachmentGroup);
-			if (tempAttachmentStorage.exists()) {
+	private void permanentizeGroup(File base, String group) {
+		File permanentStorage = getPermanentGroupDir(base, group);
+		if (!permanentStorage.exists()) {
+			File tempStorage = new File(base, TEMP + "/" + group);
+			if (tempStorage.exists()) {
 				try {
-					FileUtils.moveDirectory(tempAttachmentStorage, permanentAttachmentStorage);
+					FileUtils.moveDirectory(tempStorage, permanentStorage);
 				} catch (IOException e) {
 					throw new RuntimeException(e);
 				}
 			} else {
-				FileUtils.createDir(permanentAttachmentStorage);
+				FileUtils.createDir(permanentStorage);
 			}
 		}
 	}
@@ -128,13 +145,13 @@ public class DefaultAttachmentStorageManager implements AttachmentStorageManager
 	public void on(EntityPersisted event) {
 		if (event.isNew() && event.getEntity() instanceof AttachmentStorageSupport) {
 			AttachmentStorageSupport storageSupport = (AttachmentStorageSupport) event.getEntity();
-			File attachmentBase = storageManager.getProjectAttachmentDir(storageSupport.getAttachmentProject().getId());
-			String attachmentGroup = storageSupport.getAttachmentGroup();
+			File base = storageManager.getProjectAttachmentDir(storageSupport.getAttachmentProject().getId());
+			String group = storageSupport.getAttachmentGroup();
 			transactionManager.runAfterCommit(new Runnable() {
 
 				@Override
 				public void run() {
-					permanentizeAttachmentGroup(attachmentBase, attachmentGroup);
+					permanentizeGroup(base, group);
 				}
 				
 			});
@@ -146,7 +163,7 @@ public class DefaultAttachmentStorageManager implements AttachmentStorageManager
 	public void on(EntityRemoved event) {
 		if (event.getEntity() instanceof AttachmentStorageSupport) {
 			AttachmentStorageSupport storageSupport = (AttachmentStorageSupport) event.getEntity();
-			File attachmentStorage = getPermanentAttachmentGroupDir(
+			File attachmentStorage = getPermanentGroupDir(
 					storageManager.getProjectAttachmentDir(storageSupport.getAttachmentProject().getId()), storageSupport.getAttachmentGroup());
 			transactionManager.runAfterCommit(new Runnable() {
 
